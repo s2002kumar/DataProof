@@ -1,0 +1,95 @@
+"""Typed result contracts shared by DataProof services."""
+
+from dataproof_contracts._base import canonical_json, sha256_digest
+from dataproof_contracts.check import CheckResult, Mismatch
+from dataproof_contracts.contract import CandidateBinding, Comparator, DataContract, Oracle
+from dataproof_contracts.decision import HumanDecision
+from dataproof_contracts.enums import (
+    ApproverSeparation,
+    BindingReviewStatus,
+    CheckOutcome,
+    CleanupOutcome,
+    ComparatorKind,
+    Environment,
+    ErrorCode,
+    FindingKind,
+    GitHubCheckConclusion,
+    HumanDecisionAction,
+    LocalizationBasis,
+    NotExecutedReason,
+    NotRunReason,
+    ReportVerdict,
+    RunState,
+    RunTrigger,
+    Severity,
+)
+from dataproof_contracts.evidence import (
+    CleanupRecord,
+    EvidenceManifest,
+    EvidenceRecord,
+    RestoreVerification,
+    SnapshotArtifact,
+    SourceArtifact,
+)
+from dataproof_contracts.finding import Finding, SourceLocation
+from dataproof_contracts.github import github_check_conclusion
+from dataproof_contracts.run import ReviewRun, RunInputs, WorkerLease
+from dataproof_contracts.values import (
+    BooleanValue,
+    DecimalValue,
+    IntegerValue,
+    NullValue,
+    TextValue,
+    TimestampValue,
+    TypedValue,
+    typed_value,
+)
+
+__all__ = [
+    "ApproverSeparation",
+    "BindingReviewStatus",
+    "BooleanValue",
+    "CandidateBinding",
+    "CheckOutcome",
+    "CheckResult",
+    "CleanupOutcome",
+    "CleanupRecord",
+    "Comparator",
+    "ComparatorKind",
+    "DataContract",
+    "DecimalValue",
+    "Environment",
+    "ErrorCode",
+    "EvidenceManifest",
+    "EvidenceRecord",
+    "Finding",
+    "FindingKind",
+    "GitHubCheckConclusion",
+    "HumanDecision",
+    "HumanDecisionAction",
+    "IntegerValue",
+    "LocalizationBasis",
+    "Mismatch",
+    "NotExecutedReason",
+    "NotRunReason",
+    "NullValue",
+    "Oracle",
+    "ReportVerdict",
+    "RestoreVerification",
+    "ReviewRun",
+    "RunInputs",
+    "RunState",
+    "RunTrigger",
+    "Severity",
+    "SnapshotArtifact",
+    "SourceArtifact",
+    "SourceLocation",
+    "TextValue",
+    "TimestampValue",
+    "TypedValue",
+    "WorkerLease",
+    "canonical_json",
+    "github_check_conclusion",
+    "sha256_digest",
+    "typed_value",
+]

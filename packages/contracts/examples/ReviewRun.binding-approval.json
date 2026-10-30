@@ -1,0 +1,22 @@
+{
+  "run_id": "7a2e3d4f-1b5c-4d6e-9f0a-123456789abc",
+  "inputs": {
+    "repository": "example-org/commerce-demo",
+    "pull_request": 7,
+    "base_sha": "aa6e427d334b832d952d658cae44f65f99ffaf74",
+    "head_sha": "8f3ab2a3b2ce14772811945b1f7ea036b769932e",
+    "config_digest": "4c8a1738f26be31e9144e12badc747f819f7f6ccba4de22d13a9f6c474cf1976",
+    "dataset_digest": "2ef5ff6cd15b671553dadac08e6131a8780a5aae1ab1afb4c12b34cb63f44de0",
+    "engine_version": "0.1.0"
+  },
+  "input_digest": "bd2209d88747ecf861d410fbfee3064101c90379646c6f839104b947b4251190",
+  "trigger": "binding_approval",
+  "parent_run_id": "6f1d2c3e-0a4b-4c5d-8e9f-0123456789ab",
+  "state": "QUEUED",
+  "error_code": null,
+  "not_executed_reason": null,
+  "lease": null,
+  "isolation_id": null,
+  "created_at": "2026-10-31T15:00:00Z",
+  "updated_at": "2026-10-31T15:00:00Z"
+}

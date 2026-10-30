@@ -1,0 +1,391 @@
+{
+  "$defs": {
+    "BooleanValue": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "boolean",
+          "default": "boolean",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "BooleanValue",
+      "type": "object"
+    },
+    "CheckOutcome": {
+      "description": "Outcome of one deterministic check (VERIFICATION, \"Check outcome taxonomy\").",
+      "enum": [
+        "PASS",
+        "FAIL",
+        "ERROR",
+        "NOT_RUN"
+      ],
+      "title": "CheckOutcome",
+      "type": "string"
+    },
+    "DecimalValue": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "decimal",
+          "default": "decimal",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "pattern": "^-?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?$",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "DecimalValue",
+      "type": "object"
+    },
+    "ErrorCode": {
+      "description": "Typed technical errors named in the specification.",
+      "enum": [
+        "ORACLE_VIOLATED_ON_REFERENCE",
+        "CANDIDATE_BUILD_FAILED",
+        "CANDIDATE_START_FAILED",
+        "SOURCE_DIGEST_MISMATCH",
+        "BINDING_UNSUPPORTED_CONSTRUCT"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "IntegerValue": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "integer",
+          "default": "integer",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "IntegerValue",
+      "type": "object"
+    },
+    "Mismatch": {
+      "additionalProperties": false,
+      "description": "One keyed difference between expected (reference) and observed (candidate) data.\n\n``None`` on a side means the key is absent there; SQL NULL is ``NullValue``. Keys are tuples\nof typed values, never delimited strings.",
+      "properties": {
+        "column": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column"
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/NullValue"
+                },
+                {
+                  "$ref": "#/$defs/TextValue"
+                },
+                {
+                  "$ref": "#/$defs/IntegerValue"
+                },
+                {
+                  "$ref": "#/$defs/DecimalValue"
+                },
+                {
+                  "$ref": "#/$defs/TimestampValue"
+                },
+                {
+                  "$ref": "#/$defs/BooleanValue"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected"
+        },
+        "key": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/NullValue"
+              },
+              {
+                "$ref": "#/$defs/TextValue"
+              },
+              {
+                "$ref": "#/$defs/IntegerValue"
+              },
+              {
+                "$ref": "#/$defs/DecimalValue"
+              },
+              {
+                "$ref": "#/$defs/TimestampValue"
+              },
+              {
+                "$ref": "#/$defs/BooleanValue"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Key",
+          "type": "array"
+        },
+        "observed": {
+          "anyOf": [
+            {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/NullValue"
+                },
+                {
+                  "$ref": "#/$defs/TextValue"
+                },
+                {
+                  "$ref": "#/$defs/IntegerValue"
+                },
+                {
+                  "$ref": "#/$defs/DecimalValue"
+                },
+                {
+                  "$ref": "#/$defs/TimestampValue"
+                },
+                {
+                  "$ref": "#/$defs/BooleanValue"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed"
+        }
+      },
+      "required": [
+        "key",
+        "expected",
+        "observed"
+      ],
+      "title": "Mismatch",
+      "type": "object"
+    },
+    "NotRunReason": {
+      "description": "Why a check did not run. A required check that did not run makes the run INCOMPLETE.",
+      "enum": [
+        "AWAITING_BINDING_REVIEW",
+        "UNSUPPORTED",
+        "EXCLUDED",
+        "TIMED_OUT"
+      ],
+      "title": "NotRunReason",
+      "type": "string"
+    },
+    "NullValue": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "null",
+          "default": "null",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "NullValue",
+      "type": "object"
+    },
+    "TextValue": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "text",
+          "default": "text",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "TextValue",
+      "type": "object"
+    },
+    "TimestampValue": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "timestamptz",
+          "default": "timestamptz",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "format": "date-time",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "TimestampValue",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "check_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+      "title": "Check Id",
+      "type": "string"
+    },
+    "contract_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+      "title": "Contract Id",
+      "type": "string"
+    },
+    "contract_version": {
+      "exclusiveMinimum": 0,
+      "title": "Contract Version",
+      "type": "integer"
+    },
+    "dataset_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Dataset Digest",
+      "type": "string"
+    },
+    "elapsed_ms": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Elapsed Ms"
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "evidence_ids": {
+      "default": [],
+      "items": {
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
+    "expected_key_count": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expected Key Count"
+    },
+    "mismatch_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Mismatch Count",
+      "type": "integer"
+    },
+    "mismatch_examples": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Mismatch"
+      },
+      "title": "Mismatch Examples",
+      "type": "array"
+    },
+    "not_run_reason": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NotRunReason"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "observed_key_count": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Observed Key Count"
+    },
+    "outcome": {
+      "$ref": "#/$defs/CheckOutcome"
+    },
+    "required": {
+      "title": "Required",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "check_id",
+    "contract_id",
+    "contract_version",
+    "required",
+    "outcome",
+    "dataset_digest"
+  ],
+  "title": "CheckResult",
+  "type": "object"
+}

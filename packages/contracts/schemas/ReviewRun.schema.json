@@ -1,0 +1,263 @@
+{
+  "$defs": {
+    "ErrorCode": {
+      "description": "Typed technical errors named in the specification.",
+      "enum": [
+        "ORACLE_VIOLATED_ON_REFERENCE",
+        "CANDIDATE_BUILD_FAILED",
+        "CANDIDATE_START_FAILED",
+        "SOURCE_DIGEST_MISMATCH",
+        "BINDING_UNSUPPORTED_CONSTRUCT"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "NotExecutedReason": {
+      "description": "Policy reasons for refusing to execute a change at all.",
+      "enum": [
+        "DEPENDENCY_CHANGE_REQUIRES_IMAGE_APPROVAL",
+        "FORK_PULL_REQUEST",
+        "REPOSITORY_NOT_ALLOWLISTED"
+      ],
+      "title": "NotExecutedReason",
+      "type": "string"
+    },
+    "RunInputs": {
+      "additionalProperties": false,
+      "description": "Everything a run is bound to. Its digest is the run's idempotency key.\n\nOld results never authorize new inputs: any change here (a new head SHA, an approved\nbinding that changes the config digest, a new fixture) produces a different digest.",
+      "properties": {
+        "base_sha": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Base Sha",
+          "type": "string"
+        },
+        "config_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Config Digest",
+          "type": "string"
+        },
+        "dataset_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Dataset Digest",
+          "type": "string"
+        },
+        "engine_version": {
+          "minLength": 1,
+          "title": "Engine Version",
+          "type": "string"
+        },
+        "head_sha": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Head Sha",
+          "type": "string"
+        },
+        "pull_request": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pull Request"
+        },
+        "repository": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$",
+          "title": "Repository",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository",
+        "pull_request",
+        "base_sha",
+        "head_sha",
+        "config_digest",
+        "dataset_digest",
+        "engine_version"
+      ],
+      "title": "RunInputs",
+      "type": "object"
+    },
+    "RunState": {
+      "description": "Lifecycle state of a review run (ARCHITECTURE, \"Run state machine\").\n\nBinding review is deliberately *not* a state: a run never waits for a human. Checks that\nneed an unapproved binding are ``NOT_RUN`` with ``NotRunReason.AWAITING_BINDING_REVIEW``,\nthe run completes with verdict ``INCOMPLETE``, and an approval starts a new run.\n\n``ERROR``, ``CANCELLED`` and ``TIMED_OUT`` interrupt the pipeline and lead to ``CLEANING``.\n``COMPLETE``, ``SUPERSEDED`` and ``NOT_EXECUTED`` are terminal.",
+      "enum": [
+        "QUEUED",
+        "FETCHING",
+        "ANALYZING",
+        "PROVISIONING",
+        "MIGRATING",
+        "VERIFYING",
+        "INVESTIGATING",
+        "REPRODUCING",
+        "REPORTING",
+        "READY_FOR_REVIEW",
+        "CLEANING",
+        "COMPLETE",
+        "ERROR",
+        "CANCELLED",
+        "TIMED_OUT",
+        "SUPERSEDED",
+        "NOT_EXECUTED"
+      ],
+      "title": "RunState",
+      "type": "string"
+    },
+    "RunTrigger": {
+      "description": "What created a run. Runs created by a decision on an earlier run carry its ID.",
+      "enum": [
+        "webhook",
+        "manual",
+        "binding_approval",
+        "correction_replay"
+      ],
+      "title": "RunTrigger",
+      "type": "string"
+    },
+    "WorkerLease": {
+      "additionalProperties": false,
+      "description": "Persisted supervisor lease; the fencing token rejects writes from a stale worker.",
+      "properties": {
+        "acquired_at": {
+          "format": "date-time",
+          "title": "Acquired At",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "fencing_token": {
+          "exclusiveMinimum": 0,
+          "title": "Fencing Token",
+          "type": "integer"
+        },
+        "heartbeat_at": {
+          "format": "date-time",
+          "title": "Heartbeat At",
+          "type": "string"
+        },
+        "worker_id": {
+          "minLength": 1,
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "worker_id",
+        "fencing_token",
+        "acquired_at",
+        "heartbeat_at",
+        "expires_at"
+      ],
+      "title": "WorkerLease",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "input_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Input Digest",
+      "type": "string"
+    },
+    "inputs": {
+      "$ref": "#/$defs/RunInputs"
+    },
+    "isolation_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Isolation Id"
+    },
+    "lease": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WorkerLease"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "not_executed_reason": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NotExecutedReason"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/$defs/RunState"
+    },
+    "trigger": {
+      "$ref": "#/$defs/RunTrigger"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "inputs",
+    "input_digest",
+    "trigger",
+    "state",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "ReviewRun",
+  "type": "object"
+}

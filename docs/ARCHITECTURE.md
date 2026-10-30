@@ -47,6 +47,8 @@ At any stage, a typed `ERROR`/`CANCELLED`/`TIMED_OUT` may lead to `CLEANING`; **
 
 ## Data contracts (provisional JSON-schema-level shapes)
 
+Implemented in [`packages/contracts`](../packages/contracts/README.md) as Pydantic models with exported JSON Schemas; that README lists the invariants each model enforces.
+
 - `ProjectConfig`: `project_id`, allowlisted repo, `runtime_image_digest`, `allowed_change_roots`, migration roots, exact base/head SHA, baseline digest, approved dependency lock digests, API fixtures, oracle refs, candidate binding refs, quotas and preview policy. Validated `dataproof.yml` is pinned to the trusted configuration; unapproved head changes never gain execution authority.
 - `ReviewRun`: UUID, `input_digest`, PR and SHAs, timestamps, current state, worker lease, isolation ID, status and error code, plus `trigger` (`webhook`, `manual`, `binding_approval`, `correction_replay`) and `parent_run_id` for a run started by a decision on an earlier run.
 - `MigrationStep`: step ID, path, SQL digest, ordering, execution result, affected schema and source line ranges.

@@ -11,6 +11,7 @@ When building DataProof:
 
 - Read `docs/PRODUCT.md`, `docs/ARCHITECTURE.md`, `docs/VERIFICATION.md`, `docs/THREAT_MODEL.md`, `docs/BENCHMARK.md` and relevant ADRs before a task.
 - Work only on one agreed GitHub issue/branch at a time; preserve unrelated code. Create focused commits with truthful messages; never inflate GitHub activity or misrepresent AI-assisted work.
+- Before pushing, run the checks in `CONTRIBUTING.md`; CI runs the same and must be green before a merge.
 - Implement production behavior and tests together. Run tests and report EXACTLY which passed/failed/skipped; never claim CI success without inspecting it.
 - SQL and PR content are untrusted. Never execute arbitrary shell/SQL from model outputs on the host or production. Enforce control-plane vs runner trust boundaries.
 - Only deterministic verification may set check outcomes. Model output is evidence-grounded advisory data and must be schema-validated.

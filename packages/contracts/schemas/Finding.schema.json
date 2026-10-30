@@ -1,0 +1,385 @@
+{
+  "$defs": {
+    "BooleanValue": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "boolean",
+          "default": "boolean",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "BooleanValue",
+      "type": "object"
+    },
+    "DecimalValue": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "decimal",
+          "default": "decimal",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "pattern": "^-?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?$",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "DecimalValue",
+      "type": "object"
+    },
+    "FindingKind": {
+      "enum": [
+        "STATIC_RISK",
+        "INTEGRITY_VIOLATION",
+        "SCHEMA_VIOLATION",
+        "BEHAVIOR_DIFFERENCE",
+        "EXECUTION_ERROR"
+      ],
+      "title": "FindingKind",
+      "type": "string"
+    },
+    "IntegerValue": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "integer",
+          "default": "integer",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "IntegerValue",
+      "type": "object"
+    },
+    "LocalizationBasis": {
+      "description": "Whether a source location is supported by observation or only inferred.",
+      "enum": [
+        "OBSERVED",
+        "INFERRED",
+        "UNKNOWN"
+      ],
+      "title": "LocalizationBasis",
+      "type": "string"
+    },
+    "Mismatch": {
+      "additionalProperties": false,
+      "description": "One keyed difference between expected (reference) and observed (candidate) data.\n\n``None`` on a side means the key is absent there; SQL NULL is ``NullValue``. Keys are tuples\nof typed values, never delimited strings.",
+      "properties": {
+        "column": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column"
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/NullValue"
+                },
+                {
+                  "$ref": "#/$defs/TextValue"
+                },
+                {
+                  "$ref": "#/$defs/IntegerValue"
+                },
+                {
+                  "$ref": "#/$defs/DecimalValue"
+                },
+                {
+                  "$ref": "#/$defs/TimestampValue"
+                },
+                {
+                  "$ref": "#/$defs/BooleanValue"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected"
+        },
+        "key": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/NullValue"
+              },
+              {
+                "$ref": "#/$defs/TextValue"
+              },
+              {
+                "$ref": "#/$defs/IntegerValue"
+              },
+              {
+                "$ref": "#/$defs/DecimalValue"
+              },
+              {
+                "$ref": "#/$defs/TimestampValue"
+              },
+              {
+                "$ref": "#/$defs/BooleanValue"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Key",
+          "type": "array"
+        },
+        "observed": {
+          "anyOf": [
+            {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/NullValue"
+                },
+                {
+                  "$ref": "#/$defs/TextValue"
+                },
+                {
+                  "$ref": "#/$defs/IntegerValue"
+                },
+                {
+                  "$ref": "#/$defs/DecimalValue"
+                },
+                {
+                  "$ref": "#/$defs/TimestampValue"
+                },
+                {
+                  "$ref": "#/$defs/BooleanValue"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed"
+        }
+      },
+      "required": [
+        "key",
+        "expected",
+        "observed"
+      ],
+      "title": "Mismatch",
+      "type": "object"
+    },
+    "NullValue": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "null",
+          "default": "null",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "NullValue",
+      "type": "object"
+    },
+    "Severity": {
+      "enum": [
+        "CRITICAL",
+        "HIGH",
+        "MEDIUM",
+        "LOW"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "SourceLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "commit_sha": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Commit Sha",
+          "type": "string"
+        },
+        "end_line": {
+          "exclusiveMinimum": 0,
+          "title": "End Line",
+          "type": "integer"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "start_line": {
+          "exclusiveMinimum": 0,
+          "title": "Start Line",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "commit_sha",
+        "start_line",
+        "end_line"
+      ],
+      "title": "SourceLocation",
+      "type": "object"
+    },
+    "TextValue": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "text",
+          "default": "text",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "TextValue",
+      "type": "object"
+    },
+    "TimestampValue": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "timestamptz",
+          "default": "timestamptz",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "format": "date-time",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "TimestampValue",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "affected_objects": {
+      "default": [],
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Affected Objects",
+      "type": "array"
+    },
+    "check_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Check Id"
+    },
+    "evidence_ids": {
+      "items": {
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Evidence Ids",
+      "type": "array"
+    },
+    "examples": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Mismatch"
+      },
+      "title": "Examples",
+      "type": "array"
+    },
+    "finding_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+      "title": "Finding Id",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/FindingKind"
+    },
+    "localization": {
+      "$ref": "#/$defs/LocalizationBasis"
+    },
+    "redacted": {
+      "title": "Redacted",
+      "type": "boolean"
+    },
+    "severity": {
+      "$ref": "#/$defs/Severity"
+    },
+    "source_location": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceLocation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "summary": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "finding_id",
+    "kind",
+    "severity",
+    "summary",
+    "redacted",
+    "evidence_ids",
+    "localization"
+  ],
+  "title": "Finding",
+  "type": "object"
+}

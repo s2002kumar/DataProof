@@ -1,0 +1,117 @@
+{
+  "$defs": {
+    "ApproverSeparation": {
+      "description": "Whether binding approval was separated from authorship (ADR-0005, approver rule).\n\n``ORGANIZATIONAL``: the approver is not the pull request author.\n``PROCEDURAL``: single-maintainer repository; the separation is a procedure, not a person.",
+      "enum": [
+        "ORGANIZATIONAL",
+        "PROCEDURAL"
+      ],
+      "title": "ApproverSeparation",
+      "type": "string"
+    },
+    "HumanDecisionAction": {
+      "description": "Human actions recorded separately from machine evidence; none edits a check result.",
+      "enum": [
+        "APPROVE_BINDING",
+        "REJECT_BINDING",
+        "REQUEST_CORRECTION_REPLAY",
+        "CANCEL_RUN"
+      ],
+      "title": "HumanDecisionAction",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A recorded human action. It never modifies a check outcome.\n\n``APPROVE_BINDING`` is bound to the head SHA and binding digest and records whether the\napprover was independent of the author (organizational) or the repository has a single\nmaintainer (procedural). An organizational approval by the author is rejected.",
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/HumanDecisionAction"
+    },
+    "actor": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$",
+      "title": "Actor",
+      "type": "string"
+    },
+    "approver_separation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ApproverSeparation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "binding_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Binding Digest"
+    },
+    "comment": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Comment"
+    },
+    "decided_at": {
+      "format": "date-time",
+      "title": "Decided At",
+      "type": "string"
+    },
+    "decision_id": {
+      "format": "uuid",
+      "title": "Decision Id",
+      "type": "string"
+    },
+    "head_sha": {
+      "pattern": "^[0-9a-f]{40}$",
+      "title": "Head Sha",
+      "type": "string"
+    },
+    "pr_author": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pr Author"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "decision_id",
+    "run_id",
+    "head_sha",
+    "action",
+    "actor",
+    "decided_at"
+  ],
+  "title": "HumanDecision",
+  "type": "object"
+}

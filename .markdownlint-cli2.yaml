@@ -4,3 +4,4 @@ config:
 
 ignores:
   - "**/node_modules/**"
+  - ".venv/**"

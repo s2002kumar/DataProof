@@ -1,0 +1,300 @@
+{
+  "$defs": {
+    "CleanupOutcome": {
+      "enum": [
+        "SUCCEEDED",
+        "FAILED",
+        "ALREADY_GONE"
+      ],
+      "title": "CleanupOutcome",
+      "type": "string"
+    },
+    "CleanupRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "minLength": 1,
+          "title": "Action",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/CleanupOutcome"
+        },
+        "resource": {
+          "minLength": 1,
+          "title": "Resource",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "action",
+        "outcome",
+        "at"
+      ],
+      "title": "CleanupRecord",
+      "type": "object"
+    },
+    "Environment": {
+      "enum": [
+        "REFERENCE",
+        "CANDIDATE"
+      ],
+      "title": "Environment",
+      "type": "string"
+    },
+    "EvidenceRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "evidence_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "object_key": {
+          "minLength": 1,
+          "title": "Object Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "kind",
+        "object_key",
+        "sha256",
+        "created_at"
+      ],
+      "title": "EvidenceRecord",
+      "type": "object"
+    },
+    "RestoreVerification": {
+      "additionalProperties": false,
+      "properties": {
+        "restored": {
+          "title": "Restored",
+          "type": "boolean"
+        },
+        "snapshot_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Sha256",
+          "type": "string"
+        },
+        "verified_at": {
+          "format": "date-time",
+          "title": "Verified At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot_sha256",
+        "verified_at",
+        "restored"
+      ],
+      "title": "RestoreVerification",
+      "type": "object"
+    },
+    "SnapshotArtifact": {
+      "additionalProperties": false,
+      "description": "``pg_dump -Fc`` of one environment's database, taken by the trusted broker.",
+      "properties": {
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "environment": {
+          "$ref": "#/$defs/Environment"
+        },
+        "format": {
+          "const": "pg_dump_custom",
+          "default": "pg_dump_custom",
+          "title": "Format",
+          "type": "string"
+        },
+        "object_key": {
+          "minLength": 1,
+          "title": "Object Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "environment",
+        "object_key",
+        "sha256",
+        "size_bytes",
+        "captured_at"
+      ],
+      "title": "SnapshotArtifact",
+      "type": "object"
+    },
+    "SourceArtifact": {
+      "additionalProperties": false,
+      "description": "Staged source archive. Its SHA-256 proves this artifact's integrity, not fetch replay.",
+      "properties": {
+        "commit_sha": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Commit Sha",
+          "type": "string"
+        },
+        "environment": {
+          "$ref": "#/$defs/Environment"
+        },
+        "object_key": {
+          "minLength": 1,
+          "title": "Object Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "environment",
+        "commit_sha",
+        "object_key",
+        "sha256"
+      ],
+      "title": "SourceArtifact",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "binding_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Binding Digest"
+    },
+    "cleanup_log": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/CleanupRecord"
+      },
+      "title": "Cleanup Log",
+      "type": "array"
+    },
+    "config_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Config Digest",
+      "type": "string"
+    },
+    "dataset_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Dataset Digest",
+      "type": "string"
+    },
+    "image_digests": {
+      "items": {
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Image Digests",
+      "type": "array"
+    },
+    "input_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Input Digest",
+      "type": "string"
+    },
+    "records": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/EvidenceRecord"
+      },
+      "title": "Records",
+      "type": "array"
+    },
+    "restore_verifications": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/RestoreVerification"
+      },
+      "title": "Restore Verifications",
+      "type": "array"
+    },
+    "retain_until": {
+      "format": "date-time",
+      "title": "Retain Until",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "sealed_at": {
+      "format": "date-time",
+      "title": "Sealed At",
+      "type": "string"
+    },
+    "snapshots": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/SnapshotArtifact"
+      },
+      "title": "Snapshots",
+      "type": "array"
+    },
+    "source_artifacts": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/SourceArtifact"
+      },
+      "title": "Source Artifacts",
+      "type": "array"
+    }
+  },
+  "required": [
+    "run_id",
+    "input_digest",
+    "dataset_digest",
+    "config_digest",
+    "image_digests",
+    "sealed_at",
+    "retain_until"
+  ],
+  "title": "EvidenceManifest",
+  "type": "object"
+}

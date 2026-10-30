@@ -1,0 +1,248 @@
+{
+  "$defs": {
+    "BindingReviewStatus": {
+      "enum": [
+        "NOT_REQUIRED",
+        "PENDING",
+        "APPROVED",
+        "REJECTED"
+      ],
+      "title": "BindingReviewStatus",
+      "type": "string"
+    },
+    "CandidateBinding": {
+      "additionalProperties": false,
+      "description": "Untrusted, PR-supplied read mapping for the candidate schema or API.\n\nIt has no fields for comparators, tolerances, requiredness or key filters, and unknown\nfields are rejected, so a binding cannot weaken the oracle it is checked against.",
+      "properties": {
+        "api_route": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Route"
+        },
+        "column_mapping": {
+          "minProperties": 1,
+          "patternProperties": {
+            "^[a-z_][a-z0-9_]{0,62}$": {
+              "pattern": "^[a-z_][a-z0-9_]{0,62}$",
+              "type": "string"
+            }
+          },
+          "title": "Column Mapping",
+          "type": "object"
+        },
+        "head_sha": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Head Sha",
+          "type": "string"
+        },
+        "query_sql": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Query Sql"
+        },
+        "source_path": {
+          "minLength": 1,
+          "title": "Source Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "head_sha",
+        "column_mapping"
+      ],
+      "title": "CandidateBinding",
+      "type": "object"
+    },
+    "Comparator": {
+      "additionalProperties": false,
+      "properties": {
+        "decimal_scale": {
+          "anyOf": [
+            {
+              "maximum": 38,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decimal Scale"
+        },
+        "kind": {
+          "$ref": "#/$defs/ComparatorKind"
+        },
+        "tolerance": {
+          "default": "0",
+          "pattern": "^-?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?$",
+          "title": "Tolerance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Comparator",
+      "type": "object"
+    },
+    "ComparatorKind": {
+      "description": "How an oracle column is compared.\n\n``EXACT``: typed equality. ``DECIMAL``: exact NUMERIC comparison at a declared scale with an\noptional non-negative tolerance. ``INSTANT``: timestamps compared as UTC instants.",
+      "enum": [
+        "EXACT",
+        "DECIMAL",
+        "INSTANT"
+      ],
+      "title": "ComparatorKind",
+      "type": "string"
+    },
+    "Oracle": {
+      "additionalProperties": false,
+      "description": "Protected expectation, read from the base SHA only.\n\nIt alone fixes the expected key universe, the comparators and their tolerances.",
+      "properties": {
+        "base_sha": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Base Sha",
+          "type": "string"
+        },
+        "expected_columns": {
+          "minProperties": 1,
+          "patternProperties": {
+            "^[a-z_][a-z0-9_]{0,62}$": {
+              "$ref": "#/$defs/Comparator"
+            }
+          },
+          "title": "Expected Columns",
+          "type": "object"
+        },
+        "key_columns": {
+          "items": {
+            "pattern": "^[a-z_][a-z0-9_]{0,62}$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Key Columns",
+          "type": "array"
+        },
+        "query_sql": {
+          "minLength": 1,
+          "title": "Query Sql",
+          "type": "string"
+        },
+        "reference_first": {
+          "default": false,
+          "title": "Reference First",
+          "type": "boolean"
+        },
+        "source_path": {
+          "minLength": 1,
+          "title": "Source Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "base_sha",
+        "query_sql",
+        "key_columns",
+        "expected_columns"
+      ],
+      "title": "Oracle",
+      "type": "object"
+    },
+    "Severity": {
+      "enum": [
+        "CRITICAL",
+        "HIGH",
+        "MEDIUM",
+        "LOW"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "approved_binding_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Approved Binding Digest"
+    },
+    "binding_review": {
+      "$ref": "#/$defs/BindingReviewStatus"
+    },
+    "candidate_binding": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CandidateBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "contract_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+      "title": "Contract Id",
+      "type": "string"
+    },
+    "description": {
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    },
+    "oracle": {
+      "$ref": "#/$defs/Oracle"
+    },
+    "required": {
+      "title": "Required",
+      "type": "boolean"
+    },
+    "severity": {
+      "$ref": "#/$defs/Severity"
+    },
+    "version": {
+      "exclusiveMinimum": 0,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "contract_id",
+    "version",
+    "description",
+    "required",
+    "severity",
+    "oracle",
+    "binding_review"
+  ],
+  "title": "DataContract",
+  "type": "object"
+}

@@ -1,0 +1,74 @@
+{
+  "run_id": "6f1d2c3e-0a4b-4c5d-8e9f-0123456789ab",
+  "input_digest": "78ec1622fe499925bb97954cc4b09c633bb8c6501a32c29a42612dcd71d9e2fb",
+  "dataset_digest": "2ef5ff6cd15b671553dadac08e6131a8780a5aae1ab1afb4c12b34cb63f44de0",
+  "config_digest": "a40af8b9cf5187bb554a30dd4759e233cfaa771e715bbf9f26d6894d8967c7fb",
+  "binding_digest": null,
+  "image_digests": [
+    "sha256:ab903792fc3c58a8d45877b3796ad3b917c55a8db5d357995c774e843d478ab0"
+  ],
+  "source_artifacts": [
+    {
+      "environment": "REFERENCE",
+      "commit_sha": "aa6e427d334b832d952d658cae44f65f99ffaf74",
+      "object_key": "runs/6f1d2c3e-0a4b-4c5d-8e9f-0123456789ab/source/reference.tar.gz",
+      "sha256": "47bf07a2cf436993f8426e740f04b04aea327b7f3302e2864f5f39bed89a4e09"
+    },
+    {
+      "environment": "CANDIDATE",
+      "commit_sha": "8f3ab2a3b2ce14772811945b1f7ea036b769932e",
+      "object_key": "runs/6f1d2c3e-0a4b-4c5d-8e9f-0123456789ab/source/candidate.tar.gz",
+      "sha256": "840e0eaa94a08f97f361ebdc32d46cb60b9e94a5f10773d0647b363847605b67"
+    }
+  ],
+  "snapshots": [
+    {
+      "environment": "REFERENCE",
+      "format": "pg_dump_custom",
+      "object_key": "runs/6f1d2c3e-0a4b-4c5d-8e9f-0123456789ab/snapshots/reference.dump",
+      "sha256": "a7aca6f224e70423a23ce507017c91e87f3969c7bea8112f3ca18cb50884eadd",
+      "size_bytes": 482113,
+      "captured_at": "2026-10-30T15:09:00Z"
+    },
+    {
+      "environment": "CANDIDATE",
+      "format": "pg_dump_custom",
+      "object_key": "runs/6f1d2c3e-0a4b-4c5d-8e9f-0123456789ab/snapshots/candidate.dump",
+      "sha256": "07f10b3d2e73a7fe29252a8ad828b541824d56436f20266f35376dfa65e2267c",
+      "size_bytes": 497605,
+      "captured_at": "2026-10-30T15:09:00Z"
+    }
+  ],
+  "restore_verifications": [
+    {
+      "snapshot_sha256": "07f10b3d2e73a7fe29252a8ad828b541824d56436f20266f35376dfa65e2267c",
+      "verified_at": "2026-10-30T15:11:00Z",
+      "restored": true
+    }
+  ],
+  "records": [
+    {
+      "evidence_id": "ev-c1-amount-query",
+      "kind": "query_result",
+      "object_key": "runs/6f1d2c3e-0a4b-4c5d-8e9f-0123456789ab/evidence/ev-c1-amount-query.json",
+      "sha256": "13e233afffc5bf8b823df793bb73783577128d40759294d46f845931c0d444b9",
+      "created_at": "2026-10-30T15:08:00Z"
+    }
+  ],
+  "cleanup_log": [
+    {
+      "resource": "task/reference",
+      "action": "stop",
+      "outcome": "SUCCEEDED",
+      "at": "2026-10-30T15:13:00Z"
+    },
+    {
+      "resource": "task/candidate",
+      "action": "stop",
+      "outcome": "SUCCEEDED",
+      "at": "2026-10-30T15:13:00Z"
+    }
+  ],
+  "sealed_at": "2026-10-30T15:12:00Z",
+  "retain_until": "2026-11-29T15:00:00Z"
+}
