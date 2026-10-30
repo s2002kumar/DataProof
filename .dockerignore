@@ -1,0 +1,6 @@
+# Docker build context for infra/docker images (built from the repository root):
+# only the files the Dockerfiles copy.
+*
+!sample-app/pyproject.toml
+!sample-app/uv.lock
+!infra/docker/runtime/entrypoint.py
