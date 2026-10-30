@@ -12,8 +12,10 @@ from dataproof_control.lifecycle import (
 from dataproof_control.migrate import MigrationDriftError, migrate, migrations
 from dataproof_control.results import (
     CheckRecord,
+    ManifestRecord,
     ReportRecord,
     RunResults,
+    SnapshotRecord,
     SourceRecord,
     StepRecord,
 )
@@ -39,12 +41,14 @@ __all__ = [
     "Effects",
     "IllegalTransitionError",
     "LeaseLostError",
+    "ManifestRecord",
     "MigrationDriftError",
     "ReportRecord",
     "RetryPolicy",
     "RunNotFoundError",
     "RunResults",
     "RunStore",
+    "SnapshotRecord",
     "SourceRecord",
     "StepRecord",
     "Transition",
