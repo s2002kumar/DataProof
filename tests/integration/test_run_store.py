@@ -391,7 +391,16 @@ def test_concurrent_heads_on_one_pull_request_leave_exactly_one_open_run(
 
 
 @pytest.mark.parametrize(
-    "table", ["run_sources", "run_steps", "run_checks", "run_evidence", "run_reports"]
+    "table",
+    [
+        "run_sources",
+        "run_steps",
+        "run_checks",
+        "run_evidence",
+        "run_reports",
+        "run_snapshots",
+        "run_manifests",
+    ],
 )
 def test_run_results_are_write_once(control_dsn: str, table: str) -> None:
     with (

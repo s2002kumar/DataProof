@@ -67,8 +67,18 @@ Other tests cover:
 | `PROVISIONING` | Creates the reference and candidate environments, migrates both to the base schema **with the base source** inside steps, loads the baseline, and proves both databases identical by a digest of every row | `MIGRATING`, or `ERROR: DATASET_DIGEST_MISMATCH`, `BASE_MIGRATION_FAILED`, `SOURCE_DIGEST_MISMATCH` or `BASELINE_DIVERGED` |
 | `MIGRATING` | Runs the head's migrations in the candidate, from the head source, inside a step. A retried attempt first rebuilds the candidate, so the recorded migration is one clean execution | `VERIFYING` |
 | `VERIFYING` | The required `migration.execute` check (`FAIL` if the migration errored or overran), then every oracle **from the base archive** against the binding the pull request proposes **in the head archive**, through the read-only role. If the migration failed, the contracts are `NOT_RUN: PREREQUISITE_FAILED`. A missing binding is `NOT_RUN: AWAITING_BINDING_REVIEW` | `REPORTING` |
-| `REPORTING` | Derives the verdict and its GitHub conclusion with the coverage table | `READY_FOR_REVIEW` |
+| `REPORTING` | Seals evidence, then derives the verdict and its GitHub conclusion with the coverage table (see below) | `READY_FOR_REVIEW` |
 | cleanup | Destroys every environment of the run | `COMPLETE` or `SUPERSEDED` |
+
+### Sealed evidence
+
+Before a run is reported, its evidence is sealed so that diagnosis and reproduction never depend on an environment that cleanup destroys (ARCHITECTURE, evidence store):
+
+1. **Snapshot.** Trusted code takes `pg_dump --format=custom` of each environment, inside the trusted database container, as the read-only role. The dump is written once to the artifact store with its SHA-256.
+2. **Restore verification.** Each dump is restored into a fresh environment of the same role (variant `restore`). The verification records a digest of every row of every application table in the live and the restored database. The restore environment is then destroyed; a failed restore is recorded, not hidden.
+3. **Manifest.** An `EvidenceManifest` lists the input, dataset, config and binding digests, both image digests, the source archives, the snapshots and their restore verification, and a results bundle (checks, evidence and step output), each with its SHA-256. It is stored as `manifest.json`. The report cites the manifest's digest.
+
+Snapshots and the manifest are recorded in the control database's write-once tables in the same transaction as the report.
 
 Problems caused by the pull request become check outcomes; problems with the trusted setup become a typed run `ERROR`; transient failures are retried. Source archives are written once to `LocalArtifactStore` and re-verified by SHA-256 on every read.
 
@@ -82,7 +92,9 @@ Problems caused by the pull request become check outcomes; problems with the tru
 - **Cancellation during migration:** the late result is discarded and nothing is left behind.
 - **Configuration drift:** an error, and nothing runs.
 - **Weakened oracle:** a pull request that makes its own oracle optional is still `BLOCKED`.
+- **Sealed evidence:** both snapshots restore to identical rows. The manifest matches its stored object, and every artifact it lists is present and unaltered. After F1's environments are destroyed, restoring its sealed candidate snapshot still shows the 99.98 refund.
+- **Supersession:** a new head on the same pull request cancels a run in review. That run is cleaned up and ends `SUPERSEDED`.
 
 ## Status
 
-Work package 4 runs real pull-request migrations end to end on local Docker, from the control store through cleanup. Next are sealed `pg_dump` snapshots with restore verification (#23), then full application previews (work package 5). There is no GitHub integration or user interface yet.
+Work package 4 is complete on local Docker. Real pull-request migrations run end to end, from the control store through sealed, restore-verified evidence to cleanup, with retries, cancellation, timeouts and supersession. Next are full application previews (work package 5). There is no GitHub integration or user interface yet.
