@@ -49,6 +49,11 @@ updates:
       interval: monthly
     commit-message:
       prefix: chore(deps)
+    ignore:
+      # @types/node follows the Node.js major that CI and the runtime use (24); a major bump
+      # comes with a deliberate runtime upgrade.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       node:
         patterns: ["*"]
