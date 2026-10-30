@@ -7,6 +7,7 @@ dependencies = []
 
 [dependency-groups]
 dev = [
+    "alembic>=1.16",
     "dataproof-contracts",
     "jsonschema>=4.23",
     "mypy>=1.13",
@@ -14,6 +15,7 @@ dev = [
     "psycopg[binary]>=3.2",
     "pytest>=8.3",
     "ruff>=0.8",
+    "sqlalchemy>=2.0",
     "testcontainers[postgres]>=4.9",
     "types-jsonschema",
     "tzdata",  # IANA zones for zoneinfo on Windows
@@ -24,6 +26,9 @@ package = false
 
 [tool.uv.workspace]
 members = ["packages/*"]
+# The sample app is the application under review: its own project and lockfile, never
+# DataProof's (ADR-0004 builds its runtime image from that lockfile).
+exclude = ["sample-app"]
 
 [tool.uv.sources]
 dataproof-contracts = { workspace = true }
@@ -48,7 +53,11 @@ known-first-party = ["conftest", "dataproof_contracts"]
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["packages/contracts/src", "tests"]
+files = [
+    "packages/contracts/src",
+    "sample-app/migrations",
+    "tests",
+]
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

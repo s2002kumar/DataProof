@@ -38,6 +38,19 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+      - id: uv-lock
+        name: workspace lockfile is current
+        entry: uv lock --check
+        language: system
+        files: (^|/)(pyproject\.toml|uv\.lock)$
+        exclude: ^sample-app/
+        pass_filenames: false
+      - id: uv-lock-sample-app
+        name: sample-app lockfile is current
+        entry: uv lock --check --project sample-app
+        language: system
+        files: ^sample-app/(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
       - id: contract-schemas
         name: contract JSON Schemas are current
         entry: uv run --frozen python -m dataproof_contracts.schema packages/contracts/schemas --check

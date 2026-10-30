@@ -21,6 +21,17 @@ updates:
       python:
         patterns: ["*"]
 
+  # The sample app is the application under review and has its own lockfile (ADR-0004).
+  - package-ecosystem: uv
+    directory: /sample-app
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore(sample-app)
+    groups:
+      sample-app:
+        patterns: ["*"]
+
   - package-ecosystem: npm
     directory: /
     schedule:
