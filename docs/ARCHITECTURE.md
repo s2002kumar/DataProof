@@ -55,7 +55,7 @@ At any stage, a typed `ERROR`/`CANCELLED`/`TIMED_OUT` may lead to `CLEANING`; **
 - `Finding`: severity, type, affected objects, example records (redacted), evidence IDs, source reference and deterministic check reference.
 - `Investigation`: model+prompt/tool versions, hypotheses, called tool name/args, cited evidence IDs, confidence caveat, suggested action, token/cost/latency.
 - `Reproduction`: original check/failure signature, fixture record IDs + dependencies, fixture digest, separate replay run and verified persistence of the same failure.
-- `HumanDecision`: actor, commit/run ID, timestamp, comment, review action; not a modification of check outcomes.
+- `HumanDecision`: actor, commit/run ID, timestamp, comment, review action; for `APPROVE_BINDING`, the binding digest and whether approver/author separation was organizational or procedural (single-maintainer repository). Not a modification of check outcomes.
 - `EvidenceManifest`: reference/candidate `pg_dump -Fc` artifacts and SHA-256, dataset/source/config/binding digests, verified restore manifest, retention/expiry, image digests, evidence records and cleanup log.
 
 **Contract trust:** Protected base-SHA **oracles** alone determine expected results. A schema-changing PR supplies only a candidate read mapping; its binding undergoes a separate, auditable `APPROVE_BINDING` human decision, and only the new run started under the resulting config digest can evaluate binding-dependent checks. The reviewer cannot weaken the oracle by approving a binding. See ADR-0005 and `SCENARIO_CONTRACT.md`.
