@@ -58,6 +58,7 @@ plugins = ["pydantic.mypy"]
 files = [
     "packages/contracts/src",
     "scenarios/commerce/src",
+    "scenarios/commerce/changes",
     "sample-app/migrations",
     "tests",
 ]
