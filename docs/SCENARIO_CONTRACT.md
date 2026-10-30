@@ -64,7 +64,7 @@ Use deterministic seeded Python/SQL factories (not generated executable SQL from
 
 ## Contract trust and PR changes
 
-**Critical:** Protected base-branch `oracle` fixes expected values, expected key universe, tolerance, requiredness and business semantics. A schema-changing PR can propose only a `candidate_binding` for candidate schema/route/field selectors. Any new or changed binding triggers `AWAITING_BINDING_REVIEW`; the GitHub check is `action_required`/`INCOMPLETE` until a human records a digest-bound `APPROVE_BINDING`. Then DataProof starts a new immutable verification attempt. The binding cannot narrow the protected oracle key universe or alter expected outcomes. See ADR-0005.
+**Critical:** Protected base-branch `oracle` fixes expected values, expected key universe, tolerance, requiredness and business semantics. A schema-changing PR can propose only a `candidate_binding` for candidate schema/route/field selectors. Any new or changed binding leaves binding-dependent checks `NOT_RUN: AWAITING_BINDING_REVIEW`, so the run completes `INCOMPLETE` (GitHub `action_required`). A human's digest-bound `APPROVE_BINDING` then starts a new run under a new config digest; the original run is not resumed. The binding cannot narrow the protected oracle key universe or alter expected outcomes. See ADR-0005.
 
 ## Real-world limitation
 

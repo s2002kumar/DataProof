@@ -48,7 +48,7 @@ Planning estimate: **20–26 focused solo weeks at 15–20 genuinely available h
 ## First commit and PR train
 
 1. **PR 1** — `docs: resolve adversarial review findings and adopt provisioning/contract ADRs` (specification only: this document set).
-2. **PR 2** — `chore: initialize uv/pnpm workspace, typed contracts, and CI`; includes `DataContract`, `CheckResult`, `Finding`, `EvidenceManifest`, `HumanDecision` and round-trip tests.
+2. **PR 2** — `chore: initialize uv/pnpm workspace, typed contracts, and CI`; includes `DataContract`, `CheckResult`, `Finding`, `EvidenceManifest`, `HumanDecision` and round-trip tests. The run-state enum has no binding-review state: `AWAITING_BINDING_REVIEW` is a `NOT_RUN` reason and an `INCOMPLETE` verdict cause (ARCHITECTURE, Run state machine).
 3. **PR 3** — `feat(sample): add commerce baseline, Alembic safe/faulty migrations and F1 proof`; a real PostgreSQL test confirms SQL succeeds, rows and keys still match, while expected 49.99 differs from candidate 99.98. The **test suite itself should PASS** by asserting that the invariant detects the fault, not fail CI merely because F1 is defective.
 4. `feat(verifier): add protected oracle and reviewed candidate bindings`.
 5. `feat(runner): add isolated migration execution, state machine, retries and cleanup`.

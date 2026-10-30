@@ -8,7 +8,7 @@
 
 **0–12s — Show the problem:** Open GitHub PR changing commerce orders/refunds SQL. Point at green SQL execution alone not proving data correctness.
 
-**12–30s — Live product:** DataProof shows reference and candidate preview URLs early. Demonstrate actual frontend/API/PG, identical baseline digest, and run SHA. When the candidate introduces its ledger table/endpoint mapping, show an explicit **`APPROVE_BINDING`** human action as a short annotated step; until then the check remains `INCOMPLETE`/non-green. No step silently blesses a PR-provided comparator.
+**12–30s — Live product:** DataProof shows reference and candidate preview URLs early. Demonstrate actual frontend/API/PG, identical baseline digest, and run SHA. When the candidate introduces its ledger table/endpoint mapping, the first run completes `INCOMPLETE` (non-green); show the explicit **`APPROVE_BINDING`** human action as a short annotated step, then the new run it starts. No step silently blesses a PR-provided comparator.
 
 **30–50s — Valid migration:** Select a second safe migration or cached completed safe run (explicitly label recorded vs live). Its declared invariants and selected API behavior checks pass; show exact coverage, not a generic 10/10.
 
