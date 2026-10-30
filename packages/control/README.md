@@ -53,6 +53,10 @@ Every working state, from `QUEUED` to `REPORTING`, may also go to `ERROR`, `CANC
 
 All times come from the database clock, so workers' clocks cannot disagree about leases. Rows are locked in the order `runs`, then `run_jobs`; a claim locks only a job and skips locked rows.
 
+## Run results
+
+Migration 0002 adds write-once tables for a run's results: `run_sources` (staged archives and their digests), `run_steps` (each step's exit code, timeout, duration and redacted output), `run_checks` (`CheckResult` documents with any binding analysis), `run_evidence` (query and step evidence) and `run_reports` (verdict, GitHub conclusion and coverage). Workers write them with the `record_*` functions in `results.py` inside a transition's `effects`; `RunResults` reads them. `UPDATE` and `DELETE` are refused: a correction or a new decision is a new run.
+
 ## Schema migrations
 
 `migrate(connection)` applies the numbered SQL files in `src/dataproof_control/migrations/` in order, in one transaction, under an advisory lock. Each applied file's SHA-256 is recorded, and a migration file that changes after it was applied is refused with `MigrationDriftError`: schema changes are always new migrations.

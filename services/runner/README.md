@@ -56,6 +56,33 @@ Other tests cover:
 - tag-only images being refused;
 - idempotent destroy, and expiry reaping that touches only expired runs in its own scope.
 
+## Pipeline
+
+`Pipeline` supplies the stage handlers for one configured project. Each stage records its results through the transition's `effects`, in the control database's write-once result tables, so results exist exactly when the run has moved past the stage that produced them.
+
+| Stage | What it does | Ends in |
+| --- | --- | --- |
+| `FETCHING` | Checks that the trusted `ProjectConfig` still has the digest the run was pinned to, then stages exact base and head archives in the artifact store | `ANALYZING`, or `ERROR: CONFIG_DIGEST_MISMATCH` |
+| `ANALYZING` | Refuses other repositories, and changes outside the allowed roots or to any dependency or runtime file (`pyproject.toml`, lockfiles, `package.json`, `Dockerfile` and similar, anywhere in the tree), before anything is provisioned | `PROVISIONING`, or `NOT_EXECUTED` with a neutral report |
+| `PROVISIONING` | Creates the reference and candidate environments, migrates both to the base schema **with the base source** inside steps, loads the baseline, and proves both databases identical by a digest of every row | `MIGRATING`, or `ERROR: DATASET_DIGEST_MISMATCH`, `BASE_MIGRATION_FAILED`, `SOURCE_DIGEST_MISMATCH` or `BASELINE_DIVERGED` |
+| `MIGRATING` | Runs the head's migrations in the candidate, from the head source, inside a step. A retried attempt first rebuilds the candidate, so the recorded migration is one clean execution | `VERIFYING` |
+| `VERIFYING` | The required `migration.execute` check (`FAIL` if the migration errored or overran), then every oracle **from the base archive** against the binding the pull request proposes **in the head archive**, through the read-only role. If the migration failed, the contracts are `NOT_RUN: PREREQUISITE_FAILED`. A missing binding is `NOT_RUN: AWAITING_BINDING_REVIEW` | `REPORTING` |
+| `REPORTING` | Derives the verdict and its GitHub conclusion with the coverage table | `READY_FOR_REVIEW` |
+| cleanup | Destroys every environment of the run | `COMPLETE` or `SUPERSEDED` |
+
+Problems caused by the pull request become check outcomes; problems with the trusted setup become a typed run `ERROR`; transient failures are retried. Source archives are written once to `LocalArtifactStore` and re-verified by SHA-256 on every read.
+
+`tests/integration/test_pipeline.py` runs commerce change sets end to end on local Docker:
+
+- **Safe change:** `CHECKED` (success), even after a failed verification attempt that the next attempt recovers from by reattaching to both environments.
+- **F1:** `BLOCKED` with the 49.99 to 99.98 refund mismatch. Run twice, it gives identical outcomes and evidence digests.
+- **Unapproved bindings:** `INCOMPLETE` (action required), with the binding analysis shown.
+- **Lockfile change:** `NOT_EXECUTED` (neutral), with nothing provisioned.
+- **Failing migration:** `BLOCKED`, with the contracts not run.
+- **Cancellation during migration:** the late result is discarded and nothing is left behind.
+- **Configuration drift:** an error, and nothing runs.
+- **Weakened oracle:** a pull request that makes its own oracle optional is still `BLOCKED`.
+
 ## Status
 
-The worker, its lifecycle guarantees and the local Docker backend are implemented and tested. The pipeline stages that use them, to fetch and analyze a change, provision both environments, load the identical baseline, migrate, verify, report and clean up, are the next step of work package 4, followed by sealed snapshots (#23).
+Work package 4 runs real pull-request migrations end to end on local Docker, from the control store through cleanup. Next are sealed `pg_dump` snapshots with restore verification (#23), then full application previews (work package 5). There is no GitHub integration or user interface yet.

@@ -23,6 +23,8 @@ Comparators: `EXACT` is typed equality, and NULL equals only NULL. `DECIMAL` com
 
 Each query runs alone in a `READ ONLY` transaction with a statement timeout and a row cap, sent as a **prepared statement**. That detail matters. Under PostgreSQL's simple query protocol, which psycopg uses for queries without parameters, a string such as `SELECT …; COMMIT; DELETE …` ends the read-only transaction and the `DELETE` runs; the extended protocol rejects multiple statements. A statement that ends the transaction on its own (`COMMIT`) or returns no rows is refused. Tests cover each of these cases against PostgreSQL.
 
+Each query's evidence records the SHA-256 of its SQL and of its result. The result digest treats the rows as a multiset, hashed in sorted order of their typed encoding, because oracle and binding queries have no `ORDER BY` and PostgreSQL may return the same rows in a different order from one run to the next. The same inputs therefore always give the same evidence.
+
 Execution is the second layer. The first is binding review, below. A least-privileged database role in real runs (THREAT_MODEL, boundaries 3 and 4) arrives with the runner; until then, the verifier is not exposed to untrusted repositories.
 
 ## Binding review (ADR-0005)
@@ -37,4 +39,4 @@ The engine analyzes a binding before checking its approval, so a run awaiting re
 
 ## Contract files
 
-Oracles and bindings are TOML; see [`scenarios/commerce`](../../scenarios/commerce/README.md). `load_oracle()` and `load_binding()` attach provenance from the caller, never from the file, and a binding file that carries oracle policy (for example a tolerance) fails validation. `assemble_contract()` marks a binding `APPROVED` only if its exact digest was approved.
+Oracles and bindings are TOML; see [`scenarios/commerce`](../../scenarios/commerce/README.md). `parse_oracle()` and `parse_binding()` take the text, for files read from a source archive. `load_oracle()` and `load_binding()` attach provenance from the caller, never from the file, and a binding file that carries oracle policy (for example a tolerance) fails validation. `assemble_contract()` marks a binding `APPROVED` only if its exact digest was approved.
