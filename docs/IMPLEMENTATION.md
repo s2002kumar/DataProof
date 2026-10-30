@@ -9,7 +9,7 @@
 - Conventional commits: `docs:`, `feat(runner):`, `test(verifier):`, `fix(github):`, `infra:`. Never manufacture commits for graph appearance, impersonate manual authorship, or assert tests not run. Use truthful author/co-author conventions appropriate to tools used.
 - Python: Python 3.12+, **`uv` workspace**, `ruff`, **`mypy --strict`**, pytest with `testcontainers-python` locally and PostgreSQL CI service; Pydantic schema export and round-trip tests. TypeScript: **`pnpm`**, strict mode and Playwright e2e. `pre-commit`, secret scanning, reproducible lockfiles and a project-owned **Apache-2.0 license** after confirming rights to all included material.
 - `AGENTS.md` specifies constraints, safe coding rules and PR acceptance; human reviews every architectural/security/SQL change.
-- CI run: formatting/lint/type/unit tests, PostgreSQL integration on fixtures, frontend build/tests, security scans and smoke benchmark. Release gate: end-to-end PR + cloud run + cleanup + independent reproducibility.
+- CI run: formatting/lint/type/unit tests, PostgreSQL integration on fixtures, frontend build/tests, a network-disabled `next build` of the sample app (ADR-0004), security scans and smoke benchmark. Release gate: end-to-end PR + cloud run + cleanup + independent reproducibility.
 - Documentation updated with behavior change in the same PR. ADR when a design choice changes trust boundary, core data contract or architectural split.
 
 ## Dependency ordered work packages
@@ -21,7 +21,7 @@
 | 2 | Commerce baseline, Alembic migrations, deterministic fixture and F1 hand-written proof | Same row counts/keys but wrong refund value is demonstrated against real PostgreSQL |
 | 3 | Deterministic verification engine against plain PostgreSQL | Safe restructure passes; F1 and F3 fail for correct reasons; clean controls avoid false positives |
 | 4 | Disposable PostgreSQL runner + durable lifecycle/cleanup | Safe/failing real migrations captured; TTL/cancel/retry, new head supersession and snapshot sealing pass |
-| 5 | Reference/candidate FastAPI + frontend shadow preview | Two working isolated URLs bound to exact base/head SHA and baseline; offline candidate build validated |
+| 5 | Reference/candidate FastAPI + frontend shadow preview | Two working isolated URLs bound to exact base/head SHA and baseline; offline candidate build validated; measured candidate-task memory, CPU and build time recorded |
 | 6 | Evidence provenance, sealed `pg_dump` restore and reports | Redacted immutable reference/candidate snapshots tied to run/commit/contract; restore/replay tested |
 | 7 | Change Analyst and bounded Failure Investigator | Typed tool calls, evidence-citation tests, prompt-injection negatives, model-off baseline |
 | 8 | FK-closure subset reproduction + developer-reviewed correction replay | Verified reproducer or honest `NOT_REPRODUCED`; correction gets a fresh immutable run |
