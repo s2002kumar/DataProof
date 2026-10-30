@@ -7,27 +7,28 @@ tests that change a database get their own.
 from collections import Counter
 from collections.abc import Iterator
 from decimal import Decimal
-from typing import Any
 
 import psycopg
 import pytest
 
 from commerce_env import (
-    CHANGES,
+    C1,
+    C2,
+    C3,
     JOIN_CHANGE,
-    ORACLES,
     SAFE_CHANGE,
     DatabaseFactory,
     baseline,
     candidate,
+    contracts,
     database_factory,
+    override,
     scalar,
+    verify,
 )
-from commerce_scenario import PUBLISHED_DIGEST, build_fixture
+from commerce_scenario import build_fixture
 from dataproof_contracts import (
-    CandidateBinding,
     CheckOutcome,
-    DataContract,
     ErrorCode,
     GitHubCheckConclusion,
     Mismatch,
@@ -39,23 +40,11 @@ from dataproof_contracts import (
 from dataproof_verifier import (
     QueryError,
     QueryLimits,
-    Verification,
-    assemble_contract,
     derive_verdict,
-    load_binding,
-    load_oracle,
     run_read_only,
-    verify_contract,
 )
 
 pytestmark = pytest.mark.integration
-
-C1, C2, C3 = (
-    "commerce.c1_event_preservation",
-    "commerce.c2_refund_totals",
-    "commerce.c3_capture_totals",
-)
-BASE_SHA, HEAD_SHA = "b" * 40, "c" * 40
 
 
 @pytest.fixture(scope="module")
@@ -66,66 +55,6 @@ def envs(postgres_dsn: str) -> Iterator[dict[str, str]]:
             "safe": candidate(create, SAFE_CHANGE),
             "join": candidate(create, JOIN_CHANGE),
         }
-
-
-def contracts(
-    change: str,
-    *,
-    approve: bool = True,
-    reject: bool = False,
-    overrides: dict[str, CandidateBinding] | None = None,
-) -> list[DataContract]:
-    """The commerce contracts with the change set's bindings, reviewed as requested."""
-    result = []
-    for oracle_path in sorted(ORACLES.glob("*.toml")):
-        spec, oracle = load_oracle(oracle_path, source_path=oracle_path.name, base_sha=BASE_SHA)
-        binding_path = CHANGES / change / "bindings" / oracle_path.name
-        contract_id, binding = load_binding(
-            binding_path, source_path=binding_path.name, head_sha=HEAD_SHA
-        )
-        assert contract_id == spec.contract_id
-        binding = (overrides or {}).get(contract_id, binding)
-        digests = {binding.digest()}
-        result.append(
-            assemble_contract(
-                spec,
-                oracle,
-                binding,
-                approved_digests=digests if approve and not reject else (),
-                rejected_digests=digests if reject else (),
-            )
-        )
-    return result
-
-
-def verify(
-    contract_list: list[DataContract],
-    reference: str,
-    candidate_dsn: str,
-    limits: QueryLimits | None = None,
-) -> dict[str, Verification]:
-    with (
-        psycopg.connect(reference, autocommit=True) as ref,
-        psycopg.connect(candidate_dsn, autocommit=True) as cand,
-    ):
-        return {
-            c.contract_id: verify_contract(c, ref, cand, PUBLISHED_DIGEST, limits or QueryLimits())
-            for c in contract_list
-        }
-
-
-def override(
-    contract_id: str, query_sql: str, **mapping_changes: Any
-) -> dict[str, CandidateBinding]:
-    name = contract_id.split(".")[1] + ".toml"
-    _, binding = load_binding(
-        CHANGES / SAFE_CHANGE / "bindings" / name, source_path=name, head_sha=HEAD_SHA
-    )
-    mapping = {**binding.column_mapping, **mapping_changes}
-    mapping = {k: v for k, v in mapping.items() if v is not None}
-    return {
-        contract_id: binding.model_copy(update={"query_sql": query_sql, "column_mapping": mapping})
-    }
 
 
 def test_safe_change_is_checked(envs: dict[str, str]) -> None:
@@ -252,7 +181,7 @@ def test_duplicate_keys_are_an_error(envs: dict[str, str]) -> None:
     assert (check.outcome, check.error_code) == (CheckOutcome.ERROR, ErrorCode.DUPLICATE_KEY)
 
 
-@pytest.mark.parametrize(
+HOSTILE = pytest.mark.parametrize(
     "hostile_sql",
     [
         "SELECT source_event_id, order_id, entry_kind::text AS entry_kind, amount, occurred_at"
@@ -263,31 +192,46 @@ def test_duplicate_keys_are_an_error(envs: dict[str, str]) -> None:
     ],
     ids=["multi-statement", "writable-cte"],
 )
-def test_bindings_cannot_write(
+
+
+@HOSTILE
+def test_hostile_bindings_are_stopped_before_execution(
     new_database: DatabaseFactory, envs: dict[str, str], hostile_sql: str
 ) -> None:
     target = candidate(new_database, SAFE_CHANGE)
     before = scalar(target, "SELECT count(*) FROM ledger_entries")
-    check = verify(
-        contracts(SAFE_CHANGE, overrides=override(C1, hostile_sql)), envs["reference"], target
-    )[C1].check
-    assert (check.outcome, check.error_code) == (CheckOutcome.ERROR, ErrorCode.QUERY_FAILED)
+    contract_list = contracts(SAFE_CHANGE, overrides=override(C1, hostile_sql))
+    verification = verify(contract_list, envs["reference"], target)[C1]
+    assert verification.check.error_code is ErrorCode.BINDING_UNSUPPORTED_CONSTRUCT
+    assert verification.binding_problem is not None
+    assert verification.evidence == ()
+    assert scalar(target, "SELECT count(*) FROM ledger_entries") == before > 0
+
+
+@HOSTILE
+def test_execution_layer_alone_also_refuses_writes(
+    new_database: DatabaseFactory, hostile_sql: str
+) -> None:
+    """Defense in depth: even without binding review, execution cannot write."""
+    target = candidate(new_database, SAFE_CHANGE)
+    before = scalar(target, "SELECT count(*) FROM ledger_entries")
+    with (
+        psycopg.connect(target, autocommit=True) as connection,
+        pytest.raises(QueryError) as caught,
+    ):
+        run_read_only(connection, hostile_sql)
+    assert caught.value.code is ErrorCode.QUERY_FAILED
     assert scalar(target, "SELECT count(*) FROM ledger_entries") == before > 0
 
 
 def test_statement_timeout_and_row_limit(envs: dict[str, str]) -> None:
-    slow = override(
-        C3,
-        "SELECT order_id, currency::text AS currency, 0::numeric(18, 2) AS capture_total"
-        " FROM orders, pg_sleep(1)",
-    )
-    timed_out = verify(
-        contracts(SAFE_CHANGE, overrides=slow),
-        envs["reference"],
-        envs["safe"],
-        QueryLimits(statement_timeout_ms=200),
-    )[C3].check
-    assert (timed_out.outcome, timed_out.error_code) == (CheckOutcome.ERROR, ErrorCode.QUERY_FAILED)
+    with (
+        psycopg.connect(envs["safe"], autocommit=True) as connection,
+        pytest.raises(QueryError) as caught,
+    ):
+        run_read_only(connection, "SELECT pg_sleep(1)", QueryLimits(statement_timeout_ms=200))
+    assert caught.value.code is ErrorCode.QUERY_FAILED
+    assert "statement timeout" in str(caught.value)
 
     capped = verify(
         contracts(SAFE_CHANGE), envs["reference"], envs["safe"], QueryLimits(max_rows=10)

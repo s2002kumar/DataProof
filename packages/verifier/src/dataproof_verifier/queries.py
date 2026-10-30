@@ -6,9 +6,8 @@ several statements: under the simple protocol, ``SELECT 1; COMMIT; DELETE ...`` 
 read-only transaction and run the ``DELETE``. A statement that ends the transaction itself or
 returns no result set is refused.
 
-These are layers, not the whole defense. Binding statement validation (work package 3, 4b) and
-a least-privileged database role in real runs (THREAT_MODEL, boundaries 3 and 4) are still to
-come; until then, run only trusted bindings.
+This is the second layer: bindings are first validated by ``binding_review``. A least-privileged
+database role in real runs (THREAT_MODEL, boundaries 3 and 4) arrives with the runner.
 """
 
 import hashlib
