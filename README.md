@@ -59,7 +59,7 @@ No verdict is a universal safety guarantee. A run establishes only that specific
 
 ## Scope
 
-DataProof supports one documented application profile: a **Commerce Orders & Refunds** service built with FastAPI, Next.js, PostgreSQL and Alembic, in which a migration normalizes legacy payment events into a ledger. Hosted execution is limited to allowlisted repositories and images, and pull requests from forks are not executed.
+DataProof supports one documented application profile: a **Commerce Orders & Refunds** service built with FastAPI, Next.js, PostgreSQL and Alembic, in which a migration normalizes legacy payment events into a ledger. Hosted execution is limited to allowlisted repositories and images, and pull requests from forks are not executed. Execution is being built on local Docker first; no hosted deployment exists, and a cloud deployment requires an approved cost and security review ([ADR-0006](docs/adr/0006-pluggable-execution-backends.md)).
 
 Out of scope: production cutover automation, other databases or warehouses, Spark/dbt/Airflow, multi-cloud deployment, auto-merging, autonomous production repair and general-purpose SQL execution.
 
@@ -68,14 +68,14 @@ Out of scope: production cutover automation, other databases or warehouses, Spar
 | Document | Contents |
 | --- | --- |
 | [Product](docs/PRODUCT.md) | User, customer journey, committed capabilities, verdict semantics, definition of done |
-| [Architecture](docs/ARCHITECTURE.md) | Components, run state machine, data contracts, API surface, AWS target, repository layout |
+| [Architecture](docs/ARCHITECTURE.md) | Components, run state machine, data contracts, API surface, execution backends, proposed AWS target, repository layout |
 | [Verification](docs/VERIFICATION.md) | What counts as proof: verification tiers, row matching, contract governance, outcome taxonomy |
 | [Scenario contract](docs/SCENARIO_CONTRACT.md) | Demo schemas, invariants C1–C8, safe and faulty migrations, fixture rules |
 | [Threat model](docs/THREAT_MODEL.md) | Threat-to-control map, trust boundaries, mandatory security tests |
 | [Benchmark](docs/BENCHMARK.md) | Fault families, clean controls, baselines, metrics and protocol |
 | [Implementation](docs/IMPLEMENTATION.md) | Repository standards, work packages, gates and pull-request plan |
 | [Demo](docs/DEMO.md) | Walkthrough script and the evidence a recorded demo must contain |
-| [Architecture decisions](docs/adr/) | ADR-0001 to ADR-0005 |
+| [Architecture decisions](docs/adr/) | ADR-0001 to ADR-0006 |
 | [Contracts package](packages/contracts/README.md) | Typed result contracts, their enforced invariants, value encoding and JSON Schemas |
 | [Commerce scenario](scenarios/commerce/README.md) | Baseline fixture, its digest and edge cases, and candidate change sets |
 | [Verifier](packages/verifier/README.md) | Evaluation order, comparators, outcomes and query safety layers |

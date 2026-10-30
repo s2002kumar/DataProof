@@ -30,7 +30,7 @@ Many migrations execute successfully while damaging values, relationships or app
 - Reproducer extraction where technically possible, with automatic replay verification; approved correction rerun.
 - Reviewer UI, GitHub summary and verification coverage; explicit human review.
 - Public benchmark with faults and clean controls, deterministic baselines and AI ablations; honest failure cases.
-- AWS-hosted restricted demo using isolated tasks and fully provisioned infrastructure-as-code; cost limits and cleanup.
+- AWS-hosted restricted demo using isolated tasks and fully provisioned infrastructure-as-code; cost limits and cleanup. Provisioning waits for owner approval of a measured cost estimate and security review (ADR-0006).
 
 ## One supported demonstration profile
 

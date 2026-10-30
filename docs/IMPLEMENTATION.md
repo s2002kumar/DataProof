@@ -27,7 +27,7 @@
 | 8 | FK-closure subset reproduction + developer-reviewed correction replay | Verified reproducer or honest `NOT_REPRODUCED`; correction gets a fresh immutable run |
 | 9 | GitHub App, signed preview gateway and review dashboard | Commit-bound check, binding-approval UI, authorized previews, diff inspector and AI finding view |
 | 10 | Fault benchmark, clean cases, baseline comparison and AI ablation | Results regenerated from frozen seeds; per-category coverage, fair baselines and limitations |
-| 11 | Restricted AWS hosting, Terraform, logs and independent task TTL cleanup | Real cloud run with no runner credentials, isolation and actual spend/cleanup evidence |
+| 11 | Restricted cloud hosting, infrastructure as code, logs and independent task TTL cleanup. **Approval-gated (ADR-0006):** first present a measured cost estimate, security implications and the lowest-cost viable options; provision nothing until approved | Owner approval recorded; then a real cloud run with no runner credentials, isolation and actual spend/cleanup evidence |
 | 12 | Release hardening: e2e/security sweeps, demo, README and runbook | Clean-checkout walkthrough; failures and unsupported cases documented honestly |
 
 Task order may overlap only when contracts are stable; do not begin speculative UI/API integration before run/evidence schemas have tests.
@@ -39,7 +39,7 @@ Task order may overlap only when contracts are stable; do not begin speculative 
 - **G2 — Correctness:** Known semantic corruption detected; legitimate transformations not wrongly rejected; error/unknown semantics handled.
 - **G3 — AI:** Model can explain with actual evidence but cannot alter verdict/authorization; measured vs fixed rules.
 - **G4 — Product:** GitHub PR → preview → observed failure → investigation → evidence → human review works without terminal handholding.
-- **G5 — Release:** AWS restricted demo, cleanup and costs observed; reproducible benchmark and video; docs reflect reality.
+- **G5 — Release:** AWS restricted demo (once approved under ADR-0006), cleanup and costs observed; reproducible benchmark and video; docs reflect reality.
 
 ## Scope and time reality
 
@@ -59,7 +59,7 @@ Planning estimate: **20–26 focused solo weeks at 15–20 genuinely available h
 10. `feat(github): SHA-bound review checks and binding decision flow`.
 11. `feat(web): reviewer dashboard and signed preview gateway`.
 12. `test(benchmark): neutral-label clean/fault corpus and ablations`.
-13. `infra: isolated Fargate execution, Terraform, independent TTL reconciler`.
+13. `infra: isolated Fargate execution backend, Terraform, independent TTL reconciler` (approval-gated, ADR-0006).
 14. `docs: publish verified demo, benchmark, cost and limitations`.
 
 These are suggested **future** commits, not actions already taken.
@@ -74,5 +74,5 @@ These are suggested **future** commits, not actions already taken.
 - [ ] At least one verified smaller reproducer or explicit impossibility boundary.
 - [ ] Correction replay cannot mutate original run and is human-initiated.
 - [ ] Unauthorized SQL, preview access and webhook tests are negative.
-- [ ] AWS task isolation and cleanup demonstrated; billing thresholds documented.
+- [ ] AWS task isolation and cleanup demonstrated; billing thresholds documented (requires approval under ADR-0006).
 - [ ] Benchmark results, source licenses, local reproduce and video are accurate.
