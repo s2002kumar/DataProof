@@ -1,0 +1,53 @@
+{
+  "contract_id": "commerce.c1_event_preservation",
+  "version": 1,
+  "description": "Every legacy payment event maps to exactly one ledger entry with equal fields.",
+  "required": true,
+  "severity": "CRITICAL",
+  "oracle": {
+    "source_path": "scenarios/commerce/oracles/c1_event_preservation.sql",
+    "base_sha": "aa6e427d334b832d952d658cae44f65f99ffaf74",
+    "query_sql": "SELECT event_id, order_id, event_kind, amount, occurred_at FROM legacy_payment_events",
+    "key_columns": [
+      "event_id"
+    ],
+    "expected_columns": {
+      "order_id": {
+        "kind": "EXACT",
+        "decimal_scale": null,
+        "tolerance": "0"
+      },
+      "event_kind": {
+        "kind": "EXACT",
+        "decimal_scale": null,
+        "tolerance": "0"
+      },
+      "amount": {
+        "kind": "DECIMAL",
+        "decimal_scale": 2,
+        "tolerance": "0"
+      },
+      "occurred_at": {
+        "kind": "INSTANT",
+        "decimal_scale": null,
+        "tolerance": "0"
+      }
+    },
+    "reference_first": false
+  },
+  "candidate_binding": {
+    "source_path": "scenarios/commerce/bindings/c1_ledger_entries.sql",
+    "head_sha": "8f3ab2a3b2ce14772811945b1f7ea036b769932e",
+    "query_sql": "SELECT source_event_id, order_id, entry_kind, amount, occurred_at FROM ledger_entries",
+    "api_route": null,
+    "column_mapping": {
+      "event_id": "source_event_id",
+      "order_id": "order_id",
+      "event_kind": "entry_kind",
+      "amount": "amount",
+      "occurred_at": "occurred_at"
+    }
+  },
+  "binding_review": "APPROVED",
+  "approved_binding_digest": "cd6861b929f695fae7fa2bb3bd09dbb6be9d120fd2a495cc4ca4f509b22ae3c5"
+}

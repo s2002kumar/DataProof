@@ -1,0 +1,12 @@
+{
+  "decision_id": "9c4a5f6b-3d7e-4f8a-9b2c-3456789abcde",
+  "run_id": "6f1d2c3e-0a4b-4c5d-8e9f-0123456789ab",
+  "head_sha": "8f3ab2a3b2ce14772811945b1f7ea036b769932e",
+  "action": "APPROVE_BINDING",
+  "actor": "example-maintainer",
+  "decided_at": "2026-10-31T15:00:00Z",
+  "comment": "Binding reads only ledger_entries.",
+  "binding_digest": "cd6861b929f695fae7fa2bb3bd09dbb6be9d120fd2a495cc4ca4f509b22ae3c5",
+  "pr_author": "example-maintainer",
+  "approver_separation": "PROCEDURAL"
+}

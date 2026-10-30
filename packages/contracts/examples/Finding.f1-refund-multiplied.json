@@ -1,0 +1,40 @@
+{
+  "finding_id": "finding-c1-amount-1002",
+  "kind": "INTEGRITY_VIOLATION",
+  "severity": "CRITICAL",
+  "summary": "Refund event 1002 was migrated with amount 99.98; the reference amount is 49.99.",
+  "affected_objects": [
+    "ledger_entries.amount"
+  ],
+  "examples": [
+    {
+      "key": [
+        {
+          "type": "integer",
+          "value": 1002
+        }
+      ],
+      "column": "amount",
+      "expected": {
+        "type": "decimal",
+        "value": "49.99"
+      },
+      "observed": {
+        "type": "decimal",
+        "value": "99.98"
+      }
+    }
+  ],
+  "redacted": false,
+  "evidence_ids": [
+    "ev-c1-amount-query"
+  ],
+  "source_location": {
+    "path": "sample-app/migrations/versions/0002_ledger_backfill.py",
+    "commit_sha": "8f3ab2a3b2ce14772811945b1f7ea036b769932e",
+    "start_line": 41,
+    "end_line": 49
+  },
+  "localization": "INFERRED",
+  "check_id": "c1.amount"
+}

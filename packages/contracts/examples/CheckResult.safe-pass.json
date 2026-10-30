@@ -1,0 +1,18 @@
+{
+  "check_id": "c1.amount",
+  "contract_id": "commerce.c1_event_preservation",
+  "contract_version": 1,
+  "required": true,
+  "outcome": "PASS",
+  "not_run_reason": null,
+  "error_code": null,
+  "expected_key_count": 6,
+  "observed_key_count": 6,
+  "mismatch_count": 0,
+  "mismatch_examples": [],
+  "evidence_ids": [
+    "ev-c1-amount-query"
+  ],
+  "dataset_digest": "2ef5ff6cd15b671553dadac08e6131a8780a5aae1ab1afb4c12b34cb63f44de0",
+  "elapsed_ms": 35
+}
