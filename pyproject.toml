@@ -9,6 +9,7 @@ dependencies = []
 dev = [
     "alembic>=1.16",
     "dataproof-contracts",
+    "dataproof-scenario-commerce",
     "jsonschema>=4.23",
     "mypy>=1.13",
     "pre-commit>=4.0",
@@ -25,13 +26,14 @@ dev = [
 package = false
 
 [tool.uv.workspace]
-members = ["packages/*"]
+members = ["packages/*", "scenarios/*"]
 # The sample app is the application under review: its own project and lockfile, never
 # DataProof's (ADR-0004 builds its runtime image from that lockfile).
 exclude = ["sample-app"]
 
 [tool.uv.sources]
 dataproof-contracts = { workspace = true }
+dataproof-scenario-commerce = { workspace = true }
 
 [tool.ruff]
 target-version = "py312"
@@ -45,7 +47,7 @@ select = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["conftest", "dataproof_contracts"]
+known-first-party = ["commerce_scenario", "conftest", "dataproof_contracts"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
@@ -55,6 +57,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 files = [
     "packages/contracts/src",
+    "scenarios/commerce/src",
     "sample-app/migrations",
     "tests",
 ]
