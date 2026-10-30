@@ -50,7 +50,39 @@ For a source REFUND event of $49.99 with two `order_items`, the candidate stores
 
 **Secondary F2 — duplicate-row variant:** Use the same join **without** `GROUP BY`, with an intentionally missing `source_event_id UNIQUE` in that specific faulty migration, then demonstrate C1 multiplicity and C8 schema failures after successful execution. F2 is not the hero fault.
 
-**Additional F3 — aggregate-preserving value corruption:** Transpose two unequal refund amounts between **stable event IDs on the same order and in the same currency**, preserving per-order/per-currency refund totals, the same row/key counts and null profiles. A correctly configured total-aggregate B1 baseline can pass this case; C1 keyed value comparison must fail. This is the honest test of deeper semantic verification against aggregate-only reconciliation.
+**Additional F3 — aggregate-preserving value corruption:** Two unequal refund amounts are exchanged between **stable event IDs on the same order** (and therefore in the same currency), preserving per-order/per-currency refund totals, the same row/key counts and null profiles. A correctly configured total-aggregate B1 baseline can pass this case; C1 keyed value comparison must fail. This is the honest test of deeper semantic verification against aggregate-only reconciliation.
+
+F3 is a migration bug, not a hand edit. The backfill revision stages amounts in `payment_amount_staging`, which carries the natural key `(order_id, event_kind, occurred_at)` but no `event_id`, then joins staged amounts back to events on that key, which the author wrongly assumed unique. Ties are broken positionally, with a different ordering on each side:
+
+```sql
+-- F3: sample of the faulty amount join in the Alembic backfill revision.
+-- An earlier step copies (order_id, event_kind, occurred_at, external_ref, amount)
+-- from legacy_payment_events into payment_amount_staging, which has no event_id.
+WITH events AS (
+  SELECT e.event_id, e.order_id, e.event_kind, e.occurred_at,
+         ROW_NUMBER() OVER (PARTITION BY e.order_id, e.event_kind, e.occurred_at
+                            ORDER BY e.event_id) AS tie_rank
+  FROM legacy_payment_events AS e
+), staged AS (
+  SELECT s.order_id, s.event_kind, s.occurred_at, s.amount,
+         ROW_NUMBER() OVER (PARTITION BY s.order_id, s.event_kind, s.occurred_at
+                            ORDER BY s.external_ref) AS tie_rank
+  FROM payment_amount_staging AS s
+)
+INSERT INTO ledger_entries
+  (order_id, ledger_sequence, source_event_id, entry_kind, amount, occurred_at)
+SELECT ev.order_id,
+       ROW_NUMBER() OVER (PARTITION BY ev.order_id ORDER BY ev.occurred_at, ev.event_id),
+       ev.event_id, ev.event_kind, st.amount, ev.occurred_at
+FROM events AS ev
+JOIN staged AS st
+  ON  st.order_id = ev.order_id
+  AND st.event_kind = ev.event_kind
+  AND st.occurred_at = ev.occurred_at
+  AND st.tie_rank = ev.tie_rank;
+```
+
+When two refunds on one order share an `occurred_at` instant and their `event_id` order is the reverse of their `external_ref` order, each receives the other's amount. Every staged amount is used exactly once, so totals, counts, keys and null profiles are unchanged. A `DISTINCT ON`/`LIMIT 1` tie-break is deliberately **not** used: it would give both events the same amount, change the refund total and make the fault visible to an aggregate baseline, so it would no longer be F3. As with F1, this SQL is a test target, not asserted as successfully executed until integration tests exist.
 
 The independent protected `oracle` calculates expected event fields and per-order/per-currency refund totals **only from reference data**. Fault labels are stored in a private benchmark manifest, never in investigator-visible filenames, branch names or commit messages.
 
@@ -60,7 +92,7 @@ The independent protected `oracle` calculates expected event fields and per-orde
 
 ## Fixture-generation rules
 
-Use deterministic seeded Python/SQL factories (not generated executable SQL from an LLM): at minimum include multiple items per order, multiple captures/refunds, zero-refund orders, two currencies, orders at DST boundaries, large-valued fractional amounts, repeated `external_ref` prefixes across orders, same-cent amounts and NULL optional fields (not nonsensical "composite ledger key collisions"). Publish fixture digest and full seed pseudorandom seed. All seed rows use fictional identities and account identifiers.
+Use deterministic seeded Python/SQL factories (not generated executable SQL from an LLM): at minimum include multiple items per order, multiple captures/refunds, zero-refund orders, two currencies, orders at DST boundaries, large-valued fractional amounts, repeated `external_ref` prefixes across orders, same-cent amounts and NULL optional fields (not nonsensical "composite ledger key collisions"). Include the F3 tie: at least one order with two `REFUND` events at an identical `occurred_at` instant, unequal amounts, and `external_ref` order opposite to `event_id` order; the safe PR, which keys on `event_id`, must pass on it. Publish fixture digest and full seed pseudorandom seed. All seed rows use fictional identities and account identifiers.
 
 ## Contract trust and PR changes
 

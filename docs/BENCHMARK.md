@@ -16,7 +16,7 @@ Demonstrate (1) real migrations run in isolated environments, (2) meaningful cor
 | Family | Example | Expected signal |
 |---|---|---|
 | Grouped join multiplication (F1) | one refund row amount 49.99 → 99.98; same row/key count | per-event exact amount AND amount SUM baseline when configured |
-| Amount transposition (F3) | two stable refund IDs exchange amounts; total unchanged | per-event keyed value check; aggregate-only baseline may pass |
+| Amount transposition (F3) | two refunds tied on `(order_id, event_kind, occurred_at)` exchange amounts through a positional tie-break; total unchanged | per-event keyed value check; aggregate-only baseline may pass |
 | Balanced loss+duplication | remove one event and duplicate another | keyed/multiset mapping despite equal total rows |
 | Lossy numeric conversion | truncate/round fractional currency | exact NUMERIC contract |
 | Timestamp conversion | shift UTC vs local time | instant-preservation contract |
