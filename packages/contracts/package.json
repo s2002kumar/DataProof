@@ -1,0 +1,18 @@
+{
+  "name": "@dataproof/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cross-language conformance tests for the DataProof contract JSON Schemas",
+  "scripts": {
+    "typecheck": "tsc --project tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
