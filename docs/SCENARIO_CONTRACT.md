@@ -9,7 +9,7 @@ Reference PostgreSQL schema (`reference` app revision):
 - `customers(customer_id PRIMARY KEY, ...)`
 - `orders(order_id PRIMARY KEY, customer_id FK, currency CHAR(3), status, placed_at TIMESTAMPTZ, ...)`
 - `order_items(order_id FK, line_no, unit_price NUMERIC(18,4), quantity INT, PRIMARY KEY(order_id,line_no))`
-- `legacy_payment_events(event_id PRIMARY KEY, order_id FK, event_kind ENUM('CAPTURE','REFUND'), amount NUMERIC(18,2), occurred_at TIMESTAMPTZ, external_ref UNIQUE, ...)`
+- `legacy_payment_events(event_id PRIMARY KEY, order_id FK, event_kind payment_event_kind, amount NUMERIC(18,2), occurred_at TIMESTAMPTZ, external_ref UNIQUE, ...)`, where `payment_event_kind` is a PostgreSQL enum type: `CREATE TYPE payment_event_kind AS ENUM ('CAPTURE', 'REFUND')`
 
 Candidate schema (`candidate` app revision) normalizes payment/refund events into `ledger_entries(order_id, ledger_sequence, source_event_id UNIQUE, entry_kind, amount NUMERIC(18,2), occurred_at TIMESTAMPTZ, PRIMARY KEY(order_id,ledger_sequence))` with application-accessible order summary views/endpoints.
 
