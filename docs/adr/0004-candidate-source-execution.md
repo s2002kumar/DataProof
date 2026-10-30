@@ -16,6 +16,17 @@ Changes to any `Dockerfile`, runtime/dependency manifest, lockfile or outside `a
 4. **A failed build is an error, not a policy denial.** A PR that imports a package absent from the lockfile fails the build and reports `ERROR: CANDIDATE_BUILD_FAILED`, distinct from `NOT_EXECUTED`: the change was eligible and ran, but did not build. An API that fails to import or start reports `ERROR: CANDIDATE_START_FAILED`.
 5. **Optional cost saving.** The reference frontend may be prebuilt from the protected base branch; only the candidate needs an in-task build.
 
+**Source artifact delivery:**
+
+1. The trusted broker fetches `GET /repos/{owner}/{repo}/tarball/{sha}` with the GitHub App installation token, stores the archive under a run-scoped S3 prefix and records its SHA-256.
+2. The supervisor starts the task with a short-lived **pre-signed GET URL** for that object and the expected SHA-256 as launch parameters (RunTask container overrides), so the PR cannot influence either value. The bucket policy denies run-source reads that do not arrive through the project's S3 gateway VPC endpoint (`aws:SourceVpce`), so a leaked URL is useless outside the VPC.
+3. A **trusted entrypoint baked into the runtime image** downloads the archive, verifies its SHA-256 against the launch parameter, unpacks it read-only, then drops to an unprivileged user before any PR code runs. A mismatch is `ERROR: SOURCE_DIGEST_MISMATCH` and no PR code executes.
+4. **Digest semantics:** GitHub tarballs are not guaranteed to be byte-stable across fetches, so the SHA-256 proves the integrity of *this staged artifact*, not that a later fetch reproduces it. Comparing the unpacked tree with the commit's git tree hash is optional extra rigor.
+
+**Evidence capture:** the broker takes `pg_dump -Fc` of each task database over the private network with a dedicated dump role and writes the sealed artifact to S3 itself. Tasks never dump or upload, so they never need S3 write access.
+
+**Network and credential isolation:** security groups admit PostgreSQL (port 5432) on a run task only from the supervisor, verifier and broker, and application ports only from the preview gateway; the candidate cannot reach the reference database, and vice versa. PostgreSQL superuser credentials exist only in the PostgreSQL sidecar container's environment; the application container is never given them.
+
 **Alternatives rejected:** (1) Run PR Dockerfile/BuildKit/Kaniko from untrusted PR in an environment with push credentials; (2) let the control plane check out/import PR source; (3) use `next start` against stale prebuilt output; (4) enable Docker-in-Docker in Fargate.
 
 **Consequence:** Supported PRs cannot introduce arbitrary new dependencies; preview compilation has measured latency and CPU cost. Verify offline Next build behavior with the chosen Next.js and pnpm versions in real tasks before marking this secure or working. Never claim arbitrary repo support.
