@@ -22,7 +22,7 @@ Run these before pushing. CI runs the same commands, and every check must pass b
 | Python unit and PostgreSQL integration tests | `uv run pytest` |
 | TypeScript type check and JSON Schema conformance | `pnpm run typecheck` and `pnpm run test` |
 
-Integration tests need a real PostgreSQL. Set `DATAPROOF_TEST_DATABASE_URL`, or keep Docker running so that testcontainers can start `postgres:17-alpine`. The tests never skip: without a database they error.
+Integration tests need a real PostgreSQL. Set `DATAPROOF_TEST_DATABASE_URL`, or keep Docker running so that testcontainers can start `postgres:17-alpine`. Tests of the local execution backend (marker `docker`) always need Docker: the session builds the trusted runtime image from `infra/docker/runtime/Dockerfile` (about a minute the first time, then cached) and starts real containers. The tests never skip: without a database or Docker they error.
 
 The sample app has its own lockfile: after changing `sample-app/pyproject.toml`, run `uv lock --project sample-app`.
 

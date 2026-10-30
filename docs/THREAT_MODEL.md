@@ -36,7 +36,7 @@ A public service that builds/runs arbitrary GitHub repositories cannot be consid
 
 ## Local execution backend
 
-Local Docker (ADR-0006) is a trusted-development backend. Per run and role it uses a separate internal network with no route to the internet, the host or the other role, digest-pinned images, dropped capabilities, `no-new-privileges`, non-root users, resource limits, run-scoped labels and loopback-only database ports, and every one of these controls has a negative test. It cannot provide VM-level isolation: containers share the host kernel and the operator's Docker daemon is trusted. Passing local tests does not demonstrate the hosted-only controls above, and no report or document may present it as the hosted boundary.
+Local Docker (ADR-0006) is a trusted-development backend. Per run and role it uses a separate internal network with no route to the internet, the host or the other role, digest-pinned images, dropped capabilities, `no-new-privileges`, non-root users, resource limits, run-scoped labels and loopback-only database ports, and every one of these controls has a negative test (`tests/integration/test_local_docker.py`, described in the [runner README](../services/runner/README.md#tested-isolation)). It cannot provide VM-level isolation: containers share the host kernel and the operator's Docker daemon is trusted. Passing local tests does not demonstrate the hosted-only controls above, and no report or document may present it as the hosted boundary.
 
 ## Mandatory security tests
 
