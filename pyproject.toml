@@ -13,6 +13,8 @@ dev = [
     "dataproof-runner",
     "dataproof-scenario-commerce",
     "dataproof-verifier",
+    "fastapi>=0.115",  # tests of the sample app's API
+    "httpx2>=2.16",  # transport for the Starlette TestClient
     "jsonschema>=4.23",
     "mypy>=1.13",
     "pre-commit>=4.0",
@@ -60,6 +62,7 @@ known-first-party = [
     "conftest",
     "control_env",
     "docker_env",
+    "sample_app_env",
     "dataproof_contracts",
     "dataproof_control",
     "dataproof_runner",
@@ -79,6 +82,7 @@ files = [
     "services/runner/src",
     "scenarios/commerce/src",
     "scenarios/commerce/changes",
+    "sample-app/app",
     "sample-app/migrations",
     "tests",
 ]
