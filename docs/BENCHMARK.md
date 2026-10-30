@@ -7,14 +7,14 @@ Demonstrate (1) real migrations run in isolated environments, (2) meaningful cor
 ## Data and licensing
 
 - Primary: versioned, deterministic synthetic **Commerce Orders & Refunds** PostgreSQL database seeded by controlled code. Include USD/cents and a second currency rule; multiple payments/refunds per order; nested join cardinality; precision/null/timezone/Unicode; composite keys; orphan candidates; repeated/partial runs. No real user PII.
-- Secondary robustness: independent PostgreSQL sample database such as Pagila (PostgreSQL license) only when relevant; license, exact revision, adaptations and downloaded hashes documented: https://github.com/devrimgunduz/pagila
+- Secondary robustness: independent PostgreSQL sample database such as Pagila (PostgreSQL license) only when relevant; license, exact revision, adaptations and downloaded hashes documented: <https://github.com/devrimgunduz/pagila>
 - Scale tiers: small (fast CI), medium (developer demo), large (only if resource measurements justify); record actual rows, no predetermined 'millions' marketing claim.
 - No ground-truth labels, informative branch names (e.g. `bug/refund-join-multiplication`), injected-fault filenames or revealing commit messages are available to the investigator. Use neutral `change/ledger-backfill-07` / `case-007` style identifiers; store labels in a separate inaccessible evaluator manifest. Source changes may be inspected as evidence, but the investigator `read_source` tool excludes benchmark fixtures, labels, evaluation configs and design documents that describe F1/F2/F3.
 
 ## Fault families and clean controls
 
 | Family | Example | Expected signal |
-|---|---|---|
+| --- | --- | --- |
 | Grouped join multiplication (F1) | one refund row amount 49.99 → 99.98; same row/key count | per-event exact amount AND amount SUM baseline when configured |
 | Amount transposition (F3) | two refunds tied on `(order_id, event_kind, occurred_at)` exchange amounts through a positional tie-break; total unchanged | per-event keyed value check; aggregate-only baseline may pass |
 | Balanced loss+duplication | remove one event and duplicate another | keyed/multiset mapping despite equal total rows |

@@ -7,7 +7,7 @@ The repo content, SQL, pull-request body, migration comments and AI tool-visible
 ## Threat-to-control map
 
 | Threat | Primary controls | Verification gate |
-|---|---|---|
+| --- | --- | --- |
 | Malicious PR changes `Dockerfile`, dependency manifests or lockfiles | Immutable runtime digest, `allowed_change_roots`, protected configuration; unapproved dependency/runtime changes → `NOT_EXECUTED: DEPENDENCY_CHANGE_REQUIRES_IMAGE_APPROVAL` | PR changing Dockerfile or lockfile is rejected before task creation |
 | Candidate Python/Next source performs hostile commands during import/build | Source executes/compiles only inside untrusted task with **no task IAM role**, no NAT/egress, no GitHub/LLM keys, restricted ephemeral DB privileges, bounded CPU/disk/TTL; never on API host | Attempted network egress, host access, and secret discovery all denied |
 | SQL exfiltration or cross-run network access | Isolated per-run tasks/networks, restricted egress and IAM, disposable DB credentials, no production connections | External network/other-run DB access denied in tests |

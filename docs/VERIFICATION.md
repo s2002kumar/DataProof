@@ -50,7 +50,6 @@ If a schema change introduces a new or changed candidate binding without a diges
 
 **Reference-first rule:** For any invariant that is **not** reference/candidate equivalence (example: `refund_total <= capture_total`), evaluate it first against the reference fixture. If reference fails, emit `ERROR: ORACLE_VIOLATED_ON_REFERENCE` attributed to fixture/contract, **not** PR-induced corruption. Only then test candidate. No required check may be reported green if not executed.
 
-
 ## Check outcome taxonomy
 
 - `PASS`: executed, expected condition demonstrably satisfied for this snapshot.

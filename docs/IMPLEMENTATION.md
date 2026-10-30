@@ -15,7 +15,7 @@
 ## Dependency ordered work packages
 
 | Order | Issue group | Exit evidence |
-|---|---|---|
+| --- | --- | --- |
 | 0 | Document sign-off and threat-model review | Independent design review with all blockers resolved; ADRs accepted |
 | 1 | Typed monorepo foundation, result contracts and gated CI | New checkout green; JSON schema and PostgreSQL integration test run |
 | 2 | Commerce baseline, Alembic migrations, deterministic fixture and F1 hand-written proof | Same row counts/keys but wrong refund value is demonstrated against real PostgreSQL, and the safe migration passes the same check with zero mismatches |
