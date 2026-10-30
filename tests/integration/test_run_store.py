@@ -7,6 +7,7 @@ from typing import Any
 
 import psycopg
 import pytest
+from psycopg import sql
 
 from control_env import (
     LEASE,
@@ -387,3 +388,14 @@ def test_concurrent_heads_on_one_pull_request_leave_exactly_one_open_run(
             "SELECT count(*) FROM runs WHERE superseded_by IS NULL AND state = 'QUEUED'"
         ).fetchone()
     assert open_runs == (1,)
+
+
+@pytest.mark.parametrize(
+    "table", ["run_sources", "run_steps", "run_checks", "run_evidence", "run_reports"]
+)
+def test_run_results_are_write_once(control_dsn: str, table: str) -> None:
+    with (
+        psycopg.connect(control_dsn, autocommit=True) as conn,
+        pytest.raises(psycopg.errors.RaiseException, match="write-once"),
+    ):
+        conn.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(table)))
