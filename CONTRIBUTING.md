@@ -24,6 +24,8 @@ Run these before pushing. CI runs the same commands, and every check must pass b
 
 Integration tests need a real PostgreSQL. Set `DATAPROOF_TEST_DATABASE_URL`, or keep Docker running so that testcontainers can start `postgres:17-alpine`. The tests never skip: without a database they error.
 
+The sample app has its own lockfile: after changing `sample-app/pyproject.toml`, run `uv lock --project sample-app`.
+
 After changing a contract model, regenerate its JSON Schema as described in the [contracts README](packages/contracts/README.md#schemas-and-examples).
 
 ## Pull requests

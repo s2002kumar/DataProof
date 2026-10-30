@@ -2,6 +2,8 @@
 
 **Purpose:** remove ambiguity about which SQL transformations and business facts the complete project will test. This is the approved design, **not** implemented database code: each statement becomes a tested fixture or contract as implementation lands.
 
+**Implementation status:** the reference schema, the baseline fixture, the safe change (change set `ledger-backfill-01`) and F1 (`ledger-backfill-07`) are implemented in [`sample-app/`](../sample-app/README.md) and [`scenarios/commerce/`](../scenarios/commerce/README.md) and exercised against PostgreSQL by `tests/integration/test_commerce_migrations.py`. F2, F3, the decimal-loss and timestamp faults and the clean intentional-change PR are not implemented yet.
+
 ## Fixed commerce domain
 
 Reference PostgreSQL schema (`reference` app revision):
@@ -46,7 +48,7 @@ JOIN order_items AS oi ON oi.order_id = e.order_id
 GROUP BY e.event_id, e.order_id, e.event_kind, e.occurred_at;
 ```
 
-For a source REFUND event of $49.99 with two `order_items`, the candidate stores **one $99.98 refund event**, preserving the number of event rows but not its value. Verify that PostgreSQL executes this successfully under real constraints, and that C1/C2 reject it. Note: the query is a test target, not asserted as successfully executed until integration tests exist.
+For a source REFUND event of $49.99 with two `order_items`, the candidate stores **one $99.98 refund event**, preserving the number of event rows but not its value. Verify that PostgreSQL executes this successfully under real constraints, and that C1/C2 reject it. This query is change set `ledger-backfill-07`. An integration test confirms that it executes on PostgreSQL 17 with row counts, keys, uniqueness and null profiles intact, while the C1 per-event comparison fails (expected 49.99, observed 99.98 for event 1002) and the refund total changes.
 
 **F1 side effects, decided up front:** the inner `JOIN order_items` multiplies *every* event on a multi-item order, captures included, so C3 capture totals also fail; the demo narrates the refund. The same join silently drops events for orders with zero items, so the fixture guarantees that **every order has at least one item**, checked by a fixture-validation test before any migration runs. F1 therefore keeps one ledger row per source event as stated above. Event loss from item-less orders is a different fault family and, if benchmarked, is its own labeled case, not part of F1.
 
@@ -84,7 +86,7 @@ JOIN staged AS st
   AND st.tie_rank = ev.tie_rank;
 ```
 
-When two refunds on one order share an `occurred_at` instant and their `event_id` order is the reverse of their `external_ref` order, each receives the other's amount. Every staged amount is used exactly once, so totals, counts, keys and null profiles are unchanged. A `DISTINCT ON`/`LIMIT 1` tie-break is deliberately **not** used: it would give both events the same amount, change the refund total and make the fault visible to an aggregate baseline, so it would no longer be F3. As with F1, this SQL is a test target, not asserted as successfully executed until integration tests exist.
+When two refunds on one order share an `occurred_at` instant and their `event_id` order is the reverse of their `external_ref` order, each receives the other's amount. Every staged amount is used exactly once, so totals, counts, keys and null profiles are unchanged. A `DISTINCT ON`/`LIMIT 1` tie-break is deliberately **not** used: it would give both events the same amount, change the refund total and make the fault visible to an aggregate baseline, so it would no longer be F3. This SQL is a test target, not asserted as successfully executed until its integration test exists.
 
 The independent protected `oracle` calculates expected event fields and per-order/per-currency refund totals **only from reference data**. Fault labels are stored in a private benchmark manifest, never in investigator-visible filenames, branch names or commit messages.
 
