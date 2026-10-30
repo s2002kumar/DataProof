@@ -9,6 +9,8 @@ dependencies = []
 dev = [
     "alembic>=1.16",
     "dataproof-contracts",
+    "dataproof-control",
+    "dataproof-runner",
     "dataproof-scenario-commerce",
     "dataproof-verifier",
     "jsonschema>=4.23",
@@ -27,13 +29,15 @@ dev = [
 package = false
 
 [tool.uv.workspace]
-members = ["packages/*", "scenarios/*"]
+members = ["packages/*", "scenarios/*", "services/*"]
 # The sample app is the application under review: its own project and lockfile, never
 # DataProof's (ADR-0004 builds its runtime image from that lockfile).
 exclude = ["sample-app"]
 
 [tool.uv.sources]
 dataproof-contracts = { workspace = true }
+dataproof-control = { workspace = true }
+dataproof-runner = { workspace = true }
 dataproof-scenario-commerce = { workspace = true }
 dataproof-verifier = { workspace = true }
 
@@ -53,7 +57,10 @@ known-first-party = [
     "commerce_env",
     "commerce_scenario",
     "conftest",
+    "control_env",
     "dataproof_contracts",
+    "dataproof_control",
+    "dataproof_runner",
     "dataproof_verifier",
 ]
 
@@ -65,7 +72,9 @@ strict = true
 plugins = ["pydantic.mypy"]
 files = [
     "packages/contracts/src",
+    "packages/control/src",
     "packages/verifier/src",
+    "services/runner/src",
     "scenarios/commerce/src",
     "scenarios/commerce/changes",
     "sample-app/migrations",

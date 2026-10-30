@@ -8,6 +8,7 @@ import psycopg
 import pytest
 
 from commerce_env import DatabaseFactory, database_factory
+from dataproof_control import RunStore, migrate
 
 CONTRACTS_DIR = Path(__file__).resolve().parents[1] / "packages" / "contracts"
 EXAMPLES_DIR = CONTRACTS_DIR / "examples"
@@ -56,3 +57,17 @@ def new_database(postgres_dsn: str) -> Iterator[DatabaseFactory]:
     """Throwaway databases for one test, dropped afterwards."""
     with database_factory(postgres_dsn) as create:
         yield create
+
+
+@pytest.fixture
+def control_dsn(new_database: DatabaseFactory) -> str:
+    """A fresh control database with every control migration applied."""
+    dsn = new_database()
+    with psycopg.connect(dsn) as connection:
+        migrate(connection)
+    return dsn
+
+
+@pytest.fixture
+def store(control_dsn: str) -> RunStore:
+    return RunStore(control_dsn)

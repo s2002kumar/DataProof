@@ -16,7 +16,7 @@ def test_terminal_states() -> None:
 
 
 def test_examples_are_valid(example: ExampleLoader) -> None:
-    for name in ("webhook-complete", "binding-approval", "not-executed"):
+    for name in ("webhook-complete", "binding-approval", "not-executed", "superseded"):
         ReviewRun.model_validate(example(f"ReviewRun.{name}"))
 
 
@@ -109,3 +109,23 @@ def test_lease_times_must_be_ordered(example: ExampleLoader) -> None:
     }
     with pytest.raises(ValidationError, match="lease times"):
         ReviewRun.model_validate(data)
+
+
+def test_superseded_run_names_its_successor(example: ExampleLoader) -> None:
+    data = example("ReviewRun.superseded")
+    data["superseded_by"] = None
+    with pytest.raises(ValidationError, match="must name the run that superseded it"):
+        ReviewRun.model_validate(data)
+
+
+def test_run_cannot_supersede_itself(example: ExampleLoader) -> None:
+    data = example("ReviewRun.superseded")
+    data["superseded_by"] = data["run_id"]
+    with pytest.raises(ValidationError, match="cannot supersede itself"):
+        ReviewRun.model_validate(data)
+
+
+def test_successor_may_be_recorded_before_cleanup_finishes(example: ExampleLoader) -> None:
+    data = example("ReviewRun.superseded")
+    data["state"] = "CLEANING"
+    assert ReviewRun.model_validate(data).superseded_by is not None

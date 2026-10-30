@@ -15,6 +15,7 @@
   "state": "COMPLETE",
   "error_code": null,
   "not_executed_reason": null,
+  "superseded_by": null,
   "lease": null,
   "isolation_id": "run-6f1d2c3e",
   "created_at": "2026-10-30T15:00:00Z",
