@@ -9,7 +9,7 @@ A database migration is never 'safe' in the abstract. A run only establishes tha
 A commerce service migrates from legacy order payment/refund storage to an explicit transaction ledger. Domain truth is defined by previously established transaction semantics. Examples (to turn into contract fixtures before code):
 
 - For each order ID, captured payments minus refunds is preserved to the cent, except explicitly authorized business adjustments.
-- Each source payment/refund event maps to the expected target entry/entities (support composite event keys, stable business identity, and declared intentional one-to-many mappings).
+- Each `legacy_payment_events` row maps to exactly one `ledger_entries` row by `event_id` ↔ `source_event_id` (the verifier also supports typed composite keys and declared intentional one-to-many mappings for other contracts).
 - All target entries reference a real order and belong to the same tenant.
 - No source refund disappears or is multiplied through a join.
 - Decimal values use exact NUMERIC/Decimal arithmetic; rounding policy must be explicit.
