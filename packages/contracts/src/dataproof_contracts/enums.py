@@ -65,6 +65,8 @@ class NotRunReason(StrEnum):
     UNSUPPORTED = "UNSUPPORTED"
     EXCLUDED = "EXCLUDED"
     TIMED_OUT = "TIMED_OUT"
+    #: A check it depends on did not pass, for example the candidate migration failed.
+    PREREQUISITE_FAILED = "PREREQUISITE_FAILED"
 
 
 class ErrorCode(StrEnum):
@@ -82,6 +84,14 @@ class ErrorCode(StrEnum):
     UNSUPPORTED_VALUE_TYPE = "UNSUPPORTED_VALUE_TYPE"
     #: A pipeline stage failed or lost its worker more often than the retry budget allows.
     RETRY_BUDGET_EXHAUSTED = "RETRY_BUDGET_EXHAUSTED"
+    #: The trusted configuration differs from the one the run's inputs were pinned to.
+    CONFIG_DIGEST_MISMATCH = "CONFIG_DIGEST_MISMATCH"
+    #: The baseline fixture differs from the one the run's inputs were pinned to.
+    DATASET_DIGEST_MISMATCH = "DATASET_DIGEST_MISMATCH"
+    #: The base commit's own migrations failed, so no baseline environment could be built.
+    BASE_MIGRATION_FAILED = "BASE_MIGRATION_FAILED"
+    #: The reference and candidate baselines differ after loading; nothing can be compared.
+    BASELINE_DIVERGED = "BASELINE_DIVERGED"
 
 
 class NotExecutedReason(StrEnum):

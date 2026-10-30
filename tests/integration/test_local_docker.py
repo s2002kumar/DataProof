@@ -339,3 +339,29 @@ def test_run_labels_name_the_run(backend: LocalDockerBackend) -> None:
         f"{handle.isolation_id}-int",
         f"{handle.isolation_id}-ctl",
     }
+
+
+def test_attach_recovers_a_working_handle_and_roles_can_be_destroyed_alone(
+    backend: LocalDockerBackend,
+) -> None:
+    run_id = uuid4()
+    provisioned = {
+        role: backend.provision(run_id, role, expires_at=_later()) for role in Environment
+    }
+    attached = backend.attach(run_id, Environment.CANDIDATE)
+    assert attached == provisioned[Environment.CANDIDATE]
+    assert _query(attached, "SELECT current_user") == [("dataproof_owner",)]
+    assert backend.attach(uuid4(), Environment.CANDIDATE) is None
+
+    report = backend.destroy(run_id, role=Environment.CANDIDATE)
+    assert len(report.removed) == 3
+    assert backend.attach(run_id, Environment.CANDIDATE) is None
+    assert backend.attach(run_id, Environment.REFERENCE) == provisioned[Environment.REFERENCE]
+
+
+def test_attach_ignores_environments_of_another_scope(
+    backend: LocalDockerBackend, docker_client: docker.DockerClient
+) -> None:
+    handle = backend.provision(uuid4(), Environment.CANDIDATE, expires_at=_later())
+    neighbour = LocalDockerBackend(scope=f"{backend.scope}-y", client=docker_client)
+    assert neighbour.attach(handle.run_id, Environment.CANDIDATE) is None

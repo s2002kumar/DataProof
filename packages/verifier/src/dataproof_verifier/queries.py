@@ -22,7 +22,7 @@ from pydantic import TypeAdapter
 from dataproof_contracts import ErrorCode, TypedValue, typed_value
 
 Row = tuple[object, ...]
-_ROWS = TypeAdapter(list[list[TypedValue]])
+_ROW = TypeAdapter(list[TypedValue])
 
 
 @dataclass(frozen=True)
@@ -53,11 +53,20 @@ def sql_digest(query: str) -> str:
 
 
 def _result_digest(rows: tuple[Row, ...]) -> str:
+    """SHA-256 of the result as a multiset of typed rows.
+
+    Oracle and binding queries have no ORDER BY, and PostgreSQL may return the same rows in a
+    different order from one run to the next, so rows are hashed in sorted order of their
+    canonical encoding: the same rows always give the same digest.
+    """
     try:
-        typed = [[typed_value(value) for value in row] for row in rows]
+        encoded = sorted(_ROW.dump_json([typed_value(value) for value in row]) for row in rows)
     except (TypeError, ValueError) as exc:
         raise QueryError(ErrorCode.UNSUPPORTED_VALUE_TYPE, str(exc)) from exc
-    return hashlib.sha256(_ROWS.dump_json(typed)).hexdigest()
+    digest = hashlib.sha256()
+    for row in encoded:
+        digest.update(row + b"\n")
+    return digest.hexdigest()
 
 
 def _status(connection: psycopg.Connection[Any]) -> TransactionStatus:

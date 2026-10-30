@@ -45,13 +45,17 @@ class BindingFile(_File):
     column_mapping: dict[str, str]
 
 
-def _read(path: Path) -> dict[str, object]:
-    with path.open("rb") as handle:
-        return tomllib.load(handle)
-
-
 def load_oracle(path: Path, *, source_path: str, base_sha: str) -> tuple[OracleFile, Oracle]:
-    spec = OracleFile.model_validate(_read(path))
+    return parse_oracle(path.read_text("utf-8"), source_path=source_path, base_sha=base_sha)
+
+
+def load_binding(path: Path, *, source_path: str, head_sha: str) -> tuple[str, CandidateBinding]:
+    return parse_binding(path.read_text("utf-8"), source_path=source_path, head_sha=head_sha)
+
+
+def parse_oracle(text: str, *, source_path: str, base_sha: str) -> tuple[OracleFile, Oracle]:
+    """Parse an oracle file's text, for example a member of the base commit's source archive."""
+    spec = OracleFile.model_validate(tomllib.loads(text))
     oracle = Oracle(
         source_path=source_path,
         base_sha=base_sha,
@@ -63,8 +67,9 @@ def load_oracle(path: Path, *, source_path: str, base_sha: str) -> tuple[OracleF
     return spec, oracle
 
 
-def load_binding(path: Path, *, source_path: str, head_sha: str) -> tuple[str, CandidateBinding]:
-    spec = BindingFile.model_validate(_read(path))
+def parse_binding(text: str, *, source_path: str, head_sha: str) -> tuple[str, CandidateBinding]:
+    """Parse a binding file's text; the text is untrusted data proposed by the pull request."""
+    spec = BindingFile.model_validate(tomllib.loads(text))
     binding = CandidateBinding(
         source_path=source_path,
         head_sha=head_sha,

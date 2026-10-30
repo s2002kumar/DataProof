@@ -77,6 +77,10 @@ class AppRepo:
         self._git("commit", "-q", "-m", message)
         return self._git("rev-parse", "HEAD")
 
+    def show(self, sha: str, path: str) -> str:
+        """A file's text at a commit."""
+        return self._git("show", f"{sha}:{path}")
+
     def with_revision(self, filename: str, text: str) -> str:
         """A head commit that adds one Alembic revision to the sample app."""
         return self.commit(
@@ -143,3 +147,34 @@ def probe_revision(targets: Mapping[str, tuple[str, int]]) -> str:
         )
     )"""  # noqa: S608
     return revision("9a0b1c2d3e4f", body, imports="import json\nimport os\nimport socket")
+
+
+ORACLES = REPO / "scenarios" / "commerce" / "oracles"
+ORACLE_DIR = "dataproof/oracles"
+BINDING_DIR = "dataproof/bindings"
+
+
+class CommerceRepo(AppRepo):
+    """The sample app plus its protected oracles at the base; change sets as pull-request heads."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(path)
+        oracles = {
+            f"{ORACLE_DIR}/{p.name}": p.read_text("utf-8") for p in sorted(ORACLES.glob("*.toml"))
+        }
+        self.base = self.commit(self.base, oracles, "Protect the commerce oracles")
+
+    def change(self, change: str, extra: Mapping[str, str | None] | None = None) -> str:
+        """A head commit adding a change set's revision and proposing its bindings."""
+        (revision_file,) = (CHANGES / change).glob("*.py")
+        files: dict[str, str | None] = {
+            f"{SAMPLE_APP}/migrations/versions/{revision_file.name}": revision_file.read_text(
+                "utf-8"
+            ),
+            **{
+                f"{BINDING_DIR}/{p.name}": p.read_text("utf-8")
+                for p in sorted((CHANGES / change / "bindings").glob("*.toml"))
+            },
+            **(extra or {}),
+        }
+        return self.commit(self.base, files, f"Apply {change}")
