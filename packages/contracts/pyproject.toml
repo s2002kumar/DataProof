@@ -2,6 +2,7 @@
 name = "dataproof-contracts"
 version = "0.1.0"
 description = "Typed result contracts shared by DataProof services"
+license = "Apache-2.0"
 requires-python = ">=3.12"
 dependencies = ["pydantic>=2.10,<3"]
 

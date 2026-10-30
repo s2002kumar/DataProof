@@ -2,6 +2,7 @@
   "name": "@dataproof/contracts",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "description": "Cross-language conformance tests for the DataProof contract JSON Schemas",
   "scripts": {

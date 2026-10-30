@@ -93,4 +93,4 @@ The review workflow was informed by public descriptions of [Time-Traveler](https
 
 ## License
 
-No license has been granted yet. The project intends to adopt Apache-2.0 once rights to all included material are confirmed.
+Licensed under the [Apache License, Version 2.0](LICENSE).
