@@ -1,0 +1,12 @@
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+
+# Local environment files and credentials
+.env
+.env.*
+!.env.example
