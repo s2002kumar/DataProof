@@ -13,8 +13,8 @@ flowchart TD
   API --> META[(Control metadata PostgreSQL)]
   API --> Q[Durable run queue / outbox]
   Q --> SUP[Deterministic job supervisor]
-  SUP --> REF[Isolated reference Fargate task: PG + API + UI]
-  SUP --> CAND[Isolated candidate Fargate task: PG + API + UI]
+  SUP --> REF[Isolated reference environment: PG + API + UI]
+  SUP --> CAND[Isolated candidate environment: PG + API + UI]
   REF --> VER[Deterministic verification engine]
   CAND --> VER
   VER --> EV[(Evidence store / S3)]
@@ -23,6 +23,8 @@ flowchart TD
   EV --> API
   API --> GH
 ```
+
+The supervisor creates reference and candidate environments through an execution-backend interface (ADR-0006). Local Docker is the first backend; the AWS Fargate backend described below is a proposed hosted target that is not provisioned and requires owner approval.
 
 ## Service responsibilities
 
@@ -84,7 +86,15 @@ The listed endpoints specify desired behavior, not implemented routes. OpenAPI s
 - A reference and candidate may have different internal schemas; equivalent **business outputs** are required only if declared. Unknown means not checked, not fail by default.
 - Preview frontend is primarily to make the product easy to demo, not a generalized app-cloning platform. A supported profile contract and manifest govern what can be run.
 
-## AWS deployment target
+## Execution backends
+
+- **Interface:** provision a role-scoped environment from a digest-pinned image, deliver a digest-verified source artifact, run a bounded step, expose the database to trusted services only, list resources by run, destroy, and report observed resource use. Run state, leases, retries, verification, evidence and reporting are backend-independent (ADR-0006).
+- **Local Docker (first backend):** per run and role, a separate internal network with no route to the internet, the host or the other role; digest-pinned images; all capabilities dropped, `no-new-privileges`, non-root users, memory/CPU/PID limits; run-scoped labels for cleanup and expiry reconciliation; no GitHub, cloud or model credentials; PostgreSQL reachable by trusted services only through a loopback-bound port. A trusted-development boundary (shared kernel, operator daemon trusted), not a public hosting boundary.
+- **Cloud backends:** none provisioned. Before any cloud deployment, a measured cost estimate, the security implications and the lowest-cost viable hosting options are presented for owner approval (ADR-0006).
+
+## Proposed AWS deployment target (approval-gated)
+
+Not provisioned. This section is the design requirement for a hosted backend if one is approved under ADR-0006.
 
 - Control plane API/web behind authenticated HTTPS; metadata PostgreSQL in appropriately managed/staged service; immutable evidence S3 with restricted IAM, CloudWatch observability.
 - **Two isolated ECS/Fargate tasks per run** (one reference, one candidate), each with an application process/frontend and PostgreSQL sidecar in a reviewed immutable runtime/dependency image. Candidate source is a digest-verified overlay executed/compiled in the task without `docker build`, arbitrary dependency install or internet fetch. No `taskRoleArn` for the untrusted task; separate tightly scoped Fargate **execution role** only for image pulls/log delivery, never mounted into app code. No NAT route; private, scoped VPC endpoints for approved infrastructure operations; ECS Exec disabled. A trusted broker stages source (delivered to the task as a pre-signed, VPC-endpoint-bound GET that a trusted entrypoint verifies by SHA-256) and captures sealed `pg_dump` artifacts over the private network; no runner AWS/GitHub/model key. Security groups admit port 5432 on a run task only from the supervisor, verifier and broker. Independent EventBridge expiry reconciler terminates orphans if the API is down. See ADR-0004.
@@ -106,7 +116,7 @@ dataproof/
   benchmarks/              # Faults, clean controls, baselines, evaluations
   tests/                   # Unit, PG integration, e2e, security
   infra/docker/            # Local containers
-  infra/terraform/         # AWS
+  infra/terraform/         # Proposed AWS backend (approval-gated, ADR-0006)
   docs/adr/                # Decisions
   .github/workflows/
   AGENTS.md
