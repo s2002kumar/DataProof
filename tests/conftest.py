@@ -7,6 +7,8 @@ from typing import Any
 import psycopg
 import pytest
 
+from commerce_env import DatabaseFactory, database_factory
+
 CONTRACTS_DIR = Path(__file__).resolve().parents[1] / "packages" / "contracts"
 EXAMPLES_DIR = CONTRACTS_DIR / "examples"
 SCHEMAS_DIR = CONTRACTS_DIR / "schemas"
@@ -47,3 +49,10 @@ def pg(postgres_dsn: str) -> Iterator[psycopg.Connection[tuple[Any, ...]]]:
     with psycopg.connect(postgres_dsn) as connection:
         yield connection
         connection.rollback()
+
+
+@pytest.fixture
+def new_database(postgres_dsn: str) -> Iterator[DatabaseFactory]:
+    """Throwaway databases for one test, dropped afterwards."""
+    with database_factory(postgres_dsn) as create:
+        yield create

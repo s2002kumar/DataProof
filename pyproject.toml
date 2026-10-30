@@ -47,7 +47,12 @@ select = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["commerce_scenario", "conftest", "dataproof_contracts"]
+known-first-party = [
+    "commerce_env",
+    "commerce_scenario",
+    "conftest",
+    "dataproof_contracts",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
