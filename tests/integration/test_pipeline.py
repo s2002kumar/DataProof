@@ -6,12 +6,13 @@ and candidate environments, then cleaned up. The tests assert the recorded resul
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+import psycopg
 import pytest
 
 from commerce_scenario import PUBLISHED_DIGEST
@@ -27,6 +28,7 @@ from dataproof_contracts import (
     ReportVerdict,
     RunInputs,
     RunState,
+    canonical_json,
 )
 from dataproof_control import RunResults, RunStore
 from dataproof_runner import StageContext, StageOutcome, Worker, WorkerSettings
@@ -192,7 +194,24 @@ def test_a_safe_change_is_checked_survives_a_retry_and_is_cleaned_up(harness: Ha
     assert steps["reference.base-migration"].source_sha256 == sources[Environment.REFERENCE].sha256
     provisioned = next(t for t in harness.store.transitions(run_id) if t.to_state is S.MIGRATING)
     assert provisioned.detail["dataset_digest"] == PUBLISHED_DIGEST
-    assert len(harness.backend.resources(run_id)) == 6, "previews stay up during review"
+    assert len(harness.backend.resources(run_id)) == 6, "previews stay up; restore copies are gone"
+
+    snapshots = harness.results.snapshots(run_id)
+    assert set(snapshots) == set(Environment)
+    assert all(s.restore_verified and s.restore_error is None for s in snapshots.values())
+    sealed = harness.results.manifest(run_id)
+    assert sealed is not None
+    manifest = sealed.manifest
+    assert harness.artifacts.get(sealed.object_key, sealed.sha256) == canonical_json(manifest)
+    assert manifest.input_digest == harness.store.get_run(run_id).input_digest
+    assert {s.sha256 for s in manifest.snapshots} == {s.sha256 for s in snapshots.values()}
+    assert all(r.restored for r in manifest.restore_verifications)
+    assert {a.sha256 for a in manifest.source_artifacts} == {s.sha256 for s in sources.values()}
+    assert manifest.binding_digest is not None
+    assert manifest.retain_until > manifest.sealed_at
+    for record in manifest.records:
+        harness.artifacts.get(record.object_key, record.sha256)  # present and unaltered
+    assert report.report["evidence"]["manifest_sha256"] == sealed.sha256
 
     make_due(harness.dsn, run_id)
     assert worker.run_once()
@@ -208,6 +227,10 @@ def test_f1_is_blocked_with_the_refund_evidence_and_reproduces_exactly(harness: 
     worker = harness.worker(harness.pipeline(project))
     first = harness.submit(project, head, pull_request=7)
     second = harness.submit(project, head, pull_request=8)
+    while worker.run_once():
+        pass
+    for run_id in (first, second):
+        make_due(harness.dsn, run_id)
     while worker.run_once():
         pass
 
@@ -246,6 +269,27 @@ def test_f1_is_blocked_with_the_refund_evidence_and_reproduces_exactly(harness: 
         ]
 
     assert fingerprint(first) == fingerprint(second), "the same inputs give the same evidence"
+
+    # The environments are gone, but the sealed candidate snapshot still shows the corruption.
+    assert harness.backend.resources(first) == []
+    snapshot = harness.results.snapshots(first)[Environment.CANDIDATE]
+    dump = harness.artifacts.get(snapshot.object_key, snapshot.sha256)
+    replay = harness.backend.provision(
+        first,
+        Environment.CANDIDATE,
+        expires_at=datetime.now(UTC) + timedelta(minutes=10),
+        variant="diagnose",
+    )
+    try:
+        harness.backend.restore_database(replay, dump)
+        access = replay.database
+        with psycopg.connect(access.conninfo(access.reader)) as conn:
+            amount = conn.execute(
+                "SELECT amount::text FROM ledger_entries WHERE source_event_id = 1002"
+            ).fetchone()
+        assert amount == ("99.98",)
+    finally:
+        harness.backend.destroy(first)
 
 
 def test_unapproved_bindings_leave_the_run_incomplete_but_analyzed(harness: Harness) -> None:
@@ -381,3 +425,25 @@ def test_a_pull_request_cannot_weaken_the_oracle_it_is_held_to(harness: Harness)
     (c1,) = [c.result for c in harness.results.checks(run_id) if c.result.check_id == C1]
     assert c1.required
     assert c1.outcome is CheckOutcome.FAIL
+
+
+def test_a_new_head_supersedes_a_run_in_review_which_ends_superseded(harness: Harness) -> None:
+    first_head = harness.repo.change(SAFE, {f"{SAMPLE_APP}/README.md": "First head.\n"})
+    lock = (harness.repo.path / SAMPLE_APP / "uv.lock").read_text("utf-8")
+    second_head = harness.repo.change(SAFE, {f"{SAMPLE_APP}/uv.lock": lock + "\n# second head\n"})
+    project = harness.project(first_head)
+    worker = harness.worker(harness.pipeline(project))
+    first = harness.submit(project, first_head)
+    worker.run_once()
+    assert harness.store.get_run(first).state is S.READY_FOR_REVIEW
+
+    second = harness.submit(project, second_head)
+    assert harness.store.get_run(first).superseded_by == second
+    while worker.run_once():
+        pass
+
+    ended = harness.store.get_run(first)
+    assert ended.state is S.SUPERSEDED
+    assert harness.states(first)[-4:] == [S.READY_FOR_REVIEW, S.CANCELLED, S.CLEANING, S.SUPERSEDED]
+    assert harness.backend.resources(first) == []
+    assert harness.store.get_run(second).state is S.NOT_EXECUTED

@@ -7,6 +7,7 @@ them back.
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from dataproof_contracts import (
     BindingAnalysis,
     CheckResult,
     Environment,
+    EvidenceManifest,
     GitHubCheckConclusion,
     ReportVerdict,
 )
@@ -53,6 +55,32 @@ class CheckRecord:
     result: CheckResult
     binding_analysis: BindingAnalysis | None = None
     binding_problem: str | None = None
+
+
+@dataclass(frozen=True)
+class SnapshotRecord:
+    """A sealed ``pg_dump`` of one environment and whether it restored to the same rows."""
+
+    environment: Environment
+    object_key: str
+    sha256: str
+    size_bytes: int
+    captured_at: datetime
+    database_digest: str
+    restored_digest: str | None
+    verified_at: datetime
+    restore_error: str | None = None
+
+    @property
+    def restore_verified(self) -> bool:
+        return self.restored_digest == self.database_digest
+
+
+@dataclass(frozen=True)
+class ManifestRecord:
+    object_key: str
+    sha256: str
+    manifest: EvidenceManifest
 
 
 @dataclass(frozen=True)
@@ -120,6 +148,41 @@ def record_evidence(
     conn.execute(
         "INSERT INTO run_evidence (run_id, evidence_id, record) VALUES (%s, %s, %s)",
         (run_id, evidence_id, Jsonb(dict(record))),
+    )
+
+
+def record_snapshot(conn: psycopg.Connection[Any], run_id: UUID, snapshot: SnapshotRecord) -> None:
+    conn.execute(
+        "INSERT INTO run_snapshots (run_id, environment, object_key, sha256, size_bytes, "
+        "captured_at, database_digest, restored_digest, restore_verified, verified_at, "
+        "restore_error) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (
+            run_id,
+            snapshot.environment.value,
+            snapshot.object_key,
+            snapshot.sha256,
+            snapshot.size_bytes,
+            snapshot.captured_at,
+            snapshot.database_digest,
+            snapshot.restored_digest,
+            snapshot.restore_verified,
+            snapshot.verified_at,
+            snapshot.restore_error,
+        ),
+    )
+
+
+def record_manifest(conn: psycopg.Connection[Any], run_id: UUID, manifest: ManifestRecord) -> None:
+    conn.execute(
+        "INSERT INTO run_manifests (run_id, object_key, sha256, manifest, sealed_at) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        (
+            run_id,
+            manifest.object_key,
+            manifest.sha256,
+            Jsonb(manifest.manifest.model_dump(mode="json")),
+            manifest.manifest.sealed_at,
+        ),
     )
 
 
@@ -200,6 +263,40 @@ class RunResults:
             run_id,
         )
         return {row["evidence_id"]: row["record"] for row in rows}
+
+    def snapshots(self, run_id: UUID) -> dict[Environment, SnapshotRecord]:
+        rows = self._rows(
+            "SELECT environment, object_key, sha256, size_bytes, captured_at, database_digest, "
+            "restored_digest, verified_at, restore_error FROM run_snapshots WHERE run_id = %s",
+            run_id,
+        )
+        return {
+            Environment(row["environment"]): SnapshotRecord(
+                environment=Environment(row["environment"]),
+                object_key=row["object_key"],
+                sha256=row["sha256"],
+                size_bytes=row["size_bytes"],
+                captured_at=row["captured_at"],
+                database_digest=row["database_digest"],
+                restored_digest=row["restored_digest"],
+                verified_at=row["verified_at"],
+                restore_error=row["restore_error"],
+            )
+            for row in rows
+        }
+
+    def manifest(self, run_id: UUID) -> ManifestRecord | None:
+        rows = self._rows(
+            "SELECT object_key, sha256, manifest FROM run_manifests WHERE run_id = %s", run_id
+        )
+        if not rows:
+            return None
+        (row,) = rows
+        return ManifestRecord(
+            object_key=row["object_key"],
+            sha256=row["sha256"],
+            manifest=EvidenceManifest.model_validate(row["manifest"]),
+        )
 
     def report(self, run_id: UUID) -> ReportRecord | None:
         rows = self._rows(

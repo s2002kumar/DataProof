@@ -27,7 +27,7 @@ import tarfile
 import time
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import docker
@@ -53,9 +53,14 @@ POSTGRES_IMAGE = (
     "postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b"
 )
 LABEL = "dev.dataproof"
-_MANAGED, _SCOPE, _RUN, _ROLE, _EXPIRES, _KIND = (
-    f"{LABEL}.{name}" for name in ("managed", "scope", "run", "role", "expires-at", "kind")
+_MANAGED, _SCOPE, _RUN, _ROLE, _VARIANT, _EXPIRES, _KIND = (
+    f"{LABEL}.{name}"
+    for name in ("managed", "scope", "run", "role", "variant", "expires-at", "kind")
 )
+_PRIMARY = "primary"
+_VARIANT_PATTERN = re.compile(r"^[a-z0-9]{1,12}$")
+_MAX_DUMP = 256 * 1024 * 1024
+_RESTORE_DIR, _RESTORE_FILE = "/tmp", "snapshot.dump"  # noqa: S108 - inside a fresh container
 _SCOPE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,23}$")
 _STEP_USER = "10001:10001"
 _DATABASE = "app"
@@ -128,27 +133,42 @@ class LocalDockerBackend:
 
     # Naming and labels -------------------------------------------------------------------------
 
-    def _prefix(self, run_id: UUID, role: Environment) -> str:
-        return f"dp-{self.scope}-{run_id.hex[:12]}-{role.value.lower()}"
+    @property
+    def database_image(self) -> str:
+        return self._postgres_image
+
+    def _prefix(self, run_id: UUID, role: Environment, variant: str = "") -> str:
+        if variant and not _VARIANT_PATTERN.match(variant):
+            raise ValueError("variant must be 1-12 lowercase letters or digits")
+        prefix = f"dp-{self.scope}-{run_id.hex[:12]}-{role.value.lower()}"
+        return f"{prefix}-{variant}" if variant else prefix
 
     def _labels(
-        self, run_id: UUID, role: Environment, kind: str, expires_at: datetime
+        self, run_id: UUID, role: Environment, kind: str, expires_at: datetime, variant: str = ""
     ) -> dict[str, str]:
         return {
             _MANAGED: "true",
             _SCOPE: self.scope,
             _RUN: str(run_id),
             _ROLE: role.value,
+            _VARIANT: variant or _PRIMARY,
             _EXPIRES: expires_at.astimezone(UTC).isoformat(),
             _KIND: kind,
         }
 
-    def _filters(self, run_id: UUID | None, role: Environment | None = None) -> dict[str, Any]:
+    def _filters(
+        self,
+        run_id: UUID | None,
+        role: Environment | None = None,
+        variant: str | None = None,
+    ) -> dict[str, Any]:
         labels = [f"{_MANAGED}=true", f"{_SCOPE}={self.scope}"]
         if run_id is not None:
             labels.append(f"{_RUN}={run_id}")
         if role is not None:
             labels.append(f"{_ROLE}={role.value}")
+        if variant is not None:
+            labels.append(f"{_VARIANT}={variant or _PRIMARY}")
         return {"label": labels}
 
     def _limits_kwargs(self) -> dict[str, Any]:
@@ -165,19 +185,19 @@ class LocalDockerBackend:
     # Provisioning ------------------------------------------------------------------------------
 
     def provision(
-        self, run_id: UUID, role: Environment, *, expires_at: datetime
+        self, run_id: UUID, role: Environment, *, expires_at: datetime, variant: str = ""
     ) -> EnvironmentHandle:
-        prefix = self._prefix(run_id, role)
+        prefix = self._prefix(run_id, role, variant)
         internal = self._client.networks.create(
             f"{prefix}-int",
             driver="bridge",
             internal=True,
-            labels=self._labels(run_id, role, "network", expires_at),
+            labels=self._labels(run_id, role, "network", expires_at, variant),
         )
         self._client.networks.create(
             f"{prefix}-ctl",
             driver="bridge",
-            labels=self._labels(run_id, role, "network", expires_at),
+            labels=self._labels(run_id, role, "network", expires_at, variant),
         )
         owner = Credentials(_OWNER, secrets.token_urlsafe(24))
         reader = Credentials(_READER, secrets.token_urlsafe(24))
@@ -199,7 +219,7 @@ class LocalDockerBackend:
                     f"rw,mode=1777,size={self._limits.database_storage_bytes}"
                 ),
             },
-            labels=self._labels(run_id, role, "database", expires_at),
+            labels=self._labels(run_id, role, "database", expires_at, variant),
             **self._limits_kwargs(),
         )
         if not database.put_archive(
@@ -222,10 +242,13 @@ class LocalDockerBackend:
             isolation_id=prefix,
             database=access,
             expires_at=expires_at,
+            variant=variant,
         )
 
-    def attach(self, run_id: UUID, role: Environment) -> EnvironmentHandle | None:
-        prefix = self._prefix(run_id, role)
+    def attach(
+        self, run_id: UUID, role: Environment, *, variant: str = ""
+    ) -> EnvironmentHandle | None:
+        prefix = self._prefix(run_id, role, variant)
         try:
             database = self._client.containers.get(f"{prefix}-db")
         except NotFound:
@@ -249,7 +272,52 @@ class LocalDockerBackend:
             isolation_id=prefix,
             database=access,
             expires_at=datetime.fromisoformat(labels[_EXPIRES]),
+            variant=variant,
         )
+
+    # Snapshots ---------------------------------------------------------------------------------
+
+    def _database_container(self, environment: EnvironmentHandle) -> Container:
+        return self._client.containers.get(f"{environment.isolation_id}-db")
+
+    def _exec(self, container: Container, command: list[str]) -> tuple[int, bytes, bytes]:
+        """Run trusted code in a trusted container; return exit code, stdout and stderr."""
+        result = container.exec_run(command, user="postgres", demux=True)
+        stdout, stderr = cast(tuple[bytes | None, bytes | None], result.output)
+        return int(result.exit_code or 0), stdout or b"", stderr or b""
+
+    def dump_database(self, environment: EnvironmentHandle) -> bytes:
+        # pg_dump runs in the trusted database container, as the read-only role over the local
+        # socket; the pull request's code takes no part.
+        exit_code, stdout, stderr = self._exec(
+            self._database_container(environment),
+            ["pg_dump", "--format=custom", f"--username={_READER}", f"--dbname={_DATABASE}"],
+        )
+        if exit_code != 0 or not stdout:
+            raise BackendError(f"pg_dump failed: {stderr.decode(errors='replace')[:500]}")
+        if len(stdout) > _MAX_DUMP:
+            raise BackendError(f"pg_dump is {len(stdout)} bytes, above the {_MAX_DUMP} limit")
+        return stdout
+
+    def restore_database(self, environment: EnvironmentHandle, dump: bytes) -> None:
+        container = self._database_container(environment)
+        if not container.put_archive(_RESTORE_DIR, _tar(_RESTORE_FILE, dump)):
+            raise BackendError("could not stage the snapshot for restore")
+        exit_code, _, stderr = self._exec(
+            container,
+            [
+                "pg_restore",
+                "--exit-on-error",
+                "--single-transaction",
+                "--no-owner",
+                "--no-privileges",
+                f"--username={_OWNER}",
+                f"--dbname={_DATABASE}",
+                f"{_RESTORE_DIR}/{_RESTORE_FILE}",
+            ],
+        )
+        if exit_code != 0:
+            raise BackendError(f"pg_restore failed: {stderr.decode(errors='replace')[:500]}")
 
     def _published_port(self, container: Container) -> int:
         deadline = time.monotonic() + 10
@@ -309,7 +377,11 @@ class LocalDockerBackend:
                 "/tmp": "rw,mode=1777,size=67108864",  # noqa: S108 - container-private tmpfs
             },
             labels=self._labels(
-                environment.run_id, environment.role, "step", environment.expires_at
+                environment.run_id,
+                environment.role,
+                "step",
+                environment.expires_at,
+                environment.variant,
             ),
             **self._limits_kwargs(),
         )
@@ -339,27 +411,33 @@ class LocalDockerBackend:
 
     # Cleanup -----------------------------------------------------------------------------------
 
-    def _containers(self, run_id: UUID | None, role: Environment | None = None) -> list[Container]:
-        filters = self._filters(run_id, role)
+    def _containers(
+        self, run_id: UUID | None, role: Environment | None = None, variant: str | None = None
+    ) -> list[Container]:
+        filters = self._filters(run_id, role, variant)
         return list(self._client.containers.list(all=True, filters=filters))
 
-    def _networks(self, run_id: UUID | None, role: Environment | None = None) -> list[Network]:
-        return list(self._client.networks.list(filters=self._filters(run_id, role)))
+    def _networks(
+        self, run_id: UUID | None, role: Environment | None = None, variant: str | None = None
+    ) -> list[Network]:
+        return list(self._client.networks.list(filters=self._filters(run_id, role, variant)))
 
     def resources(self, run_id: UUID | None = None) -> list[str]:
         names = [str(c.name) for c in self._containers(run_id)]
         names += [str(n.name) for n in self._networks(run_id)]
         return sorted(names)
 
-    def destroy(self, run_id: UUID, *, role: Environment | None = None) -> CleanupReport:
+    def destroy(
+        self, run_id: UUID, *, role: Environment | None = None, variant: str | None = None
+    ) -> CleanupReport:
         removed: list[str] = []
-        for container in self._containers(run_id, role):
+        for container in self._containers(run_id, role, variant):
             try:
                 container.remove(force=True, v=True)
                 removed.append(str(container.name))
             except NotFound:
                 continue
-        for network in self._networks(run_id, role):
+        for network in self._networks(run_id, role, variant):
             try:
                 network.remove()
                 removed.append(str(network.name))
