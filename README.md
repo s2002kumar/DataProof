@@ -5,7 +5,7 @@
 DataProof is a pull-request review system for PostgreSQL application migrations. For each pull request it runs the proposed migration in a disposable copy of the application, checks data integrity and selected API behavior against protected contracts, investigates failures with evidence-grounded AI, and reports exactly which checks ran, which failed and why, as a GitHub check bound to the commit. Merge and deployment decisions stay with people.
 
 > [!IMPORTANT]
-> **Status: approved design; implementation has not started.** This repository currently holds the engineering specification. Nothing here describes working software: every capability and control below is a design commitment until the code and tests for it land. See [How the build proceeds](#how-the-build-proceeds).
+> **Status: early implementation.** The engineering specification is complete, and the typed result contracts ([`packages/contracts`](packages/contracts/README.md)) are implemented and tested. No end-to-end capability exists yet: every capability and control below is a design commitment until the code and tests for it land. See [How the build proceeds](#how-the-build-proceeds).
 
 ## The problem
 
@@ -76,8 +76,9 @@ Out of scope: production cutover automation, other databases or warehouses, Spar
 | [Implementation](docs/IMPLEMENTATION.md) | Repository standards, work packages, gates and pull-request plan |
 | [Demo](docs/DEMO.md) | Walkthrough script and the evidence a recorded demo must contain |
 | [Architecture decisions](docs/adr/) | ADR-0001 to ADR-0005 |
+| [Contracts package](packages/contracts/README.md) | Typed result contracts, their enforced invariants, value encoding and JSON Schemas |
 
-Instructions for AI coding assistants are in [AGENTS.md](AGENTS.md).
+To build and test the code, see [CONTRIBUTING.md](CONTRIBUTING.md). Instructions for AI coding assistants are in [AGENTS.md](AGENTS.md).
 
 ## How the build proceeds
 
