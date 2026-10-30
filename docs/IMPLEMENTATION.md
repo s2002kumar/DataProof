@@ -18,7 +18,7 @@
 |---|---|---|
 | 0 | Document sign-off and threat-model review | Independent design review with all blockers resolved; ADRs accepted |
 | 1 | Typed monorepo foundation, result contracts and gated CI | New checkout green; JSON schema and PostgreSQL integration test run |
-| 2 | Commerce baseline, Alembic migrations, deterministic fixture and F1 hand-written proof | Same row counts/keys but wrong refund value is demonstrated against real PostgreSQL |
+| 2 | Commerce baseline, Alembic migrations, deterministic fixture and F1 hand-written proof | Same row counts/keys but wrong refund value is demonstrated against real PostgreSQL, and the safe migration passes the same check with zero mismatches |
 | 3 | Deterministic verification engine against plain PostgreSQL | Safe restructure passes; F1 and F3 fail for correct reasons; clean controls avoid false positives |
 | 4 | Disposable PostgreSQL runner + durable lifecycle/cleanup | Safe/failing real migrations captured; TTL/cancel/retry, new head supersession and snapshot sealing pass |
 | 5 | Reference/candidate FastAPI + frontend shadow preview | Two working isolated URLs bound to exact base/head SHA and baseline; offline candidate build validated; measured candidate-task memory, CPU and build time recorded |
@@ -49,7 +49,7 @@ Planning estimate: **20–26 focused solo weeks at 15–20 genuinely available h
 
 1. **PR 1** — `docs: resolve adversarial review findings and adopt provisioning/contract ADRs` (specification only: this document set).
 2. **PR 2** — `chore: initialize uv/pnpm workspace, typed contracts, and CI`; includes `DataContract`, `CheckResult`, `Finding`, `EvidenceManifest`, `HumanDecision` and round-trip tests. The run-state enum has no binding-review state: `AWAITING_BINDING_REVIEW` is a `NOT_RUN` reason and an `INCOMPLETE` verdict cause (ARCHITECTURE, Run state machine).
-3. **PR 3** — `feat(sample): add commerce baseline, Alembic safe/faulty migrations and F1 proof`; a real PostgreSQL test confirms SQL succeeds, rows and keys still match, while expected 49.99 differs from candidate 99.98. The **test suite itself should PASS** by asserting that the invariant detects the fault, not fail CI merely because F1 is defective.
+3. **PR 3** — `feat(sample): add commerce baseline, Alembic safe/faulty migrations and F1 proof`. Exit criteria, both green in the same PR: (a) **detection**: against real PostgreSQL the F1 revision executes successfully, row counts and key sets still match, and the per-event C1 comparison reports `FAIL` with expected `49.99` and observed `99.98`; (b) **clean control**: after the safe revision, the same comparison reports `PASS` with zero mismatches. The **test suite itself PASSES** by asserting both outcomes; it must not fail CI merely because F1 is defective, and without (b) a check that always fails would satisfy (a).
 4. `feat(verifier): add protected oracle and reviewed candidate bindings`.
 5. `feat(runner): add isolated migration execution, state machine, retries and cleanup`.
 6. `feat(preview): add reference/candidate FastAPI and Next.js previews`.
