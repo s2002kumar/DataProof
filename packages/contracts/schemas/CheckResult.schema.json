@@ -65,7 +65,11 @@
         "QUERY_FAILED",
         "RESULT_LIMIT_EXCEEDED",
         "UNSUPPORTED_VALUE_TYPE",
-        "RETRY_BUDGET_EXHAUSTED"
+        "RETRY_BUDGET_EXHAUSTED",
+        "CONFIG_DIGEST_MISMATCH",
+        "DATASET_DIGEST_MISMATCH",
+        "BASE_MIGRATION_FAILED",
+        "BASELINE_DIVERGED"
       ],
       "title": "ErrorCode",
       "type": "string"
@@ -210,7 +214,8 @@
         "BINDING_REJECTED",
         "UNSUPPORTED",
         "EXCLUDED",
-        "TIMED_OUT"
+        "TIMED_OUT",
+        "PREREQUISITE_FAILED"
       ],
       "title": "NotRunReason",
       "type": "string"

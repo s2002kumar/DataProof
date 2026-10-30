@@ -13,7 +13,11 @@
         "QUERY_FAILED",
         "RESULT_LIMIT_EXCEEDED",
         "UNSUPPORTED_VALUE_TYPE",
-        "RETRY_BUDGET_EXHAUSTED"
+        "RETRY_BUDGET_EXHAUSTED",
+        "CONFIG_DIGEST_MISMATCH",
+        "DATASET_DIGEST_MISMATCH",
+        "BASE_MIGRATION_FAILED",
+        "BASELINE_DIVERGED"
       ],
       "title": "ErrorCode",
       "type": "string"
