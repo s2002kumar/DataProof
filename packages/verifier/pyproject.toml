@@ -1,0 +1,16 @@
+[project]
+name = "dataproof-verifier"
+version = "0.1.0"
+description = "Deterministic data-contract verification against PostgreSQL"
+requires-python = ">=3.12"
+dependencies = [
+    "dataproof-contracts",
+    "psycopg>=3.2",
+]
+
+[tool.uv.sources]
+dataproof-contracts = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"

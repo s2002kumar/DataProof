@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "dataproof-contracts",
     "dataproof-scenario-commerce",
+    "dataproof-verifier",
     "dataproof-workspace",
 ]
 
@@ -290,6 +291,21 @@ dependencies = [
 requires-dist = [{ name = "psycopg", specifier = ">=3.2" }]
 
 [[package]]
+name = "dataproof-verifier"
+version = "0.1.0"
+source = { editable = "packages/verifier" }
+dependencies = [
+    { name = "dataproof-contracts" },
+    { name = "psycopg" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dataproof-contracts", editable = "packages/contracts" },
+    { name = "psycopg", specifier = ">=3.2" },
+]
+
+[[package]]
 name = "dataproof-workspace"
 version = "0.0.0"
 source = { virtual = "." }
@@ -299,6 +315,7 @@ dev = [
     { name = "alembic" },
     { name = "dataproof-contracts" },
     { name = "dataproof-scenario-commerce" },
+    { name = "dataproof-verifier" },
     { name = "jsonschema" },
     { name = "mypy" },
     { name = "pre-commit" },
@@ -318,6 +335,7 @@ dev = [
     { name = "alembic", specifier = ">=1.16" },
     { name = "dataproof-contracts", editable = "packages/contracts" },
     { name = "dataproof-scenario-commerce", editable = "scenarios/commerce" },
+    { name = "dataproof-verifier", editable = "packages/verifier" },
     { name = "jsonschema", specifier = ">=4.23" },
     { name = "mypy", specifier = ">=1.13" },
     { name = "pre-commit", specifier = ">=4.0" },

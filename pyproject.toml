@@ -10,6 +10,7 @@ dev = [
     "alembic>=1.16",
     "dataproof-contracts",
     "dataproof-scenario-commerce",
+    "dataproof-verifier",
     "jsonschema>=4.23",
     "mypy>=1.13",
     "pre-commit>=4.0",
@@ -34,6 +35,7 @@ exclude = ["sample-app"]
 [tool.uv.sources]
 dataproof-contracts = { workspace = true }
 dataproof-scenario-commerce = { workspace = true }
+dataproof-verifier = { workspace = true }
 
 [tool.ruff]
 target-version = "py312"
@@ -52,6 +54,7 @@ known-first-party = [
     "commerce_scenario",
     "conftest",
     "dataproof_contracts",
+    "dataproof_verifier",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -62,6 +65,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 files = [
     "packages/contracts/src",
+    "packages/verifier/src",
     "scenarios/commerce/src",
     "scenarios/commerce/changes",
     "sample-app/migrations",
