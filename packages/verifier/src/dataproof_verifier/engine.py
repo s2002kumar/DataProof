@@ -2,7 +2,11 @@
 
 The order is fixed and every exit is a typed outcome (docs/VERIFICATION.md, ADR-0005):
 
+0. The binding is analyzed first (ADR-0005 review aids), so a binding awaiting review already
+   carries what the reviewer needs. Nothing in it executes until it is approved.
 1. A binding without a digest-bound approval: ``NOT_RUN`` (awaiting review, or rejected).
+1b. An approved binding that is not a single allowed read-only query:
+    ``ERROR: BINDING_UNSUPPORTED_CONSTRUCT``.
 2. Oracle columns the binding does not map: ``ERROR: BINDING_COVERAGE_GAP``.
 3. The reference-first precondition finds violations: ``ERROR: ORACLE_VIOLATED_ON_REFERENCE``.
 4. Query failure, limits, duplicate keys or inexact values: ``ERROR`` with the specific code.
@@ -17,6 +21,7 @@ from typing import Any
 import psycopg
 
 from dataproof_contracts import (
+    BindingAnalysis,
     BindingReviewStatus,
     CheckOutcome,
     CheckResult,
@@ -25,6 +30,7 @@ from dataproof_contracts import (
     ErrorCode,
     NotRunReason,
 )
+from dataproof_verifier.binding_review import BindingRejectedError, analyze_binding
 from dataproof_verifier.compare import Key, Row, compare_keyed
 from dataproof_verifier.queries import (
     DEFAULT_LIMITS,
@@ -53,6 +59,10 @@ class QueryEvidence:
 class Verification:
     check: CheckResult
     evidence: tuple[QueryEvidence, ...]
+    binding_analysis: BindingAnalysis | None = None
+    """What the binding reads, for the reviewer; present whenever the binding could be analyzed."""
+    binding_problem: str | None = None
+    """Why the binding is unacceptable, if it is; shown to the reviewer before any approval."""
 
 
 class _CheckError(Exception):
@@ -128,12 +138,36 @@ def verify_contract(
         return int((time.monotonic() - started) * 1000)
 
     binding = contract.candidate_binding
+    analysis: BindingAnalysis | None = None
+    problem: str | None = None
+    if binding is not None and binding.query_sql is not None:
+        try:
+            analysis = analyze_binding(binding, reference, candidate, limits)
+        except BindingRejectedError as exc:
+            problem = str(exc)
+        except QueryError as exc:
+            check = CheckResult(
+                **common, outcome=CheckOutcome.ERROR, error_code=exc.code, elapsed_ms=elapsed()
+            )
+            return Verification(check, ())
+
     if binding is not None and contract.binding_review is not BindingReviewStatus.APPROVED:
         rejected = contract.binding_review is BindingReviewStatus.REJECTED
         reason = NotRunReason.BINDING_REJECTED if rejected else NotRunReason.AWAITING_BINDING_REVIEW
         return Verification(
-            CheckResult(**common, outcome=CheckOutcome.NOT_RUN, not_run_reason=reason), ()
+            CheckResult(**common, outcome=CheckOutcome.NOT_RUN, not_run_reason=reason),
+            (),
+            binding_analysis=analysis,
+            binding_problem=problem,
         )
+    if problem is not None:
+        check = CheckResult(
+            **common,
+            outcome=CheckOutcome.ERROR,
+            error_code=ErrorCode.BINDING_UNSUPPORTED_CONSTRUCT,
+            elapsed_ms=elapsed(),
+        )
+        return Verification(check, (), binding_analysis=analysis, binding_problem=problem)
     if binding is not None and binding.query_sql is None:
         unsupported = NotRunReason.UNSUPPORTED  # API-only bindings are evaluated by behavior checks
         return Verification(
@@ -187,7 +221,9 @@ def verify_contract(
             evidence_ids=tuple(e.evidence_id for e in run.evidence),
             elapsed_ms=elapsed(),
         )
-        return Verification(check, tuple(run.evidence))
+        return Verification(
+            check, tuple(run.evidence), binding_analysis=analysis, binding_problem=problem
+        )
 
     check = CheckResult(
         **common,
@@ -199,4 +235,6 @@ def verify_contract(
         evidence_ids=tuple(e.evidence_id for e in run.evidence),
         elapsed_ms=elapsed(),
     )
-    return Verification(check, tuple(run.evidence))
+    return Verification(
+        check, tuple(run.evidence), binding_analysis=analysis, binding_problem=problem
+    )

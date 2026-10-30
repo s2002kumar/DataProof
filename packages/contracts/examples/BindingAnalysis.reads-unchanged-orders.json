@@ -1,0 +1,19 @@
+{
+  "binding_digest": "4f3c6d2e9a1b7c5d8e0f2a4b6c8d0e1f3a5b7c9d1e3f5a7b9c1d3e5f7a9b1c3d",
+  "relations": [
+    {
+      "name": "public.ledger_entries",
+      "provenance": "CREATED",
+      "through_views": []
+    },
+    {
+      "name": "public.orders",
+      "provenance": "UNCHANGED",
+      "through_views": []
+    }
+  ],
+  "functions": [
+    "\"numeric\"(numeric,integer)",
+    "sum(numeric)"
+  ]
+}

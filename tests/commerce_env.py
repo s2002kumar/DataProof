@@ -18,7 +18,16 @@ from alembic.config import Config
 from psycopg import sql
 from sqlalchemy import create_engine
 
-from commerce_scenario import build_fixture, load_fixture
+from commerce_scenario import PUBLISHED_DIGEST, build_fixture, load_fixture
+from dataproof_contracts import CandidateBinding, DataContract
+from dataproof_verifier import (
+    QueryLimits,
+    Verification,
+    assemble_contract,
+    load_binding,
+    load_oracle,
+    verify_contract,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 SAMPLE_APP = REPO / "sample-app"
@@ -99,3 +108,71 @@ def fetch(dsn: str, query: str) -> list[Row]:
 def scalar(dsn: str, query: str) -> Any:
     (row,) = fetch(dsn, query)
     return row[0]
+
+
+C1, C2, C3 = (
+    "commerce.c1_event_preservation",
+    "commerce.c2_refund_totals",
+    "commerce.c3_capture_totals",
+)
+BASE_SHA, HEAD_SHA = "b" * 40, "c" * 40
+
+
+def contracts(
+    change: str,
+    *,
+    approve: bool = True,
+    reject: bool = False,
+    overrides: dict[str, CandidateBinding] | None = None,
+) -> list[DataContract]:
+    """The commerce contracts with the change set's bindings, reviewed as requested."""
+    result = []
+    for oracle_path in sorted(ORACLES.glob("*.toml")):
+        spec, oracle = load_oracle(oracle_path, source_path=oracle_path.name, base_sha=BASE_SHA)
+        binding_path = CHANGES / change / "bindings" / oracle_path.name
+        contract_id, binding = load_binding(
+            binding_path, source_path=binding_path.name, head_sha=HEAD_SHA
+        )
+        assert contract_id == spec.contract_id
+        binding = (overrides or {}).get(contract_id, binding)
+        digests = {binding.digest()}
+        result.append(
+            assemble_contract(
+                spec,
+                oracle,
+                binding,
+                approved_digests=digests if approve and not reject else (),
+                rejected_digests=digests if reject else (),
+            )
+        )
+    return result
+
+
+def verify(
+    contract_list: list[DataContract],
+    reference: str,
+    candidate_dsn: str,
+    limits: QueryLimits | None = None,
+) -> dict[str, Verification]:
+    with (
+        psycopg.connect(reference, autocommit=True) as ref,
+        psycopg.connect(candidate_dsn, autocommit=True) as cand,
+    ):
+        return {
+            c.contract_id: verify_contract(c, ref, cand, PUBLISHED_DIGEST, limits or QueryLimits())
+            for c in contract_list
+        }
+
+
+def override(
+    contract_id: str, query_sql: str, **mapping_changes: Any
+) -> dict[str, CandidateBinding]:
+    name = contract_id.split(".")[1] + ".toml"
+    _, binding = load_binding(
+        CHANGES / SAFE_CHANGE / "bindings" / name, source_path=name, head_sha=HEAD_SHA
+    )
+    mapping = {**binding.column_mapping, **mapping_changes}
+    mapping = {k: v for k, v in mapping.items() if v is not None}
+    return {
+        contract_id: binding.model_copy(update={"query_sql": query_sql, "column_mapping": mapping})
+    }
