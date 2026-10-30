@@ -41,4 +41,9 @@ Orders 101 to 300 are seeded random orders: one to four items, one or two captur
 | Change set | Revision | What the revision says it does |
 | --- | --- | --- |
 | `ledger-backfill-01` | `5c1e9a7b3d20` | Creates `ledger_entries` and backfills it from `legacy_payment_events` |
+| `ledger-backfill-02` | `e2a6c0d4f817` | The same with a `source_system` column and per-order sequencing by event, then retires the legacy table |
+| `ledger-backfill-03` | `3b7d1e5a9c24` | The same, staging amounts in a separate table for normalization |
+| `ledger-backfill-04` | `f5c9e3a7b261` | The same with wider amount precision and timestamps normalized through UTC |
+| `ledger-backfill-05` | `c4e8a2f6b130` | The same with normalized amounts |
+| `ledger-backfill-06` | `d9f1b3c7e542` | The same, recording times in store-local time |
 | `ledger-backfill-07` | `9f04b2c6e871` | The same, restricted to orders that have items |
