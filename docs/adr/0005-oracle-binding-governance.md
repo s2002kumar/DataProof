@@ -14,6 +14,8 @@
 - It labels each relation as created by the PR's Alembic revisions, pre-existing but altered by them, or pre-existing and unchanged (by comparing the post-migration candidate catalog with the reference catalog), and **flags** every relation the PR did not create or alter. A flag prompts the reviewer; it does not reject the binding, because a legitimate binding may join an unaltered table such as `orders` for currency.
 - Binding SQL may call only allowlisted built-in functions. User-defined functions are rejected as `ERROR: BINDING_UNSUPPORTED_CONSTRUCT`, because a function body hides relation references from the AST.
 
+Implementation note: `pg_depend` does not record built-in (pinned) objects, so functions and range-table relations are also read from the analyzed rewrite trees of the binding and of every view it reaches. Otherwise a system catalog read, or a call such as `query_to_xml('select * from legacy_payment_events', …)`, which reads through SQL text, would go unseen. System catalogs and foreign tables are rejected, and only allowlisted built-in functions are accepted (`packages/verifier`).
+
 These aids inform the decision; they do not make it automatic. A binding that reads a PR-created copy of legacy data is visible only through the displayed relations and the migration DDL, which is why `APPROVE_BINDING` remains a human decision.
 
 **Approver rule:** when the repository has more than one maintainer (collaborators with write access at decision time), the API rejects an `APPROVE_BINDING` whose actor is the PR author. In a single-maintainer repository the author may approve; the decision record and the report state plainly that the separation is procedural, not organizational.
