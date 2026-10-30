@@ -1,6 +1,6 @@
 # ADR-0002: AI is advisory; deterministic code owns execution and verdict
 
-**Status:** Proposed for approval (2026-10-28).
+**Status:** Accepted (2026-10-30).
 
 **Decision:** Change Analyst and Failure Investigator are separate logical AI roles with typed outputs; correction adviser is a mode. A deterministic orchestrator owns workflow transitions, tool authorization and DB operations. AI can request only bounded read-only diagnostic tools, cite evidence, suggest checks and corrections. It cannot run arbitrary shell, write to production, alter approved contracts, mark checks passed, merge or deploy.
 

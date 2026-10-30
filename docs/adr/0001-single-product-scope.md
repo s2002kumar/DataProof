@@ -1,6 +1,6 @@
 # ADR-0001: One complete DataProof product
 
-**Status:** Proposed for approval (2026-10-28).
+**Status:** Accepted (2026-10-30).
 
 **Decision:** Build one PostgreSQL application database migration safety product: GitHub PR analysis, full-stack reference/candidate shadow previews, deterministic data + API behavior checks, bounded AI investigation, verified reproduction/approved correction, evidence dashboard, benchmark, restricted AWS deployment. No public arbitrary DB engines or production cutover.
 

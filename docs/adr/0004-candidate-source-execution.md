@@ -1,6 +1,6 @@
 # ADR-0004: Run PR-head source under immutable, credential-less runtime
 
-**Status:** Adopted for design; implementation must validate security assumptions (2026-10-29).
+**Status:** Accepted (2026-10-30). Implementation must validate the security assumptions before they are described as working.
 
 **Context:** A complete FastAPI + Next.js candidate preview must reflect the PR head code. Simply selecting a prebuilt image with unchanged app code cannot show new routes, and `next start` cannot serve newly edited Next.js source without a corresponding build artifact. Building user-supplied Dockerfiles with PR-accessible push credentials is unacceptable.
 

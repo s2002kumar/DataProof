@@ -1,6 +1,6 @@
 # ADR-0003: Full-stack previews with restricted hosted execution
 
-**Status:** Proposed for approval (2026-10-28).
+**Status:** Accepted (2026-10-30).
 
 **Decision:** Support configured FastAPI/PostgreSQL/frontend application profiles with versioned manifests, exact commits and allowed migration roots. Run reference and candidate as isolated ephemeral environments. Local Docker for trusted development; two restricted AWS Fargate tasks with protected pinned runtime/dependency images and isolated, offline build/execution of exact-SHA source overlays (ADR-0004). No arbitrary public GitHub-repo build/run API and no production database copy/credentials.
 

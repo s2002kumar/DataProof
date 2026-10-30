@@ -1,6 +1,6 @@
 # ADR-0005: Protected oracle plus human-reviewed candidate binding
 
-**Status:** Adopted for design (2026-10-29).
+**Status:** Accepted (2026-10-30).
 
 **Context:** A PR introducing a new ledger table cannot be checked by a protected contract that only queries reference-schema tables, while trusting its own proposed validation thresholds would allow an author to weaken checks to hide corruption.
 
