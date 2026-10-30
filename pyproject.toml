@@ -21,6 +21,7 @@ dev = [
     "ruff>=0.8",
     "sqlalchemy>=2.0",
     "testcontainers[postgres]>=4.9",
+    "types-docker",
     "types-jsonschema",
     "tzdata",  # IANA zones for zoneinfo on Windows
 ]
@@ -58,6 +59,7 @@ known-first-party = [
     "commerce_scenario",
     "conftest",
     "control_env",
+    "docker_env",
     "dataproof_contracts",
     "dataproof_control",
     "dataproof_runner",
@@ -65,7 +67,7 @@ known-first-party = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+"tests/**" = ["S101", "S603", "S607"]  # asserts; git and docker subprocesses
 
 [tool.mypy]
 strict = true
@@ -93,4 +95,5 @@ xfail_strict = true
 filterwarnings = ["error"]
 markers = [
     "integration: needs a real PostgreSQL (DATAPROOF_TEST_DATABASE_URL or Docker for testcontainers)",
+    "docker: needs a Docker daemon (local execution backend and the runtime image)",
 ]

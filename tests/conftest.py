@@ -1,14 +1,19 @@
 import json
 import os
+import uuid
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import docker
 import psycopg
 import pytest
 
 from commerce_env import DatabaseFactory, database_factory
 from dataproof_control import RunStore, migrate
+from dataproof_runner.local_docker import LocalDockerBackend
+from docker_env import AppRepo, build_runtime_image
 
 CONTRACTS_DIR = Path(__file__).resolve().parents[1] / "packages" / "contracts"
 EXAMPLES_DIR = CONTRACTS_DIR / "examples"
@@ -71,3 +76,29 @@ def control_dsn(new_database: DatabaseFactory) -> str:
 @pytest.fixture
 def store(control_dsn: str) -> RunStore:
     return RunStore(control_dsn)
+
+
+@pytest.fixture(scope="session")
+def docker_client() -> Iterator[docker.DockerClient]:
+    client = docker.from_env()
+    yield client
+    client.close()
+
+
+@pytest.fixture(scope="session")
+def runtime_image(docker_client: docker.DockerClient) -> str:
+    """The trusted runtime image built from this checkout (cached by Docker between sessions)."""
+    return build_runtime_image(docker_client)
+
+
+@pytest.fixture
+def backend(docker_client: docker.DockerClient) -> Iterator[LocalDockerBackend]:
+    """A local Docker backend in a scope of its own; anything a test leaves behind is removed."""
+    scoped = LocalDockerBackend(scope=f"t{uuid.uuid4().hex[:10]}", client=docker_client)
+    yield scoped
+    scoped.reap_expired(datetime.max.replace(tzinfo=UTC))
+
+
+@pytest.fixture(scope="session")
+def app_repo(tmp_path_factory: pytest.TempPathFactory) -> AppRepo:
+    return AppRepo(tmp_path_factory.mktemp("app-repo") / "repo")
