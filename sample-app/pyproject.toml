@@ -1,0 +1,13 @@
+[project]
+name = "commerce-sample-app"
+version = "0.1.0"
+description = "Commerce Orders & Refunds sample application, the application under review"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.16",
+    "psycopg[binary]>=3.2",
+    "sqlalchemy>=2.0",
+]
+
+[tool.uv]
+package = false
