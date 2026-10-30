@@ -1,0 +1,18 @@
+# C3 capture preservation (docs/SCENARIO_CONTRACT.md). Protected: always read from the base SHA.
+contract_id = "commerce.c3_capture_totals"
+version = 1
+description = "Capture totals per order and currency are preserved to the cent; currencies are never summed together."
+required = true
+severity = "CRITICAL"
+key_columns = ["order_id", "currency"]
+query_sql = """
+SELECT o.order_id, o.currency::text AS currency,
+       COALESCE(SUM(e.amount) FILTER (WHERE e.event_kind = 'CAPTURE'), 0)::numeric(18, 2)
+         AS capture_total
+FROM orders AS o
+LEFT JOIN legacy_payment_events AS e ON e.order_id = o.order_id
+GROUP BY o.order_id, o.currency
+"""
+
+[expected_columns]
+capture_total = { kind = "DECIMAL", decimal_scale = 2 }

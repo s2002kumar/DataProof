@@ -2,7 +2,7 @@
 
 **Purpose:** remove ambiguity about which SQL transformations and business facts the complete project will test. This is the approved design, **not** implemented database code: each statement becomes a tested fixture or contract as implementation lands.
 
-**Implementation status:** the reference schema, the baseline fixture, the safe change (change set `ledger-backfill-01`) and F1 (`ledger-backfill-07`) are implemented in [`sample-app/`](../sample-app/README.md) and [`scenarios/commerce/`](../scenarios/commerce/README.md) and exercised against PostgreSQL by `tests/integration/test_commerce_migrations.py`. F2, F3, the decimal-loss and timestamp faults and the clean intentional-change PR are not implemented yet.
+**Implementation status:** the reference schema, the baseline fixture, the safe change (change set `ledger-backfill-01`) and F1 (`ledger-backfill-07`) are implemented in [`sample-app/`](../sample-app/README.md) and [`scenarios/commerce/`](../scenarios/commerce/README.md) and exercised against PostgreSQL by `tests/integration/test_commerce_migrations.py`. C1–C3 are implemented as oracle files with per-change-set bindings and evaluated by [`packages/verifier`](../packages/verifier/README.md): the safe change is `CHECKED`, and F1 is `BLOCKED` by C1, C2 and C3. F2, F3, the decimal-loss and timestamp faults and the clean intentional-change PR are not implemented yet.
 
 ## Fixed commerce domain
 

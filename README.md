@@ -5,7 +5,7 @@
 DataProof is a pull-request review system for PostgreSQL application migrations. For each pull request it runs the proposed migration in a disposable copy of the application, checks data integrity and selected API behavior against protected contracts, investigates failures with evidence-grounded AI, and reports exactly which checks ran, which failed and why, as a GitHub check bound to the commit. Merge and deployment decisions stay with people.
 
 > [!IMPORTANT]
-> **Status: early implementation.** The engineering specification is complete. Implemented and tested so far: the typed result contracts ([`packages/contracts`](packages/contracts/README.md)) and the commerce scenario baseline (reference schema, deterministic fixture and candidate migrations), including an integration test in which a migration keeps every row and key while corrupting refund values ([`scenarios/commerce`](scenarios/commerce/README.md)). No end-to-end capability exists yet: every capability and control below is a design commitment until the code and tests for it land. See [How the build proceeds](#how-the-build-proceeds).
+> **Status: early implementation.** The engineering specification is complete. Implemented and tested so far: the typed result contracts ([`packages/contracts`](packages/contracts/README.md)) and the commerce scenario baseline (reference schema, deterministic fixture and candidate migrations), including an integration test in which a migration keeps every row and key while corrupting refund values ([`scenarios/commerce`](scenarios/commerce/README.md)), and the deterministic verifier that evaluates protected oracles against reviewed bindings ([`packages/verifier`](packages/verifier/README.md)). No end-to-end capability exists yet: every capability and control below is a design commitment until the code and tests for it land. See [How the build proceeds](#how-the-build-proceeds).
 
 ## The problem
 
@@ -78,6 +78,7 @@ Out of scope: production cutover automation, other databases or warehouses, Spar
 | [Architecture decisions](docs/adr/) | ADR-0001 to ADR-0005 |
 | [Contracts package](packages/contracts/README.md) | Typed result contracts, their enforced invariants, value encoding and JSON Schemas |
 | [Commerce scenario](scenarios/commerce/README.md) | Baseline fixture, its digest and edge cases, and candidate change sets |
+| [Verifier](packages/verifier/README.md) | Evaluation order, comparators, outcomes and query safety layers |
 | [Sample app](sample-app/README.md) | The application under review: schema and migrations |
 
 To build and test the code, see [CONTRIBUTING.md](CONTRIBUTING.md). Instructions for AI coding assistants are in [AGENTS.md](AGENTS.md).

@@ -30,6 +30,10 @@ Hand-built orders guarantee the edge cases:
 
 Orders 101 to 300 are seeded random orders: one to four items, one or two captures that add up to the item total, zero to two refunds that never exceed the captures, two currencies, and a mix of NULL, empty and filled memos.
 
+## Contracts
+
+[`oracles/`](oracles/) holds the protected oracles, always read from the base SHA: C1 event preservation (keyed by `event_id`), C2 refund totals and C3 capture totals (both keyed by order and currency over **every** order, so zero-refund orders are expected too). C2 carries the reference-first rule that refunds never exceed captures. Each change set proposes its own `bindings/` for its candidate schema, as a pull request would; they are untrusted until a digest-bound approval.
+
 ## Change sets
 
 `changes/<id>/` holds Alembic revisions exactly as a pull request would add them to `sample-app/migrations/versions/`. Following the benchmark's leakage rules, a change set's ID, file name and docstring never reveal whether it is expected to pass; expected outcomes live in the tests and the design documents.

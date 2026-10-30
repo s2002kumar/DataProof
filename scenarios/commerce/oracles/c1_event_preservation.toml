@@ -1,0 +1,17 @@
+# C1 event preservation (docs/SCENARIO_CONTRACT.md). Protected: always read from the base SHA.
+contract_id = "commerce.c1_event_preservation"
+version = 1
+description = "Every legacy payment event maps to exactly one ledger entry with equal order, kind, amount and instant."
+required = true
+severity = "CRITICAL"
+key_columns = ["event_id"]
+query_sql = """
+SELECT event_id, order_id, event_kind::text AS event_kind, amount, occurred_at
+FROM legacy_payment_events
+"""
+
+[expected_columns]
+order_id = { kind = "EXACT" }
+event_kind = { kind = "EXACT" }
+amount = { kind = "DECIMAL", decimal_scale = 2 }
+occurred_at = { kind = "INSTANT" }

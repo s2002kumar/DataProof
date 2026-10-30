@@ -10,101 +10,30 @@ Reference and candidate are separate databases built from the same baseline, as 
 The C1 comparison here is hand-written; the general verifier replaces it in a later package.
 """
 
-import os
-import uuid
 from collections import Counter
-from collections.abc import Callable, Iterator
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
 
-import psycopg
 import pytest
-from alembic import command
-from alembic.config import Config
-from psycopg import sql
-from sqlalchemy import create_engine
 
-from commerce_scenario import PUBLISHED_DIGEST, build_fixture, load_fixture
+from commerce_env import (
+    JOIN_CHANGE,
+    SAFE_CHANGE,
+    DatabaseFactory,
+    baseline,
+    candidate,
+    fetch,
+    migrate,
+    scalar,
+)
+from commerce_scenario import PUBLISHED_DIGEST, build_fixture
 from dataproof_contracts import CheckOutcome, CheckResult, Mismatch, typed_value
 
 pytestmark = pytest.mark.integration
 
-REPO = Path(__file__).resolve().parents[2]
-SAMPLE_APP = REPO / "sample-app"
-CHANGES = REPO / "scenarios" / "commerce" / "changes"
-SAFE_CHANGE, JOIN_CHANGE = "ledger-backfill-01", "ledger-backfill-07"
 C1_COLUMNS = ("order_id", "kind", "amount", "occurred_at")
 
 Row = tuple[Any, ...]
-DatabaseFactory = Callable[[], str]
-
-
-def alembic_config(change: str | None) -> Config:
-    """The sample app's migrations, plus one candidate change set as the PR head would add it."""
-    config = Config()
-    config.set_main_option("script_location", str(SAMPLE_APP / "migrations"))
-    config.set_main_option("path_separator", "os")
-    locations = [SAMPLE_APP / "migrations" / "versions"]
-    if change is not None:
-        locations.append(CHANGES / change)
-    config.set_main_option("version_locations", os.pathsep.join(map(str, locations)))
-    return config
-
-
-def migrate(dsn: str, change: str | None) -> None:
-    engine = create_engine("postgresql+psycopg://", creator=lambda: psycopg.connect(dsn))
-    try:
-        with engine.connect() as connection:
-            config = alembic_config(change)
-            config.attributes["connection"] = connection
-            command.upgrade(config, "head")
-    finally:
-        engine.dispose()
-
-
-def fetch(dsn: str, query: str) -> list[Row]:
-    with psycopg.connect(dsn) as connection:
-        return connection.execute(query).fetchall()
-
-
-def scalar(dsn: str, query: str) -> Any:
-    (row,) = fetch(dsn, query)
-    return row[0]
-
-
-@pytest.fixture
-def new_database(postgres_dsn: str) -> Iterator[DatabaseFactory]:
-    created: list[str] = []
-
-    def create() -> str:
-        name = f"dataproof_{uuid.uuid4().hex[:12]}"
-        with psycopg.connect(postgres_dsn, autocommit=True) as admin:
-            admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
-        created.append(name)
-        return psycopg.conninfo.make_conninfo(postgres_dsn, dbname=name)
-
-    yield create
-    with psycopg.connect(postgres_dsn, autocommit=True) as admin:
-        for name in created:
-            admin.execute(
-                sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name))
-            )
-
-
-def baseline(new_database: DatabaseFactory) -> str:
-    """A fresh database at the reference revision, loaded with the published fixture."""
-    dsn = new_database()
-    migrate(dsn, change=None)
-    with psycopg.connect(dsn) as connection:
-        load_fixture(connection, build_fixture())
-    return dsn
-
-
-def candidate(new_database: DatabaseFactory, change: str) -> str:
-    dsn = baseline(new_database)
-    migrate(dsn, change)
-    return dsn
 
 
 @pytest.fixture

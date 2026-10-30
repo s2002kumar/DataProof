@@ -49,8 +49,10 @@ class Oracle(Contract):
     query_sql: NonEmptyText
     key_columns: Annotated[tuple[ColumnName, ...], Field(min_length=1)]
     expected_columns: Annotated[dict[ColumnName, Comparator], Field(min_length=1)]
-    reference_first: bool = False
-    """Evaluate on the reference before the candidate (non-equivalence invariants)."""
+    reference_precondition_sql: NonEmptyText | None = None
+    """Reference-first rule: a query returning the rows that violate a non-equivalence invariant
+    (for example refunds exceeding captures). It runs on the reference before anything else;
+    any row means ``ERROR: ORACLE_VIOLATED_ON_REFERENCE``, a fixture or contract defect."""
 
     @model_validator(mode="after")
     def _keys_are_not_values(self) -> Self:
