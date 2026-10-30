@@ -34,6 +34,13 @@ Orders 101 to 300 are seeded random orders: one to four items, one or two captur
 
 [`oracles/`](oracles/) holds the protected oracles, always read from the base SHA: C1 event preservation (keyed by `event_id`), C2 refund totals and C3 capture totals (both keyed by order and currency over **every** order, so zero-refund orders are expected too). C2 carries the reference-first rule that refunds never exceed captures. Each change set proposes its own `bindings/` for its candidate schema, as a pull request would; they are untrusted until a digest-bound approval.
 
+## Ledger version of the API
+
+[`ledger-app/payments.py`](ledger-app/payments.py) is the version of `sample-app/app/payments.py` that the ledger change sets' pull requests carry alongside their revisions. Order totals come from `ledger_entries`, and `GET /orders/{id}/refunds` gives way to `GET /orders/{id}/transactions?kind=REFUND`, the candidate route that C6 maps the reference route to. `tests/integration/test_sample_api.py` serves both versions against real databases:
+
+- on the safe change, every order's detail is identical through both APIs;
+- on F1, the ledger API itself reports the multiplied refund (99.98 for 49.99).
+
 ## Change sets
 
 `changes/<id>/` holds Alembic revisions exactly as a pull request would add them to `sample-app/migrations/versions/`. Following the benchmark's leakage rules, a change set's ID, file name and docstring never reveal whether it is expected to pass; expected outcomes live in the tests and the design documents.
