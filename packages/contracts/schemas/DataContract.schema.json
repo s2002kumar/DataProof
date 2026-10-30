@@ -146,10 +146,18 @@
           "title": "Query Sql",
           "type": "string"
         },
-        "reference_first": {
-          "default": false,
-          "title": "Reference First",
-          "type": "boolean"
+        "reference_precondition_sql": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reference Precondition Sql"
         },
         "source_path": {
           "minLength": 1,

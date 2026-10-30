@@ -7,7 +7,12 @@
         "CANDIDATE_BUILD_FAILED",
         "CANDIDATE_START_FAILED",
         "SOURCE_DIGEST_MISMATCH",
-        "BINDING_UNSUPPORTED_CONSTRUCT"
+        "BINDING_UNSUPPORTED_CONSTRUCT",
+        "BINDING_COVERAGE_GAP",
+        "DUPLICATE_KEY",
+        "QUERY_FAILED",
+        "RESULT_LIMIT_EXCEEDED",
+        "UNSUPPORTED_VALUE_TYPE"
       ],
       "title": "ErrorCode",
       "type": "string"

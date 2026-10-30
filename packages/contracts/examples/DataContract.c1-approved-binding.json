@@ -33,7 +33,7 @@
         "tolerance": "0"
       }
     },
-    "reference_first": false
+    "reference_precondition_sql": null
   },
   "candidate_binding": {
     "source_path": "scenarios/commerce/bindings/c1_ledger_entries.sql",
