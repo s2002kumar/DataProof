@@ -69,6 +69,9 @@ class EnvironmentHandle:
     isolation_id: str
     database: DatabaseAccess
     expires_at: datetime
+    variant: str = ""
+    """Empty for the run's own environment of this role; for example ``restore`` for a fresh
+    environment that a snapshot is restored into."""
 
 
 @dataclass(frozen=True)
@@ -113,13 +116,20 @@ class ExecutionBackend(Protocol):
 
     name: str
 
+    @property
+    def database_image(self) -> str:
+        """The PostgreSQL image every environment runs, by digest."""
+        ...
+
     def provision(
-        self, run_id: UUID, role: Environment, *, expires_at: datetime
+        self, run_id: UUID, role: Environment, *, expires_at: datetime, variant: str = ""
     ) -> EnvironmentHandle:
         """Create an isolated, empty, ready database environment for one role of a run."""
         ...
 
-    def attach(self, run_id: UUID, role: Environment) -> EnvironmentHandle | None:
+    def attach(
+        self, run_id: UUID, role: Environment, *, variant: str = ""
+    ) -> EnvironmentHandle | None:
         """The live environment of one role of a run, or None if it does not exist or is down.
 
         A worker that resumes a run after another worker's lease ended uses this to reach the
@@ -139,8 +149,18 @@ class ExecutionBackend(Protocol):
         """Run one bounded step of the trusted runtime image against the staged source."""
         ...
 
-    def destroy(self, run_id: UUID, *, role: Environment | None = None) -> CleanupReport:
-        """Remove every resource of a run, or of one role of it. Idempotent."""
+    def dump_database(self, environment: EnvironmentHandle) -> bytes:
+        """``pg_dump --format=custom`` of the environment's database, taken by trusted code."""
+        ...
+
+    def restore_database(self, environment: EnvironmentHandle, dump: bytes) -> None:
+        """Restore a ``pg_dump`` archive into a fresh environment's empty database."""
+        ...
+
+    def destroy(
+        self, run_id: UUID, *, role: Environment | None = None, variant: str | None = None
+    ) -> CleanupReport:
+        """Remove every resource of a run, or of one role (and variant) of it. Idempotent."""
         ...
 
     def reap_expired(self, now: datetime) -> list[CleanupReport]:

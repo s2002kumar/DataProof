@@ -6,7 +6,9 @@ PROVISIONING  create reference and candidate environments, migrate both to the b
               the base source, load the identical baseline, and prove it identical
 MIGRATING     run the head's migrations in the candidate, from the head source, inside a step
 VERIFYING     the migration check, then every protected oracle against its proposed binding
-REPORTING     derive the verdict and its GitHub conclusion with the coverage table
+REPORTING     seal pg_dump snapshots of both databases, verify that each restores to the same
+              rows in a fresh environment, write the evidence manifest, then derive the
+              verdict and its GitHub conclusion with the coverage table
 
 Every stage records its results through the transition's ``effects``, so results exist exactly
 when the run has moved past the stage that produced them. Problems caused by the pull request
@@ -14,7 +16,9 @@ when the run has moved past the stage that produced them. Problems caused by the
 trusted setup become a run ``ERROR`` with a typed code, and transient failures are retried.
 """
 
+import hashlib
 import io
+import json
 import tarfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -31,30 +35,45 @@ from dataproof_contracts import (
     CheckResult,
     Environment,
     ErrorCode,
+    EvidenceManifest,
+    EvidenceRecord,
     NotExecutedReason,
     NotRunReason,
     Oracle,
     ReportVerdict,
+    RestoreVerification,
     ReviewRun,
     RunState,
+    SnapshotArtifact,
+    SourceArtifact,
+    canonical_json,
     github_check_conclusion,
 )
 from dataproof_control import Effects
 from dataproof_control.results import (
     CheckRecord,
+    ManifestRecord,
     ReportRecord,
     RunResults,
+    SnapshotRecord,
     SourceRecord,
     StepRecord,
     record_check,
     record_evidence,
+    record_manifest,
     record_report,
+    record_snapshot,
     record_source,
     record_step,
 )
 from dataproof_runner.artifacts import LocalArtifactStore
-from dataproof_runner.backend import EnvironmentHandle, ExecutionBackend, StagedSource, StepResult
-from dataproof_runner.baselines import Baseline, database_digest
+from dataproof_runner.backend import (
+    EnvironmentHandle,
+    ExecutionBackend,
+    StagedSource,
+    StepResult,
+)
+from dataproof_runner.baselines import Baseline, database_digest, user_tables
 from dataproof_runner.project import ProjectConfig
 from dataproof_runner.source import archive_commit, changed_paths
 from dataproof_runner.worker import StageContext, StageHandler, StageOutcome
@@ -71,6 +90,7 @@ from dataproof_verifier import (
 MIGRATION_CHECK = "migration.execute"
 MIGRATION_CONTRACT = "dataproof.migration_executes"
 MIGRATION_STEP = "candidate.migration"
+RESTORE_VARIANT = "restore"
 EXIT_SOURCE_DIGEST_MISMATCH = 65
 _MAX_CONTRACT_FILE = 64 * 1024
 
@@ -79,6 +99,7 @@ _MAX_CONTRACT_FILE = 64 * 1024
 class PipelineSettings:
     environment_ttl: timedelta = timedelta(hours=4)
     """Expiry label on environments: the reaper's safety net if cleanup never runs."""
+    evidence_retention: timedelta = timedelta(days=30)
     query_limits: QueryLimits = field(default_factory=QueryLimits)
 
 
@@ -113,6 +134,15 @@ def _step_record(
         duration_ms=int(result.duration_seconds * 1000),
         output=result.output,
     )
+
+
+def _json(document: Mapping[str, Any]) -> bytes:
+    return json.dumps(document, sort_keys=True, separators=(",", ":"), default=str).encode()
+
+
+def _digest_of(image: str) -> str:
+    """``sha256:...`` of an image ID or of a ``name@sha256:...`` reference."""
+    return image.rsplit("@", 1)[-1]
 
 
 def _all(*effects: Effects) -> Effects:
@@ -503,8 +533,11 @@ class Pipeline:
 
     def report(self, context: StageContext) -> StageOutcome:
         run = context.run
-        checks = [record.result for record in self.results.checks(run.run_id)]
-        verdict = derive_verdict(checks)
+        checks = self.results.checks(run.run_id)
+        snapshots = [self._seal(context, role) for role in Environment]
+        manifest = self._manifest(run, checks, snapshots)
+        results = [record.result for record in checks]
+        verdict = derive_verdict(results)
         report = ReportRecord(
             verdict=verdict,
             conclusion=github_check_conclusion(verdict),
@@ -520,15 +553,164 @@ class Pipeline:
                         else None,
                         "mismatch_count": c.mismatch_count,
                     }
-                    for c in checks
+                    for c in results
                 ],
+                "evidence": {
+                    "manifest_sha256": manifest.sha256,
+                    "snapshots": {
+                        s.environment.value: {
+                            "sha256": s.sha256,
+                            "restore_verified": s.restore_verified,
+                        }
+                        for s in snapshots
+                    },
+                },
             },
         )
         return StageOutcome(
             RunState.READY_FOR_REVIEW,
-            detail={"verdict": verdict.value, "conclusion": report.conclusion.value},
-            effects=self._recorder(record_report, run.run_id, report),
+            detail={
+                "verdict": verdict.value,
+                "conclusion": report.conclusion.value,
+                "manifest_sha256": manifest.sha256,
+                "restore_verified": all(s.restore_verified for s in snapshots),
+            },
+            effects=_all(
+                *(self._recorder(record_snapshot, run.run_id, s) for s in snapshots),
+                self._recorder(record_manifest, run.run_id, manifest),
+                self._recorder(record_report, run.run_id, report),
+            ),
         )
+
+    def _seal(self, context: StageContext, role: Environment) -> SnapshotRecord:
+        """Snapshot one environment, then prove the snapshot restores to the same rows.
+
+        The restore happens in a fresh environment of the same role, which is destroyed again;
+        the live environment stays up for review.
+        """
+        context.ensure_lease()
+        run_id = context.run.run_id
+        live = self._attached(run_id, role)
+        dump = self.backend.dump_database(live)
+        captured_at = datetime.now(UTC)
+        ref = self.artifacts.put(run_id, f"snapshot-{role.value.lower()}.dump", dump)
+        live_digest = self._digest(live)
+
+        self.backend.destroy(run_id, role=role, variant=RESTORE_VARIANT)
+        restored_digest: str | None = None
+        error: str | None = None
+        try:
+            fresh = self.backend.provision(
+                run_id,
+                role,
+                expires_at=datetime.now(UTC) + self.settings.environment_ttl,
+                variant=RESTORE_VARIANT,
+            )
+            self.backend.restore_database(fresh, self.artifacts.get(ref.object_key, ref.sha256))
+            restored_digest = self._digest(fresh)
+        except RuntimeError as failure:
+            error = str(failure)[:500]
+        finally:
+            self.backend.destroy(run_id, role=role, variant=RESTORE_VARIANT)
+        return SnapshotRecord(
+            environment=role,
+            object_key=ref.object_key,
+            sha256=ref.sha256,
+            size_bytes=ref.size_bytes,
+            captured_at=captured_at,
+            database_digest=live_digest,
+            restored_digest=restored_digest,
+            verified_at=datetime.now(UTC),
+            restore_error=error,
+        )
+
+    @staticmethod
+    def _digest(environment: EnvironmentHandle) -> str:
+        access = environment.database
+        with psycopg.connect(access.conninfo(access.reader)) as conn:
+            return database_digest(conn, user_tables(conn))
+
+    def _manifest(
+        self, run: ReviewRun, checks: list[CheckRecord], snapshots: list[SnapshotRecord]
+    ) -> ManifestRecord:
+        """Seal the run's evidence: every artifact and record, each with its SHA-256."""
+        run_id = run.run_id
+        bundle = {
+            "checks": [c.result.model_dump(mode="json") for c in checks],
+            "evidence": dict(self.results.evidence(run_id)),
+            "steps": [
+                {
+                    "step_id": s.step_id,
+                    "environment": s.environment.value,
+                    "source_sha256": s.source_sha256,
+                    "exit_code": s.exit_code,
+                    "timed_out": s.timed_out,
+                    "duration_ms": s.duration_ms,
+                    "output": s.output,
+                }
+                for s in self.results.steps(run_id)
+            ],
+        }
+        stored = self.artifacts.put(run_id, "results.json", _json(bundle))
+        sealed_at = datetime.now(UTC)
+        binding_digests = sorted(
+            c.binding_analysis.binding_digest for c in checks if c.binding_analysis is not None
+        )
+        manifest = EvidenceManifest(
+            run_id=run_id,
+            input_digest=run.input_digest,
+            dataset_digest=run.inputs.dataset_digest,
+            config_digest=run.inputs.config_digest,
+            binding_digest=hashlib.sha256("\n".join(binding_digests).encode()).hexdigest()
+            if binding_digests
+            else None,
+            image_digests=tuple(
+                sorted(
+                    {
+                        _digest_of(self.project.runtime_image),
+                        _digest_of(self.backend.database_image),
+                    }
+                )
+            ),
+            source_artifacts=tuple(
+                SourceArtifact(
+                    environment=s.environment,
+                    commit_sha=s.commit_sha,
+                    object_key=s.object_key,
+                    sha256=s.sha256,
+                )
+                for s in self.results.sources(run_id).values()
+            ),
+            snapshots=tuple(
+                SnapshotArtifact(
+                    environment=s.environment,
+                    object_key=s.object_key,
+                    sha256=s.sha256,
+                    size_bytes=s.size_bytes,
+                    captured_at=s.captured_at,
+                )
+                for s in snapshots
+            ),
+            restore_verifications=tuple(
+                RestoreVerification(
+                    snapshot_sha256=s.sha256, verified_at=s.verified_at, restored=s.restore_verified
+                )
+                for s in snapshots
+            ),
+            records=(
+                EvidenceRecord(
+                    evidence_id="run.results",
+                    kind="results_bundle",
+                    object_key=stored.object_key,
+                    sha256=stored.sha256,
+                    created_at=sealed_at,
+                ),
+            ),
+            sealed_at=sealed_at,
+            retain_until=sealed_at + self.settings.evidence_retention,
+        )
+        sealed = self.artifacts.put(run_id, "manifest.json", canonical_json(manifest))
+        return ManifestRecord(object_key=sealed.object_key, sha256=sealed.sha256, manifest=manifest)
 
     # CLEANING ----------------------------------------------------------------------------------
 
