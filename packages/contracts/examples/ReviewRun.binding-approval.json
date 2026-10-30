@@ -15,6 +15,7 @@
   "state": "QUEUED",
   "error_code": null,
   "not_executed_reason": null,
+  "superseded_by": null,
   "lease": null,
   "isolation_id": null,
   "created_at": "2026-10-31T15:00:00Z",

@@ -66,6 +66,7 @@ class ReviewRun(Contract):
     state: RunState
     error_code: ErrorCode | None = None
     not_executed_reason: NotExecutedReason | None = None
+    superseded_by: UUID | None = None
     lease: WorkerLease | None = None
     isolation_id: NonEmptyText | None = None
     created_at: AwareDatetime
@@ -85,6 +86,10 @@ class ReviewRun(Contract):
             raise ValueError("a run cannot be its own parent")
         if (self.state is RunState.NOT_EXECUTED) != (self.not_executed_reason is not None):
             raise ValueError("not_executed_reason is required exactly when state is NOT_EXECUTED")
+        if self.state is RunState.SUPERSEDED and self.superseded_by is None:
+            raise ValueError("a SUPERSEDED run must name the run that superseded it")
+        if self.superseded_by == self.run_id:
+            raise ValueError("a run cannot supersede itself")
         if self.updated_at < self.created_at:
             raise ValueError("updated_at precedes created_at")
         return self

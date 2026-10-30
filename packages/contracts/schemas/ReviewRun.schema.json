@@ -12,7 +12,8 @@
         "DUPLICATE_KEY",
         "QUERY_FAILED",
         "RESULT_LIMIT_EXCEEDED",
-        "UNSUPPORTED_VALUE_TYPE"
+        "UNSUPPORTED_VALUE_TYPE",
+        "RETRY_BUDGET_EXHAUSTED"
       ],
       "title": "ErrorCode",
       "type": "string"
@@ -244,6 +245,19 @@
     },
     "state": {
       "$ref": "#/$defs/RunState"
+    },
+    "superseded_by": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Superseded By"
     },
     "trigger": {
       "$ref": "#/$defs/RunTrigger"
