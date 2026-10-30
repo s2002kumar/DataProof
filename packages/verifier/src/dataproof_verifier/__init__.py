@@ -13,6 +13,8 @@ from dataproof_verifier.files import (
     assemble_contract,
     load_binding,
     load_oracle,
+    parse_binding,
+    parse_oracle,
 )
 from dataproof_verifier.queries import QueryError, QueryLimits, QueryResult, run_read_only
 from dataproof_verifier.verdict import derive_verdict
@@ -33,6 +35,8 @@ __all__ = [
     "derive_verdict",
     "load_binding",
     "load_oracle",
+    "parse_binding",
+    "parse_oracle",
     "run_read_only",
     "values_match",
     "verify_contract",

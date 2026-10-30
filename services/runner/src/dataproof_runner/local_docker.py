@@ -9,7 +9,9 @@ Per run and role it creates:
 * ``<prefix>-db``: PostgreSQL from a digest-pinned image, as the ``postgres`` user, with every
   capability dropped, ``no-new-privileges``, resource limits and data on tmpfs. An init script
   creates the owner and reader roles and the application database; the superuser password is
-  generated here, passed only to that container and never stored.
+  generated here, passed only to that container and never stored. The owner and reader
+  passwords are kept in that container's configuration, which only Docker API users (the trusted
+  operator) can read, so that a worker resuming a run can :meth:`attach` to it.
 * ``<prefix>-step-<id>``: short-lived step containers from the trusted runtime image (by image ID
   or digest only), as UID 10001, with every capability dropped and resource limits. The source
   archive is copied in before start, and the image's entrypoint verifies its digest.
@@ -58,6 +60,7 @@ _SCOPE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,23}$")
 _STEP_USER = "10001:10001"
 _DATABASE = "app"
 _OWNER, _READER = "dataproof_owner", "dataproof_reader"
+_OWNER_PASSWORD, _READER_PASSWORD = "DATAPROOF_OWNER_PASSWORD", "DATAPROOF_READER_PASSWORD"
 _MAX_OUTPUT = 64 * 1024
 _DIGEST_PINNED = re.compile(r"^(sha256:[0-9a-f]{64}|[^@\s]+@sha256:[0-9a-f]{64})$")
 
@@ -140,10 +143,12 @@ class LocalDockerBackend:
             _KIND: kind,
         }
 
-    def _filters(self, run_id: UUID | None) -> dict[str, Any]:
+    def _filters(self, run_id: UUID | None, role: Environment | None = None) -> dict[str, Any]:
         labels = [f"{_MANAGED}=true", f"{_SCOPE}={self.scope}"]
         if run_id is not None:
             labels.append(f"{_RUN}={run_id}")
+        if role is not None:
+            labels.append(f"{_ROLE}={role.value}")
         return {"label": labels}
 
     def _limits_kwargs(self) -> dict[str, Any]:
@@ -186,6 +191,8 @@ class LocalDockerBackend:
             environment={
                 "POSTGRES_PASSWORD": secrets.token_urlsafe(24),
                 "PGDATA": "/var/lib/postgresql/data/pgdata",
+                _OWNER_PASSWORD: owner.password,
+                _READER_PASSWORD: reader.password,
             },
             tmpfs={
                 "/var/lib/postgresql/data": (
@@ -215,6 +222,33 @@ class LocalDockerBackend:
             isolation_id=prefix,
             database=access,
             expires_at=expires_at,
+        )
+
+    def attach(self, run_id: UUID, role: Environment) -> EnvironmentHandle | None:
+        prefix = self._prefix(run_id, role)
+        try:
+            database = self._client.containers.get(f"{prefix}-db")
+        except NotFound:
+            return None
+        labels = database.attrs["Config"].get("Labels") or {}
+        if labels.get(_SCOPE) != self.scope or database.status != "running":
+            return None
+        settings = dict(
+            item.split("=", 1) for item in database.attrs["Config"].get("Env") or [] if "=" in item
+        )
+        access = DatabaseAccess(
+            host="127.0.0.1",
+            port=self._published_port(database),
+            dbname=_DATABASE,
+            owner=Credentials(_OWNER, settings[_OWNER_PASSWORD]),
+            reader=Credentials(_READER, settings[_READER_PASSWORD]),
+        )
+        return EnvironmentHandle(
+            run_id=run_id,
+            role=role,
+            isolation_id=prefix,
+            database=access,
+            expires_at=datetime.fromisoformat(labels[_EXPIRES]),
         )
 
     def _published_port(self, container: Container) -> int:
@@ -305,26 +339,27 @@ class LocalDockerBackend:
 
     # Cleanup -----------------------------------------------------------------------------------
 
-    def _containers(self, run_id: UUID | None) -> list[Container]:
-        return list(self._client.containers.list(all=True, filters=self._filters(run_id)))
+    def _containers(self, run_id: UUID | None, role: Environment | None = None) -> list[Container]:
+        filters = self._filters(run_id, role)
+        return list(self._client.containers.list(all=True, filters=filters))
 
-    def _networks(self, run_id: UUID | None) -> list[Network]:
-        return list(self._client.networks.list(filters=self._filters(run_id)))
+    def _networks(self, run_id: UUID | None, role: Environment | None = None) -> list[Network]:
+        return list(self._client.networks.list(filters=self._filters(run_id, role)))
 
     def resources(self, run_id: UUID | None = None) -> list[str]:
         names = [str(c.name) for c in self._containers(run_id)]
         names += [str(n.name) for n in self._networks(run_id)]
         return sorted(names)
 
-    def destroy(self, run_id: UUID) -> CleanupReport:
+    def destroy(self, run_id: UUID, *, role: Environment | None = None) -> CleanupReport:
         removed: list[str] = []
-        for container in self._containers(run_id):
+        for container in self._containers(run_id, role):
             try:
                 container.remove(force=True, v=True)
                 removed.append(str(container.name))
             except NotFound:
                 continue
-        for network in self._networks(run_id):
+        for network in self._networks(run_id, role):
             try:
                 network.remove()
                 removed.append(str(network.name))

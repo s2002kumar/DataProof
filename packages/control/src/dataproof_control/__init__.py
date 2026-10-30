@@ -10,6 +10,13 @@ from dataproof_control.lifecycle import (
     is_terminal,
 )
 from dataproof_control.migrate import MigrationDriftError, migrate, migrations
+from dataproof_control.results import (
+    CheckRecord,
+    ReportRecord,
+    RunResults,
+    SourceRecord,
+    StepRecord,
+)
 from dataproof_control.store import (
     Claim,
     CreatedRun,
@@ -26,15 +33,20 @@ __all__ = [
     "INTERRUPTED_STATES",
     "TRANSITIONS",
     "WORKING_STATES",
+    "CheckRecord",
     "Claim",
     "CreatedRun",
     "Effects",
     "IllegalTransitionError",
     "LeaseLostError",
     "MigrationDriftError",
+    "ReportRecord",
     "RetryPolicy",
     "RunNotFoundError",
+    "RunResults",
     "RunStore",
+    "SourceRecord",
+    "StepRecord",
     "Transition",
     "check_transition",
     "is_terminal",

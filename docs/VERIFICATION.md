@@ -20,7 +20,7 @@ A commerce service migrates from legacy order payment/refund storage to an expli
 ## Verification tiers
 
 1. **Static risk findings:** parse supported SQL constructs, identify dropped columns, casts/precision narrowing, NOT NULL, FK/index changes, unsafe transaction/locking patterns and dependency breakages. These findings are advisory and require observed execution/context to confirm.
-2. **Execution:** SQL applied on disposable PostgreSQL with timeouts and correct migrator privileges; record every migration step and any error. An exception is not evidence of data correctness.
+2. **Execution:** SQL applied on disposable PostgreSQL with timeouts and correct migrator privileges; record every migration step and any error. An exception is not evidence of data correctness. *Implemented as the required check `migration.execute`: `FAIL` when the candidate migration errors or overruns its timeout, after which every data contract is `NOT_RUN: PREREQUISITE_FAILED` ([runner](../services/runner/README.md#pipeline)).*
 3. **Schema:** target schema matches declared version and required constraints; introspect authoritative PostgreSQL catalogs. Intentionally removed columns are checked against mapping policy.
 4. **Data:** row counts, keys, nulls, duplicate keys, FK/orphan checks, deterministic relational mappings, exact decimals, typed timestamps, deliberate scalar/range tolerances and explicit business invariants.
 5. **Application behavior:** selected before/after API request/response comparisons at stable endpoints; HTTP 200 alone is insufficient. Normalize nondeterministic IDs/order/timestamps only by reviewed rules.

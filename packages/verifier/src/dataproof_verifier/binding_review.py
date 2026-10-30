@@ -159,6 +159,10 @@ def analyze_binding(
     )
     try:
         with candidate.transaction(force_rollback=True):
+            # The probe view is temporary and always rolled back, but creating it needs a
+            # read-write transaction even for a role whose sessions default to read-only.
+            # Privileges, not the transaction mode, keep this role from writing data.
+            candidate.execute("SET TRANSACTION READ WRITE")
             candidate.execute(timeout)
             try:
                 # One prepared statement: a second statement is a protocol error, not a command.

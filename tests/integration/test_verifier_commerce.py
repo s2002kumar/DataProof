@@ -239,6 +239,17 @@ def test_statement_timeout_and_row_limit(envs: dict[str, str]) -> None:
     assert {v.check.error_code for v in capped.values()} == {ErrorCode.RESULT_LIMIT_EXCEEDED}
 
 
+def test_result_digest_does_not_depend_on_row_order(envs: dict[str, str]) -> None:
+    query = "SELECT event_id, amount FROM legacy_payment_events ORDER BY event_id {}"
+    with psycopg.connect(envs["reference"], autocommit=True) as connection:
+        ascending = run_read_only(connection, query.format("ASC"))
+        descending = run_read_only(connection, query.format("DESC"))
+        fewer = run_read_only(connection, query.format("ASC LIMIT 5"))
+    assert ascending.rows != descending.rows
+    assert ascending.result_sha256 == descending.result_sha256
+    assert fewer.result_sha256 != ascending.result_sha256
+
+
 def test_a_statement_that_ends_the_transaction_is_refused(envs: dict[str, str]) -> None:
     with (
         psycopg.connect(envs["safe"], autocommit=True) as connection,

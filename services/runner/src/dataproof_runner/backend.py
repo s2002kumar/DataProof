@@ -119,6 +119,14 @@ class ExecutionBackend(Protocol):
         """Create an isolated, empty, ready database environment for one role of a run."""
         ...
 
+    def attach(self, run_id: UUID, role: Environment) -> EnvironmentHandle | None:
+        """The live environment of one role of a run, or None if it does not exist or is down.
+
+        A worker that resumes a run after another worker's lease ended uses this to reach the
+        environments that worker provisioned.
+        """
+        ...
+
     def run_step(
         self,
         environment: EnvironmentHandle,
@@ -131,8 +139,8 @@ class ExecutionBackend(Protocol):
         """Run one bounded step of the trusted runtime image against the staged source."""
         ...
 
-    def destroy(self, run_id: UUID) -> CleanupReport:
-        """Remove every resource of a run. Idempotent."""
+    def destroy(self, run_id: UUID, *, role: Environment | None = None) -> CleanupReport:
+        """Remove every resource of a run, or of one role of it. Idempotent."""
         ...
 
     def reap_expired(self, now: datetime) -> list[CleanupReport]:
