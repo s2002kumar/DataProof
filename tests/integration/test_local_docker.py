@@ -17,7 +17,7 @@ import pytest
 
 from dataproof_contracts import CleanupOutcome, Environment
 from dataproof_runner.backend import EnvironmentHandle, StagedSource
-from dataproof_runner.local_docker import LocalDockerBackend
+from dataproof_runner.local_docker import BackendError, LocalDockerBackend
 from dataproof_runner.source import archive_commit
 from docker_env import BASE_REVISION, SAMPLE_APP, AppRepo, probe_revision, revision
 
@@ -365,3 +365,39 @@ def test_attach_ignores_environments_of_another_scope(
     handle = backend.provision(uuid4(), Environment.CANDIDATE, expires_at=_later())
     neighbour = LocalDockerBackend(scope=f"{backend.scope}-y", client=docker_client)
     assert neighbour.attach(handle.run_id, Environment.CANDIDATE) is None
+
+
+def test_a_dump_restores_into_a_fresh_variant_with_the_same_rows(
+    backend: LocalDockerBackend,
+) -> None:
+    run_id = uuid4()
+    live = backend.provision(run_id, Environment.CANDIDATE, expires_at=_later())
+    owner = live.database.conninfo(live.database.owner)
+    with psycopg.connect(owner) as conn:
+        conn.execute("CREATE TABLE ledger (id integer PRIMARY KEY, amount numeric(18, 2))")
+        conn.execute("INSERT INTO ledger VALUES (1, 49.99), (2, 99.98)")
+    dump = backend.dump_database(live)
+    assert dump.startswith(b"PGDMP"), "pg_dump custom format"
+
+    fresh = backend.provision(run_id, Environment.CANDIDATE, expires_at=_later(), variant="restore")
+    assert fresh.isolation_id == f"{live.isolation_id}-restore"
+    assert _tables(fresh) == set()
+    backend.restore_database(fresh, dump)
+    assert _query(fresh, "SELECT id, amount::text FROM ledger ORDER BY id", reader=True) == [
+        (1, "49.99"),
+        (2, "99.98"),
+    ]
+    assert backend.attach(run_id, Environment.CANDIDATE, variant="restore") == fresh
+
+    backend.destroy(run_id, role=Environment.CANDIDATE, variant="restore")
+    assert backend.attach(run_id, Environment.CANDIDATE, variant="restore") is None
+    assert backend.attach(run_id, Environment.CANDIDATE) == live, "the live environment stays"
+
+
+def test_a_corrupt_dump_is_refused(backend: LocalDockerBackend) -> None:
+    fresh = backend.provision(
+        uuid4(), Environment.REFERENCE, expires_at=_later(), variant="restore"
+    )
+    with pytest.raises(BackendError, match="pg_restore failed"):
+        backend.restore_database(fresh, b"PGDMP not really a dump")
+    assert _tables(fresh) == set()

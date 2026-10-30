@@ -42,6 +42,14 @@ def baseline_for(name: str) -> Baseline:
     raise ValueError(f"unknown baseline: {name!r}")
 
 
+def user_tables(connection: psycopg.Connection[Any]) -> tuple[str, ...]:
+    """Every table in the application schema, sorted."""
+    rows = connection.execute(
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
+    ).fetchall()
+    return tuple(str(row[0]) for row in rows)
+
+
 def database_digest(connection: psycopg.Connection[Any], tables: tuple[str, ...]) -> str:
     """SHA-256 over every row of the given tables, as PostgreSQL renders them.
 
