@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "dataproof-contracts",
     "dataproof-control",
+    "dataproof-runner",
     "dataproof-scenario-commerce",
     "dataproof-verifier",
     "dataproof-workspace",
@@ -296,6 +297,21 @@ requires-dist = [
 ]
 
 [[package]]
+name = "dataproof-runner"
+version = "0.1.0"
+source = { editable = "services/runner" }
+dependencies = [
+    { name = "dataproof-contracts" },
+    { name = "dataproof-control" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dataproof-contracts", editable = "packages/contracts" },
+    { name = "dataproof-control", editable = "packages/control" },
+]
+
+[[package]]
 name = "dataproof-scenario-commerce"
 version = "0.1.0"
 source = { editable = "scenarios/commerce" }
@@ -331,6 +347,7 @@ dev = [
     { name = "alembic" },
     { name = "dataproof-contracts" },
     { name = "dataproof-control" },
+    { name = "dataproof-runner" },
     { name = "dataproof-scenario-commerce" },
     { name = "dataproof-verifier" },
     { name = "jsonschema" },
@@ -352,6 +369,7 @@ dev = [
     { name = "alembic", specifier = ">=1.16" },
     { name = "dataproof-contracts", editable = "packages/contracts" },
     { name = "dataproof-control", editable = "packages/control" },
+    { name = "dataproof-runner", editable = "services/runner" },
     { name = "dataproof-scenario-commerce", editable = "scenarios/commerce" },
     { name = "dataproof-verifier", editable = "packages/verifier" },
     { name = "jsonschema", specifier = ">=4.23" },
