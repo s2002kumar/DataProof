@@ -1,0 +1,27 @@
+# C2 refund preservation (docs/SCENARIO_CONTRACT.md). Protected: always read from the base SHA.
+# The key universe is every order, so zero-refund orders are expected too.
+contract_id = "commerce.c2_refund_totals"
+version = 1
+description = "Refund totals per order and currency are preserved exactly, including orders with no refund."
+required = true
+severity = "CRITICAL"
+key_columns = ["order_id", "currency"]
+query_sql = """
+SELECT o.order_id, o.currency::text AS currency,
+       COALESCE(SUM(e.amount) FILTER (WHERE e.event_kind = 'REFUND'), 0)::numeric(18, 2)
+         AS refund_total
+FROM orders AS o
+LEFT JOIN legacy_payment_events AS e ON e.order_id = o.order_id
+GROUP BY o.order_id, o.currency
+"""
+# Reference-first rule: refunds never exceed captures on the reference fixture.
+reference_precondition_sql = """
+SELECT order_id
+FROM legacy_payment_events
+GROUP BY order_id
+HAVING COALESCE(SUM(amount) FILTER (WHERE event_kind = 'REFUND'), 0)
+     > COALESCE(SUM(amount) FILTER (WHERE event_kind = 'CAPTURE'), 0)
+"""
+
+[expected_columns]
+refund_total = { kind = "DECIMAL", decimal_scale = 2 }
