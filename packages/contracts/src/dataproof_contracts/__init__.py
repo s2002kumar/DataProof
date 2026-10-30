@@ -1,6 +1,7 @@
 """Typed result contracts shared by DataProof services."""
 
 from dataproof_contracts._base import canonical_json, sha256_digest
+from dataproof_contracts.binding import BindingAnalysis, BindingRelation
 from dataproof_contracts.check import CheckResult, Mismatch
 from dataproof_contracts.contract import CandidateBinding, Comparator, DataContract, Oracle
 from dataproof_contracts.decision import HumanDecision
@@ -18,6 +19,7 @@ from dataproof_contracts.enums import (
     LocalizationBasis,
     NotExecutedReason,
     NotRunReason,
+    RelationProvenance,
     ReportVerdict,
     RunState,
     RunTrigger,
@@ -47,6 +49,8 @@ from dataproof_contracts.values import (
 
 __all__ = [
     "ApproverSeparation",
+    "BindingAnalysis",
+    "BindingRelation",
     "BindingReviewStatus",
     "BooleanValue",
     "CandidateBinding",
@@ -74,6 +78,7 @@ __all__ = [
     "NotRunReason",
     "NullValue",
     "Oracle",
+    "RelationProvenance",
     "ReportVerdict",
     "RestoreVerification",
     "ReviewRun",

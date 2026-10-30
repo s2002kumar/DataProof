@@ -185,3 +185,11 @@ class CleanupOutcome(StrEnum):
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     ALREADY_GONE = "ALREADY_GONE"
+
+
+class RelationProvenance(StrEnum):
+    """What the pull request's migrations did to a relation a binding reads (ADR-0005)."""
+
+    CREATED = "CREATED"
+    ALTERED = "ALTERED"
+    UNCHANGED = "UNCHANGED"

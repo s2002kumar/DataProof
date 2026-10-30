@@ -18,6 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from dataproof_contracts.binding import BindingAnalysis
 from dataproof_contracts.check import CheckResult
 from dataproof_contracts.contract import DataContract
 from dataproof_contracts.decision import HumanDecision
@@ -29,6 +30,7 @@ JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 
 EXPORTED_MODELS: Mapping[str, type[BaseModel]] = MappingProxyType(
     {
+        "BindingAnalysis": BindingAnalysis,
         "CheckResult": CheckResult,
         "DataContract": DataContract,
         "EvidenceManifest": EvidenceManifest,

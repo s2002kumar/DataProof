@@ -1,0 +1,75 @@
+{
+  "$defs": {
+    "BindingRelation": {
+      "additionalProperties": false,
+      "description": "A relation the binding reads, directly or through the views listed in ``through_views``.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/RelationProvenance"
+        },
+        "through_views": {
+          "default": [],
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Through Views",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "provenance"
+      ],
+      "title": "BindingRelation",
+      "type": "object"
+    },
+    "RelationProvenance": {
+      "description": "What the pull request's migrations did to a relation a binding reads (ADR-0005).",
+      "enum": [
+        "CREATED",
+        "ALTERED",
+        "UNCHANGED"
+      ],
+      "title": "RelationProvenance",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Relations and functions a binding uses, as resolved by PostgreSQL on the candidate.",
+  "properties": {
+    "binding_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Binding Digest",
+      "type": "string"
+    },
+    "functions": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Functions",
+      "type": "array"
+    },
+    "relations": {
+      "items": {
+        "$ref": "#/$defs/BindingRelation"
+      },
+      "title": "Relations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "binding_digest",
+    "relations",
+    "functions"
+  ],
+  "title": "BindingAnalysis",
+  "type": "object"
+}
