@@ -150,6 +150,7 @@ def probe_revision(targets: Mapping[str, tuple[str, int]]) -> str:
 
 
 ORACLES = REPO / "scenarios" / "commerce" / "oracles"
+LEDGER_PAYMENTS = REPO / "scenarios" / "commerce" / "ledger-app" / "payments.py"
 ORACLE_DIR = "dataproof/oracles"
 BINDING_DIR = "dataproof/bindings"
 
@@ -165,12 +166,17 @@ class CommerceRepo(AppRepo):
         self.base = self.commit(self.base, oracles, "Protect the commerce oracles")
 
     def change(self, change: str, extra: Mapping[str, str | None] | None = None) -> str:
-        """A head commit adding a change set's revision and proposing its bindings."""
+        """A head commit as a ledger change set's pull request makes it.
+
+        It adds the change set's revision, switches the API to the ledger version and proposes
+        the change set's bindings.
+        """
         (revision_file,) = (CHANGES / change).glob("*.py")
         files: dict[str, str | None] = {
             f"{SAMPLE_APP}/migrations/versions/{revision_file.name}": revision_file.read_text(
                 "utf-8"
             ),
+            f"{SAMPLE_APP}/app/payments.py": LEDGER_PAYMENTS.read_text("utf-8"),
             **{
                 f"{BINDING_DIR}/{p.name}": p.read_text("utf-8")
                 for p in sorted((CHANGES / change / "bindings").glob("*.toml"))
