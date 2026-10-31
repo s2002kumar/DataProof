@@ -171,12 +171,13 @@ class LocalDockerBackend:
             labels.append(f"{_VARIANT}={variant or _PRIMARY}")
         return {"label": labels}
 
-    def _limits_kwargs(self) -> dict[str, Any]:
+    def _limits_kwargs(self, limits: ResourceLimits | None = None) -> dict[str, Any]:
+        limits = limits or self._limits
         return {
-            "mem_limit": self._limits.memory_bytes,
-            "memswap_limit": self._limits.memory_bytes,
-            "nano_cpus": int(self._limits.cpus * 1_000_000_000),
-            "pids_limit": self._limits.pids,
+            "mem_limit": limits.memory_bytes,
+            "memswap_limit": limits.memory_bytes,
+            "nano_cpus": int(limits.cpus * 1_000_000_000),
+            "pids_limit": limits.pids,
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges:true"],
             "privileged": False,
@@ -358,6 +359,7 @@ class LocalDockerBackend:
         source: StagedSource,
         arguments: Sequence[str],
         timeout: timedelta,
+        limits: ResourceLimits | None = None,
     ) -> StepResult:
         if not _DIGEST_PINNED.match(image):
             raise ValueError("step images must be referenced by image ID or digest")
@@ -373,7 +375,7 @@ class LocalDockerBackend:
             network=f"{environment.isolation_id}-int",
             environment={"DATAPROOF_SOURCE_SHA256": source.sha256, "DATABASE_URL": database_url},
             tmpfs={
-                "/work": f"rw,mode=1777,size={self._limits.workspace_bytes}",
+                "/work": f"rw,mode=1777,size={(limits or self._limits).workspace_bytes}",
                 "/tmp": "rw,mode=1777,size=67108864",  # noqa: S108 - container-private tmpfs
             },
             labels=self._labels(
@@ -383,7 +385,7 @@ class LocalDockerBackend:
                 environment.expires_at,
                 environment.variant,
             ),
-            **self._limits_kwargs(),
+            **self._limits_kwargs(limits),
         )
         try:
             if not container.put_archive("/run/dataproof", _tar("source.tar", source.data)):
