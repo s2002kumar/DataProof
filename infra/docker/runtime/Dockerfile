@@ -21,7 +21,7 @@ RUN uv sync --frozen --no-dev --no-install-project --project /build
 
 # Frontend dependencies, only from the frontend's lockfile, as a flat node_modules that steps
 # link into the source they build (ADR-0004: the task never installs anything).
-FROM node:24-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS web-dependencies
+FROM node:25-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS web-dependencies
 RUN npm install --global pnpm@11.11.0
 WORKDIR /opt/web
 COPY sample-app/web/package.json sample-app/web/pnpm-lock.yaml ./
