@@ -32,6 +32,20 @@ updates:
       sample-app:
         patterns: ["*"]
 
+  # The sample frontend's lockfile; its dependencies are baked into the runtime image.
+  - package-ecosystem: npm
+    directory: /sample-app/web
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore(sample-app)
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+    groups:
+      sample-web:
+        patterns: ["*"]
+
   # Base images of the trusted runtime image are pinned by digest.
   - package-ecosystem: docker
     directory: /infra/docker/runtime

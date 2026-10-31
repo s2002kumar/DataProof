@@ -18,10 +18,21 @@ CHANGES = REPO / "scenarios" / "commerce" / "changes"
 
 
 def build_runtime_image(client: docker.DockerClient) -> str:
-    """Build the trusted runtime image from this checkout and return its image ID."""
-    image, _ = client.images.build(path=str(REPO), dockerfile=RUNTIME_DOCKERFILE, rm=True)
-    image_id = image.id
-    assert image_id is not None
+    """Build the trusted runtime image from this checkout and return its image ID.
+
+    The Docker CLI (BuildKit) applies ``.dockerignore`` without walking ignored directories such
+    as ``node_modules``, which docker-py's context builder does file by file.
+    """
+    built = subprocess.run(
+        ["docker", "build", "--quiet", "--file", RUNTIME_DOCKERFILE, "."],
+        cwd=REPO,
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    image_id = built.stdout.strip().splitlines()[-1]
+    assert image_id.startswith("sha256:"), built.stdout
+    assert client.images.get(image_id).id == image_id
     return image_id
 
 
@@ -151,6 +162,7 @@ def probe_revision(targets: Mapping[str, tuple[str, int]]) -> str:
 
 ORACLES = REPO / "scenarios" / "commerce" / "oracles"
 LEDGER_PAYMENTS = REPO / "scenarios" / "commerce" / "ledger-app" / "payments.py"
+LEDGER_WEB_PAYMENTS = REPO / "scenarios" / "commerce" / "ledger-app" / "web" / "lib" / "payments.ts"
 ORACLE_DIR = "dataproof/oracles"
 BINDING_DIR = "dataproof/bindings"
 
@@ -168,8 +180,8 @@ class CommerceRepo(AppRepo):
     def change(self, change: str, extra: Mapping[str, str | None] | None = None) -> str:
         """A head commit as a ledger change set's pull request makes it.
 
-        It adds the change set's revision, switches the API to the ledger version and proposes
-        the change set's bindings.
+        It adds the change set's revision, switches the API and the frontend to the ledger
+        version and proposes the change set's bindings.
         """
         (revision_file,) = (CHANGES / change).glob("*.py")
         files: dict[str, str | None] = {
@@ -177,6 +189,7 @@ class CommerceRepo(AppRepo):
                 "utf-8"
             ),
             f"{SAMPLE_APP}/app/payments.py": LEDGER_PAYMENTS.read_text("utf-8"),
+            f"{SAMPLE_APP}/web/lib/payments.ts": LEDGER_WEB_PAYMENTS.read_text("utf-8"),
             **{
                 f"{BINDING_DIR}/{p.name}": p.read_text("utf-8")
                 for p in sorted((CHANGES / change / "bindings").glob("*.toml"))

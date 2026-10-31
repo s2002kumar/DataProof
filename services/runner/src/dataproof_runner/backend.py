@@ -20,13 +20,17 @@ from dataproof_contracts import CleanupOutcome, Environment
 
 @dataclass(frozen=True)
 class ResourceLimits:
-    """Caps applied to every container of an environment."""
+    """Caps applied to every container of an environment, unless a step asks for others."""
 
     memory_bytes: int = 512 * 1024 * 1024
     cpus: float = 1.0
     pids: int = 256
     database_storage_bytes: int = 512 * 1024 * 1024
     workspace_bytes: int = 256 * 1024 * 1024
+
+
+#: What a Next.js production build of the sample frontend needs (ADR-0004: a measured gate).
+FRONTEND_BUILD_LIMITS = ResourceLimits(memory_bytes=2 * 1024 * 1024 * 1024, cpus=2.0, pids=512)
 
 
 @dataclass(frozen=True)
@@ -145,8 +149,13 @@ class ExecutionBackend(Protocol):
         source: StagedSource,
         arguments: Sequence[str],
         timeout: timedelta,
+        limits: ResourceLimits | None = None,
     ) -> StepResult:
-        """Run one bounded step of the trusted runtime image against the staged source."""
+        """Run one bounded step of the trusted runtime image against the staged source.
+
+        ``limits`` overrides the backend's default caps for this step, for example to give a
+        frontend build the memory it needs.
+        """
         ...
 
     def dump_database(self, environment: EnvironmentHandle) -> bytes:

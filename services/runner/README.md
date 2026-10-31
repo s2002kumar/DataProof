@@ -31,6 +31,7 @@ Every resource is labelled with its scope, run, role and expiry. `destroy(run_id
 [`infra/docker/runtime/Dockerfile`](../../infra/docker/runtime/Dockerfile) builds the trusted runtime image from digest-pinned base images and the sample app's lockfile; a step never installs anything. The trusted supervisor stages an exact-commit archive (`source.py`, `git archive` of a trusted clone for now) and copies it into the step container before start. The image's [entrypoint](../../infra/docker/runtime/entrypoint.py), running as the unprivileged user, verifies the archive's SHA-256 against the launch parameter and unpacks it with tar's `data` filter. Only then does it run the step:
 
 - `migrate --config <alembic.ini> --target <revision>` runs Alembic from the pull request's source with a minimal environment.
+- `build-web --dir <frontend>` copies the verified frontend source next to the dependencies baked into the image and runs `next build` offline (Turbopack compiles nothing outside its project root). A source that ships its own `node_modules` is refused. Frontend builds run with `FRONTEND_BUILD_LIMITS` (2 GB, 2 CPUs).
 - A digest mismatch exits 65 (`SOURCE_DIGEST_MISMATCH`), and a missing or unsafe archive exits 66 (`SOURCE_INVALID`). In both cases no pull-request code runs.
 
 ### Tested isolation
@@ -54,6 +55,7 @@ Other tests cover:
 - digest mismatches and escaping archives, with no pull-request code run;
 - a failing migration committing nothing of itself, and a killed overrunning step;
 - tag-only images being refused;
+- the frontend building offline from the base and from a candidate change (`tests/integration/test_frontend_build.py`), and failing when it needs the network (`next/font/google`), has a type error or ships its own `node_modules`;
 - idempotent destroy, and expiry reaping that touches only expired runs in its own scope.
 
 ## Pipeline
