@@ -36,7 +36,7 @@ Orders 101 to 300 are seeded random orders: one to four items, one or two captur
 
 ## Ledger version of the API
 
-[`ledger-app/payments.py`](ledger-app/payments.py) is the version of `sample-app/app/payments.py` that the ledger change sets' pull requests carry alongside their revisions. Order totals come from `ledger_entries`, and `GET /orders/{id}/refunds` gives way to `GET /orders/{id}/transactions?kind=REFUND`, the candidate route that C6 maps the reference route to. `tests/integration/test_sample_api.py` serves both versions against real databases:
+[`ledger-app/payments.py`](ledger-app/payments.py) is the version of `sample-app/app/payments.py` that the ledger change sets' pull requests carry alongside their revisions, and [`ledger-app/web/lib/payments.ts`](ledger-app/web/lib/payments.ts) the matching frontend change, which the candidate must compile from its own source. Order totals come from `ledger_entries`, and `GET /orders/{id}/refunds` gives way to `GET /orders/{id}/transactions?kind=REFUND`, the candidate route that C6 maps the reference route to. `tests/integration/test_sample_api.py` serves both versions against real databases:
 
 - on the safe change, every order's detail is identical through both APIs;
 - on F1, the ledger API itself reports the multiplied refund (99.98 for 49.99).
