@@ -3,4 +3,6 @@
 *
 !sample-app/pyproject.toml
 !sample-app/uv.lock
+!sample-app/web/package.json
+!sample-app/web/pnpm-lock.yaml
 !infra/docker/runtime/entrypoint.py

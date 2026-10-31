@@ -8,6 +8,11 @@ launch parameter ``DATAPROOF_SOURCE_SHA256``, unpacks it with path and link chec
 Steps:
 
     migrate --config <path to alembic.ini in the source> --target <revision|head>
+    build-web --dir <path to the Next.js app in the source>
+
+``build-web`` copies the verified frontend source into the image's frontend directory, next to
+the dependencies baked from the lockfile (Turbopack compiles nothing outside its project root),
+and runs ``next build`` offline. A source that ships its own ``node_modules`` is refused.
 
 Exit codes: 64 bad arguments, 65 source digest mismatch (no pull-request code ran), 66 missing or
 unsafe source archive (no pull-request code ran); otherwise the step's own exit code.
@@ -22,6 +27,7 @@ import io
 import json
 import os
 import re
+import shutil
 import sys
 import tarfile
 from pathlib import Path, PurePosixPath
@@ -29,6 +35,8 @@ from pathlib import Path, PurePosixPath
 SOURCE = Path("/run/dataproof/source.tar")
 WORKSPACE = Path("/work/src")
 ALEMBIC = "/opt/venv/bin/alembic"
+NODE = "/usr/local/bin/node"
+WEB_ROOT = Path("/opt/web")
 EX_USAGE, EX_DIGEST_MISMATCH, EX_SOURCE_INVALID = 64, 65, 66
 _REVISION = re.compile(r"^(head|[A-Za-z0-9_]{1,64})$")
 
@@ -76,12 +84,41 @@ def _verified_source() -> int:
     return 0
 
 
+def _minimal_environment(**extra: str) -> dict[str, str]:
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key in {"PATH", "LANG", "NEXT_TELEMETRY_DISABLED", "PYTHONDONTWRITEBYTECODE"}
+    }
+    environment["HOME"] = "/tmp"  # noqa: S108 - a private tmpfs in the step container
+    environment.update(extra)
+    return environment
+
+
+def _build_web(app: Path) -> int:
+    if not (app / "package.json").is_file():
+        _report("SOURCE_INVALID", reason="no package.json in the frontend directory")
+        return EX_SOURCE_INVALID
+    if (app / "node_modules").exists() or (app / "node_modules").is_symlink():
+        _report("SOURCE_INVALID", reason="the source ships its own node_modules")
+        return EX_SOURCE_INVALID
+    shutil.copytree(app, WEB_ROOT, symlinks=True, dirs_exist_ok=True)
+    os.chdir(WEB_ROOT)
+    _report("STEP_STARTED", step="build-web")
+    environment = _minimal_environment(NODE_ENV="production", NEXT_TELEMETRY_DISABLED="1")
+    next_cli = str(WEB_ROOT / "node_modules" / "next" / "dist" / "bin" / "next")
+    os.execve(NODE, [NODE, next_cli, "build"], environment)  # noqa: S606
+    return 0  # pragma: no cover - execve does not return
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="dataproof-step", exit_on_error=False)
     steps = parser.add_subparsers(dest="step", required=True)
     migrate = steps.add_parser("migrate", exit_on_error=False)
     migrate.add_argument("--config", type=_relative, required=True)
     migrate.add_argument("--target", type=_revision, required=True)
+    build_web = steps.add_parser("build-web", exit_on_error=False)
+    build_web.add_argument("--dir", type=_relative, required=True)
     try:
         args = parser.parse_args(argv)
     except (argparse.ArgumentError, SystemExit) as error:
@@ -91,6 +128,9 @@ def main(argv: list[str]) -> int:
     status = _verified_source()
     if status != 0:
         return status
+
+    if args.step == "build-web":
+        return _build_web(WORKSPACE / args.dir)
 
     config = WORKSPACE / args.config
     if not config.is_file():
