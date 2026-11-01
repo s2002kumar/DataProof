@@ -42,6 +42,10 @@ updates:
     ignore:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # Next.js type-checks through the TypeScript compiler API, which the native TypeScript 7
+      # does not provide; the frontend stays on TypeScript 5 until Next.js supports 7.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       sample-web:
         patterns: ["*"]
@@ -53,6 +57,14 @@ updates:
       interval: monthly
     commit-message:
       prefix: chore(runtime)
+    ignore:
+      # The runtime's Python and Node.js versions are deliberate (Python 3.12 for the sample app
+      # and the workspace, Node.js 24 for the frontend). Dependabot keeps their digests and
+      # patch releases current; a minor or major runtime upgrade is a reviewed change.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     groups:
       runtime-images:
         patterns: ["*"]
