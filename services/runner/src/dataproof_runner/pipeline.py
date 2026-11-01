@@ -71,7 +71,7 @@ from dataproof_control.results import (
     record_source,
     record_step,
 )
-from dataproof_runner.artifacts import LocalArtifactStore
+from dataproof_runner.artifacts import ArtifactIntegrityError, LocalArtifactStore
 from dataproof_runner.backend import (
     FRONTEND_BUILD_LIMITS,
     EnvironmentHandle,
@@ -102,6 +102,78 @@ MIGRATION_STEP = "candidate.migration"
 PREVIEW_CHECK = "preview.candidate"
 PREVIEW_CONTRACT = "dataproof.preview_serves"
 RESTORE_VARIANT = "restore"
+REPLAY_VARIANT = "replay"
+
+
+@dataclass(frozen=True)
+class ReplayReport:
+    """What a replay from sealed snapshots reproduced, skipped and could not reproduce."""
+
+    run_id: UUID
+    replayed: tuple[str, ...]
+    """Data contracts re-run and compared with the recorded results."""
+    skipped: tuple[str, ...]
+    """Checks a replay cannot reproduce from snapshots: API behaviour, and checks that did
+    not run."""
+    differences: tuple[str, ...]
+
+    @property
+    def matches(self) -> bool:
+        return not self.differences
+
+
+def _fingerprint(result: CheckResult) -> tuple[object, ...]:
+    return (
+        result.outcome,
+        result.error_code,
+        result.not_run_reason,
+        result.mismatch_count,
+        result.mismatch_examples,
+        result.expected_key_count,
+        result.observed_key_count,
+    )
+
+
+def _compare_replay(
+    run_id: UUID,
+    results: RunResults,
+    replayed: list[CheckRecord],
+    evidence: Mapping[str, Mapping[str, Any]],
+) -> ReplayReport:
+    recorded = {c.result.check_id: c.result for c in results.checks(run_id)}
+    recorded_evidence = results.evidence(run_id)
+    compared: list[str] = []
+    skipped: list[str] = []
+    differences: list[str] = []
+    for record in replayed:
+        check_id = record.result.check_id
+        original = recorded.get(check_id)
+        if original is None:
+            differences.append(f"{check_id}: not recorded by the run")
+        elif (
+            original.outcome is CheckOutcome.NOT_RUN
+            or record.result.outcome is CheckOutcome.NOT_RUN
+        ):
+            skipped.append(check_id)
+        elif _fingerprint(original) != _fingerprint(record.result):
+            differences.append(
+                f"{check_id}: {original.outcome} recorded, {record.result.outcome} replayed"
+            )
+        else:
+            compared.append(check_id)
+    for evidence_id, item in evidence.items():
+        before = recorded_evidence.get(evidence_id, {}).get("result_sha256")
+        if before != item.get("result_sha256"):
+            differences.append(f"{evidence_id}: result digest differs")
+    skipped += [c for c in recorded if c not in {r.result.check_id for r in replayed}]
+    return ReplayReport(
+        run_id=run_id,
+        replayed=tuple(sorted(compared)),
+        skipped=tuple(sorted(skipped)),
+        differences=tuple(differences),
+    )
+
+
 EXIT_SOURCE_DIGEST_MISMATCH = 65
 _MAX_CONTRACT_FILE = 64 * 1024
 
@@ -572,8 +644,19 @@ class Pipeline:
         )
 
     def _contract_checks(
-        self, run: ReviewRun, evidence: dict[str, Mapping[str, Any]]
+        self,
+        run: ReviewRun,
+        evidence: dict[str, Mapping[str, Any]],
+        environments: tuple[EnvironmentHandle, EnvironmentHandle] | None = None,
+        apis: tuple[PreviewApi, PreviewApi] | None = None,
+        *,
+        live: bool = True,
     ) -> list[CheckRecord]:
+        """Every oracle against its proposed binding.
+
+        ``environments`` defaults to the run's own; ``live=False`` (a replay) evaluates data
+        contracts only and records API contracts as not run, because they need live previews.
+        """
         dataset = run.inputs.dataset_digest
         head = self._source(run.run_id, Environment.CANDIDATE)
         proposed: dict[str, list[tuple[str, Any]]] = {}
@@ -588,9 +671,12 @@ class Pipeline:
                 continue
             proposed.setdefault(contract_id, []).append((path, binding))
 
-        reference = self._attached(run.run_id, Environment.REFERENCE)
-        candidate = self._attached(run.run_id, Environment.CANDIDATE)
-        apis = self._preview_apis(run.run_id)
+        reference, candidate = environments or (
+            self._attached(run.run_id, Environment.REFERENCE),
+            self._attached(run.run_id, Environment.CANDIDATE),
+        )
+        if live and apis is None:
+            apis = self._preview_apis(run.run_id)
         records: list[CheckRecord] = []
         with (
             psycopg.connect(
@@ -666,6 +752,44 @@ class Pipeline:
                 return None
             clients.append(PreviewApi(access))
         return clients[0], clients[1]
+
+    # Replay ------------------------------------------------------------------------------------
+
+    def replay(self, run: ReviewRun) -> "ReplayReport":
+        """Re-run a sealed run's data contracts from its snapshots alone, and compare.
+
+        Nothing of the run's own environments is used: the sealed manifest and snapshots are
+        re-verified by SHA-256, restored into fresh ``replay`` environments, checked exactly as
+        ``VERIFYING`` checks, and the environments are destroyed again. A replay never changes
+        the run or its results.
+        """
+        if self.project.digest() != run.inputs.config_digest:
+            raise ValueError("this run was pinned to another configuration; it cannot be replayed")
+        sealed = self.results.manifest(run.run_id)
+        if sealed is None:
+            raise ValueError(f"run {run.run_id} has no sealed evidence")
+        if self.artifacts.get(sealed.object_key, sealed.sha256) != canonical_json(sealed.manifest):
+            raise ArtifactIntegrityError("the stored manifest does not match its record")
+        snapshots = {s.environment: s for s in sealed.manifest.snapshots}
+        handles: list[EnvironmentHandle] = []
+        try:
+            for role in (Environment.REFERENCE, Environment.CANDIDATE):
+                dump = self.artifacts.get(snapshots[role].object_key, snapshots[role].sha256)
+                self.backend.destroy(run.run_id, role=role, variant=REPLAY_VARIANT)
+                handle = self.backend.provision(
+                    run.run_id,
+                    role,
+                    expires_at=datetime.now(UTC) + self.settings.environment_ttl,
+                    variant=REPLAY_VARIANT,
+                )
+                self.backend.restore_database(handle, dump)
+                handles.append(handle)
+            evidence: dict[str, Mapping[str, Any]] = {}
+            replayed = self._contract_checks(run, evidence, (handles[0], handles[1]), live=False)
+        finally:
+            for role in (Environment.REFERENCE, Environment.CANDIDATE):
+                self.backend.destroy(run.run_id, role=role, variant=REPLAY_VARIANT)
+        return _compare_replay(run.run_id, self.results, replayed, evidence)
 
     # REPORTING ---------------------------------------------------------------------------------
 
