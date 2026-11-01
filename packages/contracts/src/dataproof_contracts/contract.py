@@ -3,7 +3,7 @@
 from decimal import Decimal
 from typing import Annotated, Self
 
-from pydantic import Field, PositiveInt, model_validator
+from pydantic import AfterValidator, Field, PositiveInt, model_validator
 
 from dataproof_contracts._base import (
     Contract,
@@ -17,6 +17,22 @@ from dataproof_contracts.enums import BindingReviewStatus, ComparatorKind, Sever
 from dataproof_contracts.values import ExactDecimal
 
 ColumnName = Annotated[str, Field(pattern=r"^[a-z_][a-z0-9_]{0,62}$")]
+
+
+def _local_route(route: str) -> str:
+    if "//" in route or ".." in route:
+        raise ValueError("a route is a local path: no '//' and no '..'")
+    return route
+
+
+ApiRoute = Annotated[
+    str,
+    Field(pattern=r"^/[A-Za-z0-9_./{}-]*(\?[A-Za-z0-9_.{}=&-]*)?$", max_length=200),
+    AfterValidator(_local_route),
+]
+"""A route on the application under review: a path with ``{column}`` placeholders and an
+optional query string. Never a scheme, host or ``..``: a check can only call the preview it is
+given, so a pull request's binding cannot point a request anywhere else."""
 
 
 class Comparator(Contract):
@@ -49,6 +65,11 @@ class Oracle(Contract):
     query_sql: NonEmptyText
     key_columns: Annotated[tuple[ColumnName, ...], Field(min_length=1)]
     expected_columns: Annotated[dict[ColumnName, Comparator], Field(min_length=1)]
+    api_route: ApiRoute | None = None
+    """For an API behaviour contract: the reference route, called once per row of ``query_sql``
+    with that row's columns filled into its placeholders. Each response (an object or a list of
+    objects) becomes rows, which carry the row's columns too. ``query_sql`` then fixes the key
+    universe, still on the reference database only."""
     reference_precondition_sql: NonEmptyText | None = None
     """Reference-first rule: a query returning the rows that violate a non-equivalence invariant
     (for example refunds exceeding captures). It runs on the reference before anything else;
@@ -74,7 +95,7 @@ class CandidateBinding(Contract):
     source_path: NonEmptyText
     head_sha: GitSha
     query_sql: NonEmptyText | None = None
-    api_route: NonEmptyText | None = None
+    api_route: ApiRoute | None = None
     column_mapping: Annotated[dict[ColumnName, ColumnName], Field(min_length=1)]
     """Oracle column (key or value) -> candidate column."""
 

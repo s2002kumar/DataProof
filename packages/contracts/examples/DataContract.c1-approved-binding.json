@@ -33,6 +33,7 @@
         "tolerance": "0"
       }
     },
+    "api_route": null,
     "reference_precondition_sql": null
   },
   "candidate_binding": {

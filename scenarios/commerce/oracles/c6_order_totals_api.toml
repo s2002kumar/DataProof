@@ -1,0 +1,16 @@
+# C6 API behaviour (docs/SCENARIO_CONTRACT.md). Protected: always read from the base SHA.
+# The key universe is every order in the reference database; each one is requested from both
+# previews, so a candidate API cannot narrow what is compared by answering for fewer orders.
+contract_id = "commerce.c6_order_totals_api"
+version = 1
+description = "Each order's currency and captured and refunded totals are the same through the API."
+required = true
+severity = "HIGH"
+key_columns = ["order_id"]
+query_sql = "SELECT order_id FROM orders"
+api_route = "/orders/{order_id}"
+
+[expected_columns]
+currency = { kind = "EXACT" }
+captured_total = { kind = "DECIMAL", decimal_scale = 2 }
+refunded_total = { kind = "DECIMAL", decimal_scale = 2 }

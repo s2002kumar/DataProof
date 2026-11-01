@@ -1,5 +1,6 @@
 """Deterministic data-contract verification against PostgreSQL."""
 
+from dataproof_verifier.api import ApiClient, ApiRequestError, verify_api_contract
 from dataproof_verifier.binding_review import (
     ALLOWED_FUNCTIONS,
     BindingRejectedError,
@@ -21,6 +22,8 @@ from dataproof_verifier.verdict import derive_verdict
 
 __all__ = [
     "ALLOWED_FUNCTIONS",
+    "ApiClient",
+    "ApiRequestError",
     "BindingFile",
     "BindingRejectedError",
     "OracleFile",
@@ -39,5 +42,6 @@ __all__ = [
     "parse_oracle",
     "run_read_only",
     "values_match",
+    "verify_api_contract",
     "verify_contract",
 ]

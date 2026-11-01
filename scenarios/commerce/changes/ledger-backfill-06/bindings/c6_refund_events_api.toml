@@ -1,0 +1,9 @@
+# Proposed by the pull request; untrusted until a digest-bound APPROVE_BINDING.
+contract_id = "commerce.c6_refund_events_api"
+api_route = "/orders/{order_id}/transactions?kind=REFUND"
+
+[column_mapping]
+order_id = "order_id"
+event_id = "source_event_id"
+amount = "amount"
+occurred_at = "occurred_at"

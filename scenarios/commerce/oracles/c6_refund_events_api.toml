@@ -1,0 +1,14 @@
+# C6 API behaviour (docs/SCENARIO_CONTRACT.md). Protected: always read from the base SHA.
+# Refund events are matched by their stable event ID, never by position or sort order.
+contract_id = "commerce.c6_refund_events_api"
+version = 1
+description = "Every refund event of every order keeps its exact amount and instant through the API."
+required = true
+severity = "HIGH"
+key_columns = ["order_id", "event_id"]
+query_sql = "SELECT order_id FROM orders"
+api_route = "/orders/{order_id}/refunds"
+
+[expected_columns]
+amount = { kind = "DECIMAL", decimal_scale = 2 }
+occurred_at = { kind = "INSTANT" }
