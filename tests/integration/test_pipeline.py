@@ -4,6 +4,8 @@ Each run is created in the control store, claimed by a worker and driven through
 and candidate environments, then cleaned up. The tests assert the recorded results, not logs.
 """
 
+import hashlib
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -35,10 +37,10 @@ from dataproof_runner import StageContext, StageOutcome, Worker, WorkerSettings
 from dataproof_runner.artifacts import LocalArtifactStore
 from dataproof_runner.baselines import CommerceBaseline
 from dataproof_runner.local_docker import LocalDockerBackend
-from dataproof_runner.pipeline import MIGRATION_CHECK, Pipeline
+from dataproof_runner.pipeline import MIGRATION_CHECK, PREVIEW_CHECK, Pipeline, PipelineSettings
 from dataproof_runner.project import ProjectConfig
 from dataproof_verifier import parse_binding
-from docker_env import BINDING_DIR, CHANGES, SAMPLE_APP, CommerceRepo, revision
+from docker_env import BINDING_DIR, CHANGES, SAMPLE_APP, CommerceRepo, http_get, revision
 
 pytestmark = [pytest.mark.integration, pytest.mark.docker]
 S = RunState
@@ -91,7 +93,8 @@ class Harness:
             digests.append(parse_binding(text, source_path=name, head_sha=head)[1].digest())
         return digests
 
-    def pipeline(self, project: ProjectConfig) -> Pipeline:
+    def pipeline(self, project: ProjectConfig, *, previews: bool = False) -> Pipeline:
+        """Previews are off unless a test is about them: each one builds a frontend."""
         return Pipeline(
             project=project,
             clone=self.repo.path,
@@ -99,6 +102,7 @@ class Harness:
             artifacts=self.artifacts,
             results=self.results,
             baseline=CommerceBaseline(),
+            settings=PipelineSettings(previews=previews),
         )
 
     def worker(
@@ -447,3 +451,81 @@ def test_a_new_head_supersedes_a_run_in_review_which_ends_superseded(harness: Ha
     assert harness.states(first)[-4:] == [S.READY_FOR_REVIEW, S.CANCELLED, S.CLEANING, S.SUPERSEDED]
     assert harness.backend.resources(first) == []
     assert harness.store.get_run(second).state is S.NOT_EXECUTED
+
+
+def test_previews_serve_each_commit_until_the_run_is_cleaned_up(harness: Harness) -> None:
+    head = harness.repo.change(SAFE, {f"{SAMPLE_APP}/README.md": "With previews.\n"})
+    project = harness.project(head)
+    worker = harness.worker(harness.pipeline(project, previews=True))
+    run_id = harness.submit(project, head)
+    worker.run_once()
+
+    report = harness.results.report(run_id)
+    assert report is not None
+    assert report.verdict is ReportVerdict.CHECKED
+    assert harness.outcomes(run_id)[PREVIEW_CHECK] is CheckOutcome.PASS
+    previews = harness.results.previews(run_id)
+    commits = {Environment.REFERENCE: harness.repo.base, Environment.CANDIDATE: head}
+    for role, preview in previews.items():
+        assert preview.ready
+        assert preview.commit_sha == commits[role]
+        assert preview.build_seconds is not None
+        assert preview.build_seconds > 0
+        assert preview.peak_memory_bytes > 0
+    assert set(previews) == set(Environment)
+
+    accesses = {}
+    for role in Environment:
+        handle = harness.backend.attach(run_id, role)
+        assert handle is not None
+        access = harness.backend.preview_access(handle)
+        assert access is not None
+        assert hashlib.sha256(access.token.encode()).hexdigest() == previews[role].token_sha256
+        assert access.token not in json.dumps(report.report), "tokens never enter the report"
+        accesses[role] = access
+
+    reference, candidate = accesses[Environment.REFERENCE], accesses[Environment.CANDIDATE]
+    status, headers, body = http_get(f"{reference.url}/api/orders/1/refunds", reference.token)
+    assert status == 200
+    assert headers["X-DataProof-Commit"] == harness.repo.base
+    assert [(r["event_id"], r["amount"]) for r in json.loads(body)] == [(1002, "49.99")]
+    status, headers, body = http_get(
+        f"{candidate.url}/api/orders/1/transactions?kind=REFUND", candidate.token
+    )
+    assert status == 200
+    assert headers["X-DataProof-Commit"] == head
+    assert [(t["source_event_id"], t["amount"]) for t in json.loads(body)] == [(1002, "49.99")]
+    for access in (reference, candidate):
+        status, _, page = http_get(f"{access.url}/orders/1", access.token)
+        assert status == 200
+        assert b"49.99" in page
+        assert http_get(f"{access.url}/orders/1")[0] == 401
+
+    make_due(harness.dsn, run_id)
+    worker.run_once()
+    assert harness.store.get_run(run_id).state is S.COMPLETE
+    assert harness.backend.resources(run_id) == []
+
+
+def test_a_candidate_frontend_that_does_not_build_blocks_the_run(harness: Harness) -> None:
+    head = harness.repo.change(
+        SAFE, {f"{SAMPLE_APP}/web/lib/broken.ts": 'export const total: number = "x";\n'}
+    )
+    project = harness.project(head)
+    worker = harness.worker(harness.pipeline(project, previews=True))
+    run_id = harness.submit(project, head)
+    worker.run_once()
+
+    report = harness.results.report(run_id)
+    assert report is not None
+    assert report.verdict is ReportVerdict.BLOCKED
+    (check,) = [
+        c.result for c in harness.results.checks(run_id) if c.result.check_id == PREVIEW_CHECK
+    ]
+    assert (check.outcome, check.error_code) == (
+        CheckOutcome.ERROR,
+        ErrorCode.CANDIDATE_BUILD_FAILED,
+    )
+    assert harness.outcomes(run_id)[C1] is CheckOutcome.PASS, "data checks still ran"
+    candidate = harness.results.previews(run_id)[Environment.CANDIDATE]
+    assert (candidate.ready, candidate.failure, candidate.url) == (False, "build", None)

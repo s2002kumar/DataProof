@@ -15,6 +15,12 @@ Per run and role it creates:
 * ``<prefix>-step-<id>``: short-lived step containers from the trusted runtime image (by image ID
   or digest only), as UID 10001, with every capability dropped and resource limits. The source
   archive is copied in before start, and the image's entrypoint verifies its digest.
+* ``<prefix>-app``: a preview, the long-running form of a step. It builds and serves the
+  application on the internal network and reads the database with the read-only role.
+* ``<prefix>-edge`` and the ``<prefix>-edge`` network: a trusted proxy from a digest-pinned image,
+  the only preview component published on the host's loopback interface. Every route but its
+  health check needs the run-scoped preview token; the token is never forwarded to the
+  application.
 
 Every resource carries labels for its scope, run, role and expiry, which is all that cleanup and
 the expiry reconciler need: neither depends on the control plane being up.
@@ -24,7 +30,10 @@ import io
 import re
 import secrets
 import tarfile
+import threading
 import time
+import urllib.error
+import urllib.request
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -32,7 +41,7 @@ from uuid import UUID, uuid4
 
 import docker
 import psycopg
-from docker.errors import APIError, NotFound
+from docker.errors import APIError, ImageNotFound, NotFound
 from docker.models.containers import Container
 from docker.models.networks import Network
 from requests.exceptions import ConnectionError as RequestsConnectionError
@@ -44,6 +53,8 @@ from dataproof_runner.backend import (
     Credentials,
     DatabaseAccess,
     EnvironmentHandle,
+    PreviewAccess,
+    PreviewResult,
     ResourceLimits,
     StagedSource,
     StepResult,
@@ -52,6 +63,13 @@ from dataproof_runner.backend import (
 POSTGRES_IMAGE = (
     "postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b"
 )
+EDGE_IMAGE = (
+    "nginxinc/nginx-unprivileged:stable-alpine"
+    "@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03"
+)
+_EDGE_PORT = "8080/tcp"
+_PREVIEW_TOKEN, _PREVIEW_COMMIT = "DATAPROOF_PREVIEW_TOKEN", "DATAPROOF_PREVIEW_COMMIT"
+_EDGE_LIMITS = ResourceLimits(memory_bytes=128 * 1024 * 1024, cpus=0.5, pids=64)
 LABEL = "dev.dataproof"
 _MANAGED, _SCOPE, _RUN, _ROLE, _VARIANT, _EXPIRES, _KIND = (
     f"{LABEL}.{name}"
@@ -103,6 +121,122 @@ GRANT USAGE ON SCHEMA public TO {_READER};
 """.encode()
 
 
+_EX_BUILD_FAILED = 67
+
+
+def _edge_config(*, token: str, role: Environment, commit_sha: str, upstream: str) -> bytes:
+    """nginx configuration of a preview edge.
+
+    The token is a secrets.token_urlsafe value and the upstream a container name we chose, so
+    neither can break out of the configuration. The application never sees the token: the
+    edge drops the Cookie header before proxying.
+    """
+    identity = (
+        f"        add_header X-DataProof-Environment {role.value} always;\n"
+        f"        add_header X-DataProof-Commit {commit_sha} always;\n"
+    )
+    proxy = (
+        "        proxy_http_version 1.1;\n"
+        "        proxy_set_header Host $host;\n"
+        '        proxy_set_header Cookie "";\n'
+    )
+    denied = "        if ($dataproof_authorized = 0) { return 401; }\n"
+    return (
+        "map $cookie_dataproof_preview $dataproof_authorized {\n"
+        "    default 0;\n"
+        f'    "{token}" 1;\n'
+        "}\n"
+        "server {\n"
+        "    listen 8080;\n"
+        "    server_tokens off;\n"
+        "    client_max_body_size 1m;\n"
+        "    location = /__dataproof/health {\n"
+        f"{identity}{proxy}"
+        f"        proxy_pass http://{upstream}:8000/health;\n"
+        "    }\n"
+        "    location = /__dataproof/login {\n"
+        f'        if ($arg_token != "{token}") {{ return 403; }}\n'
+        f'        add_header Set-Cookie "dataproof_preview={token}; Path=/; HttpOnly; '
+        'SameSite=Strict" always;\n'
+        f"{identity}"
+        "        return 303 /;\n"
+        "    }\n"
+        "    location /api/ {\n"
+        f"{denied}{identity}{proxy}"
+        f"        proxy_pass http://{upstream}:8000/;\n"
+        "    }\n"
+        "    location / {\n"
+        f"{denied}{identity}{proxy}"
+        f"        proxy_pass http://{upstream}:3000;\n"
+        "    }\n"
+        "}\n"
+    ).encode()
+
+
+def _answers(access: PreviewAccess, app: Container, *, deadline: float) -> bool:
+    """Whether the API (through the health check) and the frontend both answer via the edge.
+
+    Gives up as soon as the application container exits: a server that died will not answer.
+    """
+    request = urllib.request.Request(  # noqa: S310 - loopback URL built by this module
+        f"{access.url}/", headers={"Cookie": f"dataproof_preview={access.token}"}
+    )
+    while time.monotonic() < deadline:
+        app.reload()
+        if app.status in ("exited", "dead"):
+            return False
+        try:
+            with (
+                urllib.request.urlopen(f"{access.url}/__dataproof/health", timeout=5) as health,  # noqa: S310
+                urllib.request.urlopen(request, timeout=10) as page,  # noqa: S310
+            ):
+                if health.status == 200 and page.status == 200:
+                    return True
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            pass
+        time.sleep(1)
+    return False
+
+
+def _build_seconds(logs: str) -> float | None:
+    match = re.search(r'"dataproof": "BUILD_FINISHED", "seconds": ([0-9.]+)', logs)
+    return float(match.group(1)) if match else None
+
+
+class _Usage:
+    """Samples a container's memory and CPU until stopped (Docker stats API)."""
+
+    def __init__(self, container: Container) -> None:
+        self._container = container
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._sample, daemon=True)
+        self.peak_memory_bytes = 0
+        self.cpu_seconds = 0.0
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=30)
+
+    def _sample(self) -> None:
+        while not self._stop.is_set():
+            try:
+                stats = cast(dict[str, Any], self._container.stats(stream=False))
+            except (APIError, NotFound, RequestsConnectionError, ReadTimeout):
+                return
+            memory = stats.get("memory_stats") or {}
+            used = int(memory.get("usage", 0)) - int(
+                (memory.get("stats") or {}).get("inactive_file", 0)
+            )
+            self.peak_memory_bytes = max(self.peak_memory_bytes, used)
+            cpu = ((stats.get("cpu_stats") or {}).get("cpu_usage") or {}).get("total_usage")
+            if cpu:
+                self.cpu_seconds = max(self.cpu_seconds, int(cpu) / 1e9)
+            self._stop.wait(0.5)
+
+
 def _redact(text: str, secrets_: Iterable[str]) -> str:
     for secret in secrets_:
         text = text.replace(secret, "[REDACTED]")
@@ -136,6 +270,13 @@ class LocalDockerBackend:
     @property
     def database_image(self) -> str:
         return self._postgres_image
+
+    def _ensure_image(self, reference: str) -> None:
+        """Pull a trusted, digest-pinned image if it is not present yet."""
+        try:
+            self._client.images.get(reference)
+        except ImageNotFound:
+            self._client.images.pull(reference)
 
     def _prefix(self, run_id: UUID, role: Environment, variant: str = "") -> str:
         if variant and not _VARIANT_PATTERN.match(variant):
@@ -202,6 +343,7 @@ class LocalDockerBackend:
         )
         owner = Credentials(_OWNER, secrets.token_urlsafe(24))
         reader = Credentials(_READER, secrets.token_urlsafe(24))
+        self._ensure_image(self._postgres_image)
         database = self._client.containers.create(
             self._postgres_image,
             name=f"{prefix}-db",
@@ -276,6 +418,135 @@ class LocalDockerBackend:
             variant=variant,
         )
 
+    # Previews ----------------------------------------------------------------------------------
+
+    def start_preview(
+        self,
+        environment: EnvironmentHandle,
+        *,
+        image: str,
+        source: StagedSource,
+        arguments: Sequence[str],
+        timeout: timedelta,
+        limits: ResourceLimits | None = None,
+    ) -> PreviewResult:
+        if not _DIGEST_PINNED.match(image):
+            raise ValueError("preview images must be referenced by image ID or digest")
+        prefix = environment.isolation_id
+        reader = environment.database.reader
+        labels = self._labels(
+            environment.run_id, environment.role, "app", environment.expires_at, environment.variant
+        )
+        app = self._client.containers.create(
+            image,
+            command=list(arguments),
+            name=f"{prefix}-app",
+            user=_STEP_USER,
+            network=f"{prefix}-int",
+            environment={
+                "DATAPROOF_SOURCE_SHA256": source.sha256,
+                "DATABASE_URL": (
+                    f"postgresql+psycopg://{reader.user}:{reader.password}@postgres:5432/{_DATABASE}"
+                ),
+            },
+            tmpfs={
+                "/work": f"rw,mode=1777,size={(limits or self._limits).workspace_bytes}",
+                "/tmp": "rw,mode=1777,size=268435456",  # noqa: S108 - container-private tmpfs
+            },
+            labels=labels,
+            **self._limits_kwargs(limits),
+        )
+        if not app.put_archive("/run/dataproof", _tar("source.tar", source.data)):
+            raise BackendError("could not stage the source archive")
+        started = time.monotonic()
+        usage = _Usage(app)
+        app.start()
+        usage.start()
+        try:
+            failure = self._wait_for_servers(app, deadline=started + timeout.total_seconds())
+            access = None
+            if failure is None:
+                access = self._start_edge(environment, source.commit_sha, app)
+                if not _answers(access, app, deadline=started + timeout.total_seconds()):
+                    failure, access = "start", None
+        finally:
+            usage.stop()
+        logs = app.logs(stdout=True, stderr=True).decode("utf-8", errors="replace")
+        output = _redact(logs, [reader.password, environment.database.owner.password])
+        return PreviewResult(
+            access=access,
+            failure=failure,
+            output=output[-_MAX_OUTPUT:],
+            commit_sha=source.commit_sha,
+            ready_seconds=round(time.monotonic() - started, 1),
+            build_seconds=_build_seconds(logs),
+            peak_memory_bytes=usage.peak_memory_bytes,
+            cpu_seconds=round(usage.cpu_seconds, 1),
+        )
+
+    def _wait_for_servers(self, app: Container, *, deadline: float) -> str | None:
+        """None once the app reports it is serving; ``build`` or ``start`` if it fails."""
+        while time.monotonic() < deadline:
+            app.reload()
+            if app.status in ("exited", "dead"):
+                exit_code = int(app.attrs["State"]["ExitCode"])
+                return "build" if exit_code == _EX_BUILD_FAILED else "start"
+            if b'"dataproof": "SERVING"' in app.logs(stdout=False, stderr=True):
+                return None
+            time.sleep(1)
+        return "start"
+
+    def _start_edge(
+        self, environment: EnvironmentHandle, commit_sha: str, app: Container
+    ) -> PreviewAccess:
+        prefix = environment.isolation_id
+        labels = self._labels(
+            environment.run_id,
+            environment.role,
+            "edge",
+            environment.expires_at,
+            environment.variant,
+        )
+        self._client.networks.create(f"{prefix}-edge", driver="bridge", labels=labels)
+        token = secrets.token_urlsafe(24)
+        self._ensure_image(EDGE_IMAGE)
+        edge = self._client.containers.create(
+            EDGE_IMAGE,
+            name=f"{prefix}-edge",
+            network=f"{prefix}-edge",
+            # docker-py maps a None host port to an ephemeral one; the stubs omit that case.
+            ports={_EDGE_PORT: ("127.0.0.1", None)},  # type: ignore[dict-item]
+            environment={_PREVIEW_TOKEN: token, _PREVIEW_COMMIT: commit_sha},
+            tmpfs={"/tmp": "rw,mode=1777,size=16777216"},  # noqa: S108 - container-private tmpfs
+            labels=labels,
+            **self._limits_kwargs(_EDGE_LIMITS),
+        )
+        config = _edge_config(
+            token=token, role=environment.role, commit_sha=commit_sha, upstream=str(app.name)
+        )
+        if not edge.put_archive("/etc/nginx/conf.d", _tar("default.conf", config)):
+            raise BackendError("could not configure the preview edge")
+        self._client.networks.get(f"{prefix}-int").connect(edge)
+        edge.start()
+        return PreviewAccess(
+            url=f"http://127.0.0.1:{self._published_port(edge, _EDGE_PORT)}", token=token
+        )
+
+    def preview_access(self, environment: EnvironmentHandle) -> PreviewAccess | None:
+        try:
+            edge = self._client.containers.get(f"{environment.isolation_id}-edge")
+        except NotFound:
+            return None
+        if edge.status != "running":
+            return None
+        settings = dict(
+            item.split("=", 1) for item in edge.attrs["Config"].get("Env") or [] if "=" in item
+        )
+        return PreviewAccess(
+            url=f"http://127.0.0.1:{self._published_port(edge, _EDGE_PORT)}",
+            token=settings[_PREVIEW_TOKEN],
+        )
+
     # Snapshots ---------------------------------------------------------------------------------
 
     def _database_container(self, environment: EnvironmentHandle) -> Container:
@@ -320,16 +591,16 @@ class LocalDockerBackend:
         if exit_code != 0:
             raise BackendError(f"pg_restore failed: {stderr.decode(errors='replace')[:500]}")
 
-    def _published_port(self, container: Container) -> int:
+    def _published_port(self, container: Container, port: str = "5432/tcp") -> int:
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             container.reload()
-            bindings = (container.ports or {}).get("5432/tcp") or []
+            bindings = (container.ports or {}).get(port) or []
             for binding in bindings:
                 if binding.get("HostIp") in ("127.0.0.1", "") and binding.get("HostPort"):
                     return int(binding["HostPort"])
             time.sleep(0.2)
-        raise BackendError(f"{container.name} has no loopback port for PostgreSQL")
+        raise BackendError(f"{container.name} has no loopback port for {port}")
 
     def _wait_until_ready(self, container: Container, access: DatabaseAccess) -> None:
         # The image's init phase runs a socket-only server; TCP succeeds only once the init
