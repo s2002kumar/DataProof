@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "dataproof-contracts",
     "dataproof-control",
+    "dataproof-investigator",
     "dataproof-runner",
     "dataproof-scenario-commerce",
     "dataproof-verifier",
@@ -319,6 +320,23 @@ requires-dist = [
 ]
 
 [[package]]
+name = "dataproof-investigator"
+version = "0.1.0"
+source = { editable = "packages/investigator" }
+dependencies = [
+    { name = "dataproof-contracts" },
+    { name = "dataproof-verifier" },
+    { name = "psycopg" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dataproof-contracts", editable = "packages/contracts" },
+    { name = "dataproof-verifier", editable = "packages/verifier" },
+    { name = "psycopg", specifier = ">=3.2" },
+]
+
+[[package]]
 name = "dataproof-runner"
 version = "0.1.0"
 source = { editable = "services/runner" }
@@ -377,6 +395,7 @@ dev = [
     { name = "alembic" },
     { name = "dataproof-contracts" },
     { name = "dataproof-control" },
+    { name = "dataproof-investigator" },
     { name = "dataproof-runner" },
     { name = "dataproof-scenario-commerce" },
     { name = "dataproof-verifier" },
@@ -402,6 +421,7 @@ dev = [
     { name = "alembic", specifier = ">=1.16" },
     { name = "dataproof-contracts", editable = "packages/contracts" },
     { name = "dataproof-control", editable = "packages/control" },
+    { name = "dataproof-investigator", editable = "packages/investigator" },
     { name = "dataproof-runner", editable = "services/runner" },
     { name = "dataproof-scenario-commerce", editable = "scenarios/commerce" },
     { name = "dataproof-verifier", editable = "packages/verifier" },
