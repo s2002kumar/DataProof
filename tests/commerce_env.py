@@ -125,10 +125,16 @@ def contracts(
     reject: bool = False,
     overrides: dict[str, CandidateBinding] | None = None,
 ) -> list[DataContract]:
-    """The commerce contracts with the change set's bindings, reviewed as requested."""
+    """The commerce data contracts with the change set's bindings, reviewed as requested.
+
+    API behaviour contracts (oracles with an ``api_route``) need running previews; they are
+    exercised by the pipeline tests, not here.
+    """
     result = []
     for oracle_path in sorted(ORACLES.glob("*.toml")):
         spec, oracle = load_oracle(oracle_path, source_path=oracle_path.name, base_sha=BASE_SHA)
+        if oracle.api_route is not None:
+            continue
         binding_path = CHANGES / change / "bindings" / oracle_path.name
         contract_id, binding = load_binding(
             binding_path, source_path=binding_path.name, head_sha=HEAD_SHA

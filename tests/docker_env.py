@@ -171,12 +171,18 @@ BINDING_DIR = "dataproof/bindings"
 
 
 class CommerceRepo(AppRepo):
-    """The sample app plus its protected oracles at the base; change sets as pull-request heads."""
+    """The sample app plus its protected oracles at the base; change sets as pull-request heads.
 
-    def __init__(self, path: Path) -> None:
+    With ``api_oracles=False`` the base protects only the data contracts, as a project that
+    declares no API behaviour contracts would; their runs need no previews to be complete.
+    """
+
+    def __init__(self, path: Path, *, api_oracles: bool = False) -> None:
         super().__init__(path)
         oracles = {
-            f"{ORACLE_DIR}/{p.name}": p.read_text("utf-8") for p in sorted(ORACLES.glob("*.toml"))
+            f"{ORACLE_DIR}/{p.name}": p.read_text("utf-8")
+            for p in sorted(ORACLES.glob("*.toml"))
+            if api_oracles or "api_route" not in p.read_text("utf-8")
         }
         self.base = self.commit(self.base, oracles, "Protect the commerce oracles")
 

@@ -34,6 +34,12 @@ Orders 101 to 300 are seeded random orders: one to four items, one or two captur
 
 [`oracles/`](oracles/) holds the protected oracles, always read from the base SHA: C1 event preservation (keyed by `event_id`), C2 refund totals and C3 capture totals (both keyed by order and currency over **every** order, so zero-refund orders are expected too). C2 carries the reference-first rule that refunds never exceed captures. Each change set proposes its own `bindings/` for its candidate schema, as a pull request would; they are untrusted until a digest-bound approval.
 
+Two API behaviour oracles implement C6 (`c6_order_totals_api` and `c6_refund_events_api`).
+
+- Each requests `/orders/{order_id}` or `/orders/{order_id}/refunds` for **every** order in the reference database.
+- Each change set's bindings map them to the ledger version's `/orders/{order_id}` and `/orders/{order_id}/transactions?kind=REFUND`, matching refund events by `event_id` ↔ `source_event_id`.
+- They run against the live previews, so a run that has none reports them `NOT_RUN: PREREQUISITE_FAILED`.
+
 ## Ledger version of the API
 
 [`ledger-app/payments.py`](ledger-app/payments.py) is the version of `sample-app/app/payments.py` that the ledger change sets' pull requests carry alongside their revisions, and [`ledger-app/web/lib/payments.ts`](ledger-app/web/lib/payments.ts) the matching frontend change, which the candidate must compile from its own source. Order totals come from `ledger_entries`, and `GET /orders/{id}/refunds` gives way to `GET /orders/{id}/transactions?kind=REFUND`, the candidate route that C6 maps the reference route to. `tests/integration/test_sample_api.py` serves both versions against real databases:
