@@ -3,9 +3,12 @@
 FETCHING      stage exact base and head archives in the artifact store
 ANALYZING     refuse unsupported repositories and dependency or out-of-root changes
 PROVISIONING  create reference and candidate environments, migrate both to the base schema with
-              the base source, load the identical baseline, and prove it identical
-MIGRATING     run the head's migrations in the candidate, from the head source, inside a step
-VERIFYING     the migration check, then every protected oracle against its proposed binding
+              the base source, load the identical baseline, prove it identical, and serve the
+              reference preview from the base source
+MIGRATING     run the head's migrations in the candidate, from the head source, inside a step,
+              then build and serve the candidate preview from the head source
+VERIFYING     the migration and preview checks, then every protected oracle against its proposed
+              binding
 REPORTING     seal pg_dump snapshots of both databases, verify that each restores to the same
               rows in a fresh environment, write the evidence manifest, then derive the
               verdict and its GitHub conclusion with the coverage table
@@ -53,6 +56,7 @@ from dataproof_control import Effects
 from dataproof_control.results import (
     CheckRecord,
     ManifestRecord,
+    PreviewRecord,
     ReportRecord,
     RunResults,
     SnapshotRecord,
@@ -61,6 +65,7 @@ from dataproof_control.results import (
     record_check,
     record_evidence,
     record_manifest,
+    record_preview,
     record_report,
     record_snapshot,
     record_source,
@@ -68,8 +73,10 @@ from dataproof_control.results import (
 )
 from dataproof_runner.artifacts import LocalArtifactStore
 from dataproof_runner.backend import (
+    FRONTEND_BUILD_LIMITS,
     EnvironmentHandle,
     ExecutionBackend,
+    PreviewResult,
     StagedSource,
     StepResult,
 )
@@ -90,6 +97,8 @@ from dataproof_verifier import (
 MIGRATION_CHECK = "migration.execute"
 MIGRATION_CONTRACT = "dataproof.migration_executes"
 MIGRATION_STEP = "candidate.migration"
+PREVIEW_CHECK = "preview.candidate"
+PREVIEW_CONTRACT = "dataproof.preview_serves"
 RESTORE_VARIANT = "restore"
 EXIT_SOURCE_DIGEST_MISMATCH = 65
 _MAX_CONTRACT_FILE = 64 * 1024
@@ -101,6 +110,9 @@ class PipelineSettings:
     """Expiry label on environments: the reaper's safety net if cleanup never runs."""
     evidence_retention: timedelta = timedelta(days=30)
     query_limits: QueryLimits = field(default_factory=QueryLimits)
+    previews: bool = True
+    """Build and serve both environments' applications for review (work package 5)."""
+    preview_timeout: timedelta = timedelta(minutes=10)
 
 
 def _toml_members(archive: bytes, directory: str) -> dict[str, str]:
@@ -281,6 +293,7 @@ class Pipeline:
         steps: list[StepRecord] = []
         digests: dict[str, str] = {}
         isolation: list[str] = []
+        handles: dict[Environment, EnvironmentHandle] = {}
         for role in (Environment.REFERENCE, Environment.CANDIDATE):
             context.ensure_lease()
             handle, step, error = self._baseline_environment(run.run_id, role, base, expires)
@@ -298,6 +311,7 @@ class Pipeline:
                 )
             if handle is None:
                 raise RuntimeError(f"no {role.value.lower()} environment was provisioned")
+            handles[role] = handle
             isolation.append(handle.isolation_id)
             with psycopg.connect(handle.database.conninfo(handle.database.reader)) as conn:
                 digests[role.value] = database_digest(conn, self.baseline.tables)
@@ -308,6 +322,18 @@ class Pipeline:
                 detail={"database_digests": digests},
                 effects=self._steps(run.run_id, steps),
             )
+        effects = self._steps(run.run_id, steps)
+        if self.settings.previews:
+            context.ensure_lease()
+            preview = self._preview(handles[Environment.REFERENCE], base)
+            effects = _all(effects, self._recorder(record_preview, run.run_id, preview))
+            if not preview.ready:
+                return StageOutcome(
+                    RunState.ERROR,
+                    error_code=ErrorCode.REFERENCE_PREVIEW_FAILED,
+                    detail={"failure": preview.failure},
+                    effects=effects,
+                )
         return StageOutcome(
             RunState.MIGRATING,
             isolation_id=isolation[0].rsplit("-", 1)[0],  # the run's prefix, without the role
@@ -317,7 +343,7 @@ class Pipeline:
                 "dataset_digest": run.inputs.dataset_digest,
                 "database_digest": digests[Environment.REFERENCE.value],
             },
-            effects=self._steps(run.run_id, steps),
+            effects=effects,
         )
 
     def _baseline_environment(
@@ -375,15 +401,49 @@ class Pipeline:
                 error_code=ErrorCode.SOURCE_DIGEST_MISMATCH,
                 effects=self._steps(run.run_id, [step]),
             )
-        return StageOutcome(
-            RunState.VERIFYING,
-            detail={
-                "succeeded": result.succeeded,
-                "exit_code": result.exit_code,
-                "timed_out": result.timed_out,
-                "duration_ms": step.duration_ms,
-            },
-            effects=self._steps(run.run_id, [step]),
+        effects = self._steps(run.run_id, [step])
+        detail: dict[str, Any] = {
+            "succeeded": result.succeeded,
+            "exit_code": result.exit_code,
+            "timed_out": result.timed_out,
+            "duration_ms": step.duration_ms,
+        }
+        if result.succeeded and self.settings.previews:
+            context.ensure_lease()
+            preview = self._preview(candidate, head)
+            effects = _all(effects, self._recorder(record_preview, run.run_id, preview))
+            detail["preview"] = {"ready": preview.ready, "failure": preview.failure}
+        return StageOutcome(RunState.VERIFYING, detail=detail, effects=effects)
+
+    def _preview(self, environment: EnvironmentHandle, source: StagedSource) -> PreviewRecord:
+        """Build and serve one environment's application from exactly this source."""
+        result: PreviewResult = self.backend.start_preview(
+            environment,
+            image=self.project.runtime_image,
+            source=source,
+            arguments=[
+                "serve",
+                "--app-dir",
+                self.project.app_dir,
+                "--web-dir",
+                self.project.web_dir,
+            ],
+            timeout=self.settings.preview_timeout,
+            limits=FRONTEND_BUILD_LIMITS,
+        )
+        access = result.access
+        return PreviewRecord(
+            environment=environment.role,
+            commit_sha=result.commit_sha,
+            ready=result.ready,
+            failure=result.failure,
+            url=access.url if access else None,
+            token_sha256=hashlib.sha256(access.token.encode()).hexdigest() if access else None,
+            ready_seconds=result.ready_seconds,
+            build_seconds=result.build_seconds,
+            peak_memory_bytes=result.peak_memory_bytes,
+            cpu_seconds=result.cpu_seconds,
+            output=result.output,
         )
 
     # VERIFYING ---------------------------------------------------------------------------------
@@ -416,6 +476,8 @@ class Pipeline:
                 "source_sha256": migration.source_sha256,
             }
         }
+        if self.settings.previews:
+            checks.append(self._preview_check(run, migration.succeeded, evidence))
         if migration.succeeded:
             checks += self._contract_checks(run, evidence)
         else:
@@ -434,6 +496,56 @@ class Pipeline:
                     for evidence_id, record in sorted(evidence.items())
                 ),
             ),
+        )
+
+    def _preview_check(
+        self, run: ReviewRun, migrated: bool, evidence: dict[str, Mapping[str, Any]]
+    ) -> CheckRecord:
+        """Required: the candidate application builds from its source and serves (ADR-0004)."""
+        common: dict[str, Any] = {
+            "check_id": PREVIEW_CHECK,
+            "contract_id": PREVIEW_CONTRACT,
+            "contract_version": 1,
+            "required": True,
+            "dataset_digest": run.inputs.dataset_digest,
+        }
+        preview = self.results.previews(run.run_id).get(Environment.CANDIDATE)
+        if not migrated or preview is None:
+            return CheckRecord(
+                CheckResult(
+                    outcome=CheckOutcome.NOT_RUN,
+                    not_run_reason=NotRunReason.PREREQUISITE_FAILED,
+                    **common,
+                )
+            )
+        evidence_id = f"{PREVIEW_CHECK}:CANDIDATE:preview"
+        evidence[evidence_id] = {
+            "kind": "preview",
+            "commit_sha": preview.commit_sha,
+            "ready": preview.ready,
+            "failure": preview.failure,
+            "build_seconds": preview.build_seconds,
+            "ready_seconds": preview.ready_seconds,
+            "peak_memory_bytes": preview.peak_memory_bytes,
+            "cpu_seconds": preview.cpu_seconds,
+        }
+        if preview.ready:
+            outcome, error = CheckOutcome.PASS, None
+        else:
+            outcome = CheckOutcome.ERROR
+            error = (
+                ErrorCode.CANDIDATE_BUILD_FAILED
+                if preview.failure == "build"
+                else ErrorCode.CANDIDATE_START_FAILED
+            )
+        return CheckRecord(
+            CheckResult(
+                outcome=outcome,
+                error_code=error,
+                evidence_ids=(evidence_id,),
+                elapsed_ms=int(preview.ready_seconds * 1000),
+                **common,
+            )
         )
 
     def _oracle_specs(self, run: ReviewRun) -> list[tuple[OracleFile, Oracle]]:
@@ -555,6 +667,19 @@ class Pipeline:
                     }
                     for c in results
                 ],
+                "previews": {
+                    p.environment.value: {
+                        "url": p.url,
+                        "commit_sha": p.commit_sha,
+                        "ready": p.ready,
+                        "failure": p.failure,
+                        "build_seconds": p.build_seconds,
+                        "ready_seconds": p.ready_seconds,
+                        "peak_memory_bytes": p.peak_memory_bytes,
+                        "cpu_seconds": p.cpu_seconds,
+                    }
+                    for p in self.results.previews(run.run_id).values()
+                },
                 "evidence": {
                     "manifest_sha256": manifest.sha256,
                     "snapshots": {

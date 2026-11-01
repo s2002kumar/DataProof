@@ -92,6 +92,8 @@ class ErrorCode(StrEnum):
     BASE_MIGRATION_FAILED = "BASE_MIGRATION_FAILED"
     #: The reference and candidate baselines differ after loading; nothing can be compared.
     BASELINE_DIVERGED = "BASELINE_DIVERGED"
+    #: The base commit's own application did not build or start, so there is no reference preview.
+    REFERENCE_PREVIEW_FAILED = "REFERENCE_PREVIEW_FAILED"
 
 
 class NotExecutedReason(StrEnum):

@@ -9,13 +9,19 @@ Steps:
 
     migrate --config <path to alembic.ini in the source> --target <revision|head>
     build-web --dir <path to the Next.js app in the source>
+    serve --app-dir <path to the API's directory> --web-dir <path to the Next.js app>
 
 ``build-web`` copies the verified frontend source into the image's frontend directory, next to
 the dependencies baked from the lockfile (Turbopack compiles nothing outside its project root),
 and runs ``next build`` offline. A source that ships its own ``node_modules`` is refused.
 
+``serve`` builds the frontend the same way, then runs the API (uvicorn, port 8000) and the
+frontend (``next start``, port 3000) and supervises them: when either exits, the other is
+stopped and the step ends. Only the trusted edge proxy can reach these ports.
+
 Exit codes: 64 bad arguments, 65 source digest mismatch (no pull-request code ran), 66 missing or
-unsafe source archive (no pull-request code ran); otherwise the step's own exit code.
+unsafe source archive (no pull-request code ran), 67 the frontend build failed, 68 a preview
+server exited; otherwise the step's own exit code.
 
 This file uses only the standard library and is baked into the image; the pull request cannot
 change it.
@@ -28,8 +34,11 @@ import json
 import os
 import re
 import shutil
+import signal
+import subprocess
 import sys
 import tarfile
+import time
 from pathlib import Path, PurePosixPath
 
 SOURCE = Path("/run/dataproof/source.tar")
@@ -38,6 +47,9 @@ ALEMBIC = "/opt/venv/bin/alembic"
 NODE = "/usr/local/bin/node"
 WEB_ROOT = Path("/opt/web")
 EX_USAGE, EX_DIGEST_MISMATCH, EX_SOURCE_INVALID = 64, 65, 66
+EX_BUILD_FAILED, EX_SERVER_EXITED = 67, 68
+PYTHON = "/opt/venv/bin/python"
+API_PORT, WEB_PORT = "8000", "3000"
 _REVISION = re.compile(r"^(head|[A-Za-z0-9_]{1,64})$")
 
 
@@ -95,7 +107,11 @@ def _minimal_environment(**extra: str) -> dict[str, str]:
     return environment
 
 
-def _build_web(app: Path) -> int:
+NEXT_CLI = str(WEB_ROOT / "node_modules" / "next" / "dist" / "bin" / "next")
+
+
+def _prepare_web(app: Path) -> int:
+    """Copy the verified frontend next to the image's dependencies; 0 or an exit code."""
     if not (app / "package.json").is_file():
         _report("SOURCE_INVALID", reason="no package.json in the frontend directory")
         return EX_SOURCE_INVALID
@@ -103,12 +119,69 @@ def _build_web(app: Path) -> int:
         _report("SOURCE_INVALID", reason="the source ships its own node_modules")
         return EX_SOURCE_INVALID
     shutil.copytree(app, WEB_ROOT, symlinks=True, dirs_exist_ok=True)
+    return 0
+
+
+def _web_environment(**extra: str) -> dict[str, str]:
+    return _minimal_environment(NODE_ENV="production", NEXT_TELEMETRY_DISABLED="1", **extra)
+
+
+def _build_web(app: Path) -> int:
+    status = _prepare_web(app)
+    if status:
+        return status
     os.chdir(WEB_ROOT)
     _report("STEP_STARTED", step="build-web")
-    environment = _minimal_environment(NODE_ENV="production", NEXT_TELEMETRY_DISABLED="1")
-    next_cli = str(WEB_ROOT / "node_modules" / "next" / "dist" / "bin" / "next")
-    os.execve(NODE, [NODE, next_cli, "build"], environment)  # noqa: S606
+    os.execve(NODE, [NODE, NEXT_CLI, "build"], _web_environment())  # noqa: S606
     return 0  # pragma: no cover - execve does not return
+
+
+def _serve(app_dir: Path, web_dir: Path) -> int:
+    if not (app_dir / "app" / "main.py").is_file():
+        _report("SOURCE_INVALID", reason="no app/main.py in the API directory")
+        return EX_SOURCE_INVALID
+    status = _prepare_web(web_dir)
+    if status:
+        return status
+    _report("BUILD_STARTED")
+    started = time.monotonic()
+    build = subprocess.run([NODE, NEXT_CLI, "build"], cwd=WEB_ROOT, env=_web_environment())  # noqa: S603
+    if build.returncode != 0:
+        _report("BUILD_FAILED", exit_code=build.returncode)
+        return EX_BUILD_FAILED
+    _report("BUILD_FINISHED", seconds=round(time.monotonic() - started, 1))
+
+    api_environment = _minimal_environment(PYTHONUNBUFFERED="1")
+    if "DATABASE_URL" in os.environ:
+        api_environment["DATABASE_URL"] = os.environ["DATABASE_URL"]
+    servers = {
+        "api": subprocess.Popen(  # noqa: S603
+            [PYTHON, "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", API_PORT],  # noqa: S104
+            cwd=app_dir,
+            env=api_environment,
+        ),
+        "web": subprocess.Popen(  # noqa: S603
+            [NODE, NEXT_CLI, "start", "--hostname", "0.0.0.0", "--port", WEB_PORT],  # noqa: S104
+            cwd=WEB_ROOT,
+            env=_web_environment(API_URL=f"http://127.0.0.1:{API_PORT}"),
+        ),
+    }
+
+    def stop(*_: object) -> None:
+        for server in servers.values():
+            if server.poll() is None:
+                server.terminate()
+
+    signal.signal(signal.SIGTERM, stop)
+    _report("SERVING", api_port=int(API_PORT), web_port=int(WEB_PORT))
+    while True:
+        for name, server in servers.items():
+            code = server.poll()
+            if code is not None:
+                _report("SERVER_EXITED", server=name, exit_code=code)
+                stop()
+                return EX_SERVER_EXITED
+        time.sleep(0.5)
 
 
 def main(argv: list[str]) -> int:
@@ -119,6 +192,9 @@ def main(argv: list[str]) -> int:
     migrate.add_argument("--target", type=_revision, required=True)
     build_web = steps.add_parser("build-web", exit_on_error=False)
     build_web.add_argument("--dir", type=_relative, required=True)
+    serve = steps.add_parser("serve", exit_on_error=False)
+    serve.add_argument("--app-dir", type=_relative, required=True)
+    serve.add_argument("--web-dir", type=_relative, required=True)
     try:
         args = parser.parse_args(argv)
     except (argparse.ArgumentError, SystemExit) as error:
@@ -131,6 +207,8 @@ def main(argv: list[str]) -> int:
 
     if args.step == "build-web":
         return _build_web(WORKSPACE / args.dir)
+    if args.step == "serve":
+        return _serve(WORKSPACE / args.app_dir, WORKSPACE / args.web_dir)
 
     config = WORKSPACE / args.config
     if not config.is_file():
