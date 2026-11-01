@@ -37,6 +37,17 @@ Before any approval, `analyze_binding()` wraps the binding in `CREATE TEMP VIEW`
 
 The engine analyzes a binding before checking its approval, so a run awaiting review already reports the analysis, or the problem, to the reviewer. Nothing from the binding executes until it is approved.
 
+## API behaviour checks (C6)
+
+`verify_api_contract()` compares the reference application's API with the candidate's, under an oracle that names a reference `api_route`:
+
+- **Key universe:** the oracle's `query_sql` runs on the **reference database only**, and each row fills the route's `{column}` placeholders, URL-encoded. The binding's `api_route` is called with the same rows, so the candidate cannot narrow what is compared by answering for fewer orders.
+- **Rows:** each response (an object, or a list of objects) becomes rows that also carry the row's columns. Both sides are keyed by the oracle's key columns and compared with its typed comparators, exactly like data contracts. Money must be a decimal string or integer, never a JSON float, and instants must carry an offset.
+- **Routes:** a route is a local path (`ApiRoute`): no scheme, host, `//` or `..`. Requests go only through an `ApiClient` bound to one preview, so a pull request's binding cannot send a request anywhere else.
+- **Gating:** binding approval works exactly as for data contracts. An unapproved binding makes no request.
+- **Errors:** failed requests, non-object bodies, duplicate keys, unknown placeholders and the request budget are typed errors (`API_REQUEST_FAILED`, `DUPLICATE_KEY`, `BINDING_UNSUPPORTED_CONSTRUCT`, `RESULT_LIMIT_EXCEEDED`).
+- **Evidence:** each side's evidence records the route and the SHA-256 of the sorted response rows.
+
 ## Contract files
 
 Oracles and bindings are TOML; see [`scenarios/commerce`](../../scenarios/commerce/README.md). `parse_oracle()` and `parse_binding()` take the text, for files read from a source archive. `load_oracle()` and `load_binding()` attach provenance from the caller, never from the file, and a binding file that carries oracle policy (for example a tolerance) fails validation. `assemble_contract()` marks a binding `APPROVED` only if its exact digest was approved.

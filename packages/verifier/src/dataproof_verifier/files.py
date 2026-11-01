@@ -35,6 +35,7 @@ class OracleFile(_File):
     query_sql: str
     key_columns: tuple[str, ...]
     expected_columns: dict[str, Comparator]
+    api_route: str | None = None
     reference_precondition_sql: str | None = None
 
 
@@ -62,6 +63,7 @@ def parse_oracle(text: str, *, source_path: str, base_sha: str) -> tuple[OracleF
         query_sql=spec.query_sql,
         key_columns=spec.key_columns,
         expected_columns=spec.expected_columns,
+        api_route=spec.api_route,
         reference_precondition_sql=spec.reference_precondition_sql,
     )
     return spec, oracle
