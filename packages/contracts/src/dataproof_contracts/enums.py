@@ -82,6 +82,8 @@ class ErrorCode(StrEnum):
     QUERY_FAILED = "QUERY_FAILED"
     RESULT_LIMIT_EXCEEDED = "RESULT_LIMIT_EXCEEDED"
     UNSUPPORTED_VALUE_TYPE = "UNSUPPORTED_VALUE_TYPE"
+    #: A request to a preview's API failed or returned something other than JSON objects.
+    API_REQUEST_FAILED = "API_REQUEST_FAILED"
     #: A pipeline stage failed or lost its worker more often than the retry budget allows.
     RETRY_BUDGET_EXHAUSTED = "RETRY_BUDGET_EXHAUSTED"
     #: The trusted configuration differs from the one the run's inputs were pinned to.

@@ -17,7 +17,8 @@
         "api_route": {
           "anyOf": [
             {
-              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^/[A-Za-z0-9_./{}-]*(\\?[A-Za-z0-9_.{}=&-]*)?$",
               "type": "string"
             },
             {
@@ -117,6 +118,20 @@
       "additionalProperties": false,
       "description": "Protected expectation, read from the base SHA only.\n\nIt alone fixes the expected key universe, the comparators and their tolerances.",
       "properties": {
+        "api_route": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "pattern": "^/[A-Za-z0-9_./{}-]*(\\?[A-Za-z0-9_.{}=&-]*)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Route"
+        },
         "base_sha": {
           "pattern": "^[0-9a-f]{40}$",
           "title": "Base Sha",
