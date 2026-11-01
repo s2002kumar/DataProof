@@ -81,6 +81,7 @@ from dataproof_runner.backend import (
     StepResult,
 )
 from dataproof_runner.baselines import Baseline, database_digest, user_tables
+from dataproof_runner.preview_client import PreviewApi
 from dataproof_runner.project import ProjectConfig
 from dataproof_runner.source import archive_commit, changed_paths
 from dataproof_runner.worker import StageContext, StageHandler, StageOutcome
@@ -91,6 +92,7 @@ from dataproof_verifier import (
     derive_verdict,
     parse_binding,
     parse_oracle,
+    verify_api_contract,
     verify_contract,
 )
 
@@ -588,6 +590,7 @@ class Pipeline:
 
         reference = self._attached(run.run_id, Environment.REFERENCE)
         candidate = self._attached(run.run_id, Environment.CANDIDATE)
+        apis = self._preview_apis(run.run_id)
         records: list[CheckRecord] = []
         with (
             psycopg.connect(
@@ -617,12 +620,22 @@ class Pipeline:
                     approved_digests=self.project.approved_binding_digests,
                     rejected_digests=self.project.rejected_binding_digests,
                 )
-                verification = verify_contract(
-                    contract, ref, cand, dataset, self.settings.query_limits
-                )
+                if oracle_model.api_route is not None and apis is None:
+                    # API behaviour needs both previews serving; without them it did not run.
+                    result = self._not_run(oracle, NotRunReason.PREREQUISITE_FAILED, dataset)
+                    records.append(CheckRecord(result))
+                    continue
+                if oracle_model.api_route is not None and apis is not None:
+                    verification = verify_api_contract(
+                        contract, ref, apis[0], apis[1], dataset, self.settings.query_limits
+                    )
+                else:
+                    verification = verify_contract(
+                        contract, ref, cand, dataset, self.settings.query_limits
+                    )
                 for item in verification.evidence:
                     evidence[item.evidence_id] = {
-                        "kind": "query",
+                        "kind": "api" if item.evidence_id.endswith(":api") else "query",
                         "environment": item.environment.value,
                         "query_sql": item.query_sql,
                         "sql_sha256": item.sql_sha256,
@@ -640,6 +653,19 @@ class Pipeline:
             # Unparseable binding files are reported on the report, not silently dropped.
             evidence["bindings:CANDIDATE:invalid"] = {"kind": "invalid_bindings", "files": problems}
         return records
+
+    def _preview_apis(self, run_id: UUID) -> tuple[PreviewApi, PreviewApi] | None:
+        """API clients for both previews, or None unless both are serving."""
+        if not self.settings.previews:
+            return None
+        clients = []
+        for role in (Environment.REFERENCE, Environment.CANDIDATE):
+            handle = self.backend.attach(run_id, role)
+            access = self.backend.preview_access(handle) if handle is not None else None
+            if access is None:
+                return None
+            clients.append(PreviewApi(access))
+        return clients[0], clients[1]
 
     # REPORTING ---------------------------------------------------------------------------------
 

@@ -7,7 +7,7 @@ and candidate environments, then cleaned up. The tests assert the recorded resul
 import hashlib
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -25,6 +25,7 @@ from dataproof_contracts import (
     Environment,
     ErrorCode,
     GitHubCheckConclusion,
+    IntegerValue,
     NotExecutedReason,
     NotRunReason,
     ReportVerdict,
@@ -51,6 +52,7 @@ C1, C2, C3 = (
     "commerce.c2_refund_totals",
     "commerce.c3_capture_totals",
 )
+C6_TOTALS, C6_REFUNDS = "commerce.c6_order_totals_api", "commerce.c6_refund_events_api"
 SETTINGS = WorkerSettings(
     lease=timedelta(minutes=5),
     heartbeat_interval=timedelta(seconds=10),
@@ -61,7 +63,14 @@ SETTINGS = WorkerSettings(
 
 @pytest.fixture(scope="session")
 def commerce_repo(tmp_path_factory: pytest.TempPathFactory) -> CommerceRepo:
+    """Data contracts only: runs are complete without previews."""
     return CommerceRepo(tmp_path_factory.mktemp("commerce-repo") / "repo")
+
+
+@pytest.fixture(scope="session")
+def commerce_api_repo(tmp_path_factory: pytest.TempPathFactory) -> CommerceRepo:
+    """Data and API behaviour contracts: runs need both previews to be complete."""
+    return CommerceRepo(tmp_path_factory.mktemp("commerce-api-repo") / "repo", api_oracles=True)
 
 
 @dataclass
@@ -149,6 +158,11 @@ def harness(
         artifacts=LocalArtifactStore(tmp_path / "artifacts"),
         runtime_image=runtime_image,
     )
+
+
+@pytest.fixture
+def api_harness(harness: Harness, commerce_api_repo: CommerceRepo) -> Harness:
+    return replace(harness, repo=commerce_api_repo)
 
 
 def test_a_safe_change_is_checked_survives_a_retry_and_is_cleaned_up(harness: Harness) -> None:
@@ -453,7 +467,8 @@ def test_a_new_head_supersedes_a_run_in_review_which_ends_superseded(harness: Ha
     assert harness.store.get_run(second).state is S.NOT_EXECUTED
 
 
-def test_previews_serve_each_commit_until_the_run_is_cleaned_up(harness: Harness) -> None:
+def test_previews_serve_each_commit_until_the_run_is_cleaned_up(api_harness: Harness) -> None:
+    harness = api_harness
     head = harness.repo.change(SAFE, {f"{SAMPLE_APP}/README.md": "With previews.\n"})
     project = harness.project(head)
     worker = harness.worker(harness.pipeline(project, previews=True))
@@ -463,7 +478,11 @@ def test_previews_serve_each_commit_until_the_run_is_cleaned_up(harness: Harness
     report = harness.results.report(run_id)
     assert report is not None
     assert report.verdict is ReportVerdict.CHECKED
-    assert harness.outcomes(run_id)[PREVIEW_CHECK] is CheckOutcome.PASS
+    outcomes = harness.outcomes(run_id)
+    assert outcomes[PREVIEW_CHECK] is CheckOutcome.PASS
+    assert outcomes[C6_TOTALS] is outcomes[C6_REFUNDS] is CheckOutcome.PASS, "API behaviour kept"
+    c6 = {c.result.check_id: c.result for c in harness.results.checks(run_id)}
+    assert c6[C6_TOTALS].expected_key_count == c6[C6_TOTALS].observed_key_count == 208
     previews = harness.results.previews(run_id)
     commits = {Environment.REFERENCE: harness.repo.base, Environment.CANDIDATE: head}
     for role, preview in previews.items():
@@ -507,7 +526,8 @@ def test_previews_serve_each_commit_until_the_run_is_cleaned_up(harness: Harness
     assert harness.backend.resources(run_id) == []
 
 
-def test_a_candidate_frontend_that_does_not_build_blocks_the_run(harness: Harness) -> None:
+def test_a_candidate_frontend_that_does_not_build_blocks_the_run(api_harness: Harness) -> None:
+    harness = api_harness
     head = harness.repo.change(
         SAFE, {f"{SAMPLE_APP}/web/lib/broken.ts": 'export const total: number = "x";\n'}
     )
@@ -526,6 +546,37 @@ def test_a_candidate_frontend_that_does_not_build_blocks_the_run(harness: Harnes
         CheckOutcome.ERROR,
         ErrorCode.CANDIDATE_BUILD_FAILED,
     )
-    assert harness.outcomes(run_id)[C1] is CheckOutcome.PASS, "data checks still ran"
+    outcomes = harness.outcomes(run_id)
+    assert outcomes[C1] is CheckOutcome.PASS, "data checks still ran"
+    checks = {c.result.check_id: c.result for c in harness.results.checks(run_id)}
+    for api_check in (C6_TOTALS, C6_REFUNDS):
+        assert checks[api_check].not_run_reason is NotRunReason.PREREQUISITE_FAILED
     candidate = harness.results.previews(run_id)[Environment.CANDIDATE]
     assert (candidate.ready, candidate.failure, candidate.url) == (False, "build", None)
+
+
+def test_f1_is_also_blocked_by_api_behaviour_through_the_previews(api_harness: Harness) -> None:
+    harness = api_harness
+    head = harness.repo.change(F1, {f"{SAMPLE_APP}/README.md": "F1 with previews.\n"})
+    project = harness.project(head)
+    worker = harness.worker(harness.pipeline(project, previews=True))
+    run_id = harness.submit(project, head)
+    worker.run_once()
+
+    report = harness.results.report(run_id)
+    assert report is not None
+    assert report.verdict is ReportVerdict.BLOCKED
+    checks = {c.result.check_id: c.result for c in harness.results.checks(run_id)}
+    assert checks[PREVIEW_CHECK].outcome is CheckOutcome.PASS, "the app itself works"
+    assert checks[C6_TOTALS].outcome is CheckOutcome.FAIL
+    assert checks[C6_REFUNDS].outcome is CheckOutcome.FAIL
+    refunds = [
+        (m.expected, m.observed)
+        for m in checks[C6_REFUNDS].mismatch_examples
+        if m.column == "amount" and m.key[1] == IntegerValue(value=1002)
+    ]
+    assert refunds == [(DecimalValue(value=Decimal("49.99")), DecimalValue(value=Decimal("99.98")))]
+    evidence = harness.results.evidence(run_id)
+    assert evidence[f"{C6_REFUNDS}:candidate:api"]["query_sql"] == (
+        "GET /orders/{order_id}/transactions?kind=REFUND"
+    )
