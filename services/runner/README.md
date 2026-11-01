@@ -94,6 +94,14 @@ Before a run is reported, its evidence is sealed so that diagnosis and reproduct
 
 Snapshots and the manifest are recorded in the control database's write-once tables in the same transaction as the report.
 
+**Replay.** `Pipeline.replay(run)` re-runs a sealed run's data contracts from its evidence alone, even after cleanup:
+
+1. It re-verifies the manifest and both snapshots by SHA-256, and refuses to replay under a configuration other than the run's own.
+2. It restores the snapshots into fresh `replay` environments and evaluates every data contract exactly as `VERIFYING` does.
+3. It destroys those environments and compares outcomes, mismatches and evidence digests with what the run recorded.
+
+API behaviour checks need live previews, so a replay reports them as skipped, not as matched. A replay never changes the run. Diagnosis and reproduction start from this.
+
 Problems caused by the pull request become check outcomes; problems with the trusted setup become a typed run `ERROR`; transient failures are retried. Source archives are written once to `LocalArtifactStore` and re-verified by SHA-256 on every read.
 
 `tests/integration/test_pipeline.py` runs commerce change sets end to end on local Docker:
@@ -106,7 +114,7 @@ Problems caused by the pull request become check outcomes; problems with the tru
 - **Cancellation during migration:** the late result is discarded and nothing is left behind.
 - **Configuration drift:** an error, and nothing runs.
 - **Weakened oracle:** a pull request that makes its own oracle optional is still `BLOCKED`.
-- **Sealed evidence:** both snapshots restore to identical rows. The manifest matches its stored object, and every artifact it lists is present and unaltered. After F1's environments are destroyed, restoring its sealed candidate snapshot still shows the 99.98 refund.
+- **Sealed evidence:** both snapshots restore to identical rows. The manifest matches its stored object, and every artifact it lists is present and unaltered. After F1's environments are destroyed, restoring its sealed candidate snapshot still shows the 99.98 refund, a replay from the sealed snapshots reproduces C1–C3 exactly, and a snapshot tampered with on disk is refused.
 - **Supersession:** a new head on the same pull request cancels a run in review. That run is cleaned up and ends `SUPERSEDED`.
 - **Previews:** a run serves the reference at the base SHA and the candidate at the head SHA. Through each edge with its token, the reference API's refunds and the candidate API's ledger transactions both show the 49.99 refund, and so does each frontend page. Without the token, every route answers 401. Cleanup removes both previews. A candidate frontend that does not build gives `ERROR: CANDIDATE_BUILD_FAILED` (`BLOCKED`); the data checks still run, and the API checks are `NOT_RUN`.
 - **API behaviour (C6):** on the safe change both C6 checks pass for all 208 orders through the previews. On F1 the app itself works (`preview.candidate` passes), but both C6 checks fail, with refund 1002 at 49.99 expected and 99.98 observed through the candidate API.
