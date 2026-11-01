@@ -35,7 +35,7 @@ from dataproof_contracts import (
 )
 from dataproof_control import RunResults, RunStore
 from dataproof_runner import StageContext, StageOutcome, Worker, WorkerSettings
-from dataproof_runner.artifacts import LocalArtifactStore
+from dataproof_runner.artifacts import ArtifactIntegrityError, LocalArtifactStore
 from dataproof_runner.baselines import CommerceBaseline
 from dataproof_runner.local_docker import LocalDockerBackend
 from dataproof_runner.pipeline import MIGRATION_CHECK, PREVIEW_CHECK, Pipeline, PipelineSettings
@@ -242,7 +242,8 @@ def test_a_safe_change_is_checked_survives_a_retry_and_is_cleaned_up(harness: Ha
 def test_f1_is_blocked_with_the_refund_evidence_and_reproduces_exactly(harness: Harness) -> None:
     head = harness.repo.change(F1)
     project = harness.project(head)
-    worker = harness.worker(harness.pipeline(project))
+    pipeline = harness.pipeline(project)
+    worker = harness.worker(pipeline)
     first = harness.submit(project, head, pull_request=7)
     second = harness.submit(project, head, pull_request=8)
     while worker.run_once():
@@ -308,6 +309,21 @@ def test_f1_is_blocked_with_the_refund_evidence_and_reproduces_exactly(harness: 
         assert amount == ("99.98",)
     finally:
         harness.backend.destroy(first)
+
+    # Replaying from the sealed snapshots alone reproduces every data contract exactly.
+    sealed = pipeline.replay(harness.store.get_run(first))
+    assert sealed.matches, sealed.differences
+    assert set(sealed.replayed) == {C1, C2, C3}
+    assert MIGRATION_CHECK in sealed.skipped
+    assert harness.backend.resources(first) == [], "replay environments are destroyed"
+    assert harness.store.get_run(first).state is S.COMPLETE, "a replay never changes the run"
+
+    # Evidence that no longer matches its seal is refused, never replayed.
+    tampered = dump[:-1] + bytes([dump[-1] ^ 0xFF])
+    (harness.artifacts.root / snapshot.object_key).write_bytes(tampered)
+    with pytest.raises(ArtifactIntegrityError):
+        pipeline.replay(harness.store.get_run(first))
+    assert harness.backend.resources(first) == []
 
 
 def test_unapproved_bindings_leave_the_run_incomplete_but_analyzed(harness: Harness) -> None:
