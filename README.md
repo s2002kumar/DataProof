@@ -80,6 +80,7 @@ Out of scope: production cutover automation, other databases or warehouses, Spar
 | [Commerce scenario](scenarios/commerce/README.md) | Baseline fixture, its digest and edge cases, and candidate change sets |
 | [Verifier](packages/verifier/README.md) | Evaluation order, comparators, outcomes and query safety layers |
 | [Control store](packages/control/README.md) | Run state machine, transition log, job queue, leases, fencing, retries and supersession |
+| [Investigator](packages/investigator/README.md) | The bounded AI investigator: its loop, five read-only tools, citation rules and model-off baseline |
 | [Runner](services/runner/README.md) | Workers, the stage-handler contract, the local Docker backend and its tested isolation |
 | [Sample app](sample-app/README.md) | The application under review: schema and migrations |
 
