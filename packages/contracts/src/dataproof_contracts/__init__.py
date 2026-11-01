@@ -35,6 +35,17 @@ from dataproof_contracts.evidence import (
 )
 from dataproof_contracts.finding import Finding, SourceLocation
 from dataproof_contracts.github import github_check_conclusion
+from dataproof_contracts.investigation import (
+    TOOL_EVIDENCE_PREFIX,
+    Confidence,
+    Hypothesis,
+    Investigation,
+    InvestigationStatus,
+    InvestigationUsage,
+    InvestigatorRole,
+    ToolCall,
+    ToolCallOutcome,
+)
 from dataproof_contracts.run import ReviewRun, RunInputs, WorkerLease
 from dataproof_contracts.values import (
     BooleanValue,
@@ -48,6 +59,7 @@ from dataproof_contracts.values import (
 )
 
 __all__ = [
+    "TOOL_EVIDENCE_PREFIX",
     "ApproverSeparation",
     "BindingAnalysis",
     "BindingRelation",
@@ -60,6 +72,7 @@ __all__ = [
     "CleanupRecord",
     "Comparator",
     "ComparatorKind",
+    "Confidence",
     "DataContract",
     "DecimalValue",
     "Environment",
@@ -71,7 +84,12 @@ __all__ = [
     "GitHubCheckConclusion",
     "HumanDecision",
     "HumanDecisionAction",
+    "Hypothesis",
     "IntegerValue",
+    "Investigation",
+    "InvestigationStatus",
+    "InvestigationUsage",
+    "InvestigatorRole",
     "LocalizationBasis",
     "Mismatch",
     "NotExecutedReason",
@@ -91,6 +109,8 @@ __all__ = [
     "SourceLocation",
     "TextValue",
     "TimestampValue",
+    "ToolCall",
+    "ToolCallOutcome",
     "TypedValue",
     "WorkerLease",
     "canonical_json",

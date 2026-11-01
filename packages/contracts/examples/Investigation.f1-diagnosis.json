@@ -1,0 +1,44 @@
+{
+  "investigation_id": "4d3c2b1a-0f9e-4d8c-8b7a-6f5e4d3c2b1a",
+  "run_id": "6f1d2c3e-0a4b-4c5d-8e9f-0123456789ab",
+  "role": "FAILURE_INVESTIGATOR",
+  "status": "COMPLETED",
+  "model": "dataproof:rules-v1",
+  "prompt_version": "failure-investigator/1",
+  "tool_version": "tools/1",
+  "tool_calls": [
+    {
+      "sequence": 1,
+      "tool": "run_readonly_query",
+      "arguments": {
+        "environment": "CANDIDATE",
+        "sql": "SELECT source_event_id, amount FROM ledger_entries WHERE order_id = 1",
+        "max_rows": 10
+      },
+      "outcome": "OK",
+      "evidence_id": "investigation.tool.1",
+      "detail": null
+    }
+  ],
+  "hypotheses": [
+    {
+      "statement": "Refund 1002 is recorded at twice its amount: the backfill joins events to order items before summing, so each event is counted once per item.",
+      "cited_evidence_ids": [
+        "commerce.c1_event_preservation:candidate:binding",
+        "investigation.tool.1"
+      ],
+      "confidence": "MEDIUM"
+    }
+  ],
+  "suggested_action": "Aggregate events before joining them to order items, or join on the event key only.",
+  "caveat": "Advisory: derived from the cited evidence only; the deterministic checks decide the verdict.",
+  "failure": null,
+  "usage": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cost_usd": "0",
+    "latency_ms": 12
+  },
+  "started_at": "2026-10-30T15:10:00Z",
+  "finished_at": "2026-10-30T15:10:01Z"
+}
