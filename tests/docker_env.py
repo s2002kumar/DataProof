@@ -5,8 +5,11 @@ tracked in this repository; tests add head commits on top of it the way a pull r
 """
 
 import subprocess
+import urllib.error
+import urllib.request
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import docker
 
@@ -197,3 +200,19 @@ class CommerceRepo(AppRepo):
             **(extra or {}),
         }
         return self.commit(self.base, files, f"Apply {change}")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+def http_get(url: str, token: str | None = None) -> tuple[int, dict[str, str], bytes]:
+    """GET without following redirects, optionally with a preview token cookie."""
+    headers = {"Cookie": f"dataproof_preview={token}"} if token else {}
+    opener = urllib.request.build_opener(_NoRedirect)
+    try:
+        with opener.open(urllib.request.Request(url, headers=headers), timeout=30) as response:
+            return response.status, dict(response.headers), response.read()
+    except urllib.error.HTTPError as error:
+        return error.code, dict(error.headers), error.read()

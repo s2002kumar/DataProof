@@ -77,6 +77,23 @@ class SnapshotRecord:
 
 
 @dataclass(frozen=True)
+class PreviewRecord:
+    """A preview a run built and served, or why it did not; never the token itself."""
+
+    environment: Environment
+    commit_sha: str
+    ready: bool
+    failure: str | None
+    url: str | None
+    token_sha256: str | None
+    ready_seconds: float
+    build_seconds: float | None
+    peak_memory_bytes: int
+    cpu_seconds: float
+    output: str
+
+
+@dataclass(frozen=True)
 class ManifestRecord:
     object_key: str
     sha256: str
@@ -168,6 +185,28 @@ def record_snapshot(conn: psycopg.Connection[Any], run_id: UUID, snapshot: Snaps
             snapshot.restore_verified,
             snapshot.verified_at,
             snapshot.restore_error,
+        ),
+    )
+
+
+def record_preview(conn: psycopg.Connection[Any], run_id: UUID, preview: PreviewRecord) -> None:
+    conn.execute(
+        "INSERT INTO run_previews (run_id, environment, commit_sha, ready, failure, url, "
+        "token_sha256, ready_seconds, build_seconds, peak_memory_bytes, cpu_seconds, output) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (
+            run_id,
+            preview.environment.value,
+            preview.commit_sha,
+            preview.ready,
+            preview.failure,
+            preview.url,
+            preview.token_sha256,
+            preview.ready_seconds,
+            preview.build_seconds,
+            preview.peak_memory_bytes,
+            preview.cpu_seconds,
+            preview.output,
         ),
     )
 
@@ -281,6 +320,30 @@ class RunResults:
                 restored_digest=row["restored_digest"],
                 verified_at=row["verified_at"],
                 restore_error=row["restore_error"],
+            )
+            for row in rows
+        }
+
+    def previews(self, run_id: UUID) -> dict[Environment, PreviewRecord]:
+        rows = self._rows(
+            "SELECT environment, commit_sha, ready, failure, url, token_sha256, ready_seconds, "
+            "build_seconds, peak_memory_bytes, cpu_seconds, output FROM run_previews "
+            "WHERE run_id = %s",
+            run_id,
+        )
+        return {
+            Environment(row["environment"]): PreviewRecord(
+                environment=Environment(row["environment"]),
+                commit_sha=row["commit_sha"],
+                ready=row["ready"],
+                failure=row["failure"],
+                url=row["url"],
+                token_sha256=row["token_sha256"],
+                ready_seconds=float(row["ready_seconds"]),
+                build_seconds=None if row["build_seconds"] is None else float(row["build_seconds"]),
+                peak_memory_bytes=row["peak_memory_bytes"],
+                cpu_seconds=float(row["cpu_seconds"]),
+                output=row["output"],
             )
             for row in rows
         }

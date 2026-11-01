@@ -13,6 +13,7 @@ from dataproof_control.migrate import MigrationDriftError, migrate, migrations
 from dataproof_control.results import (
     CheckRecord,
     ManifestRecord,
+    PreviewRecord,
     ReportRecord,
     RunResults,
     SnapshotRecord,
@@ -43,6 +44,7 @@ __all__ = [
     "LeaseLostError",
     "ManifestRecord",
     "MigrationDriftError",
+    "PreviewRecord",
     "ReportRecord",
     "RetryPolicy",
     "RunNotFoundError",

@@ -69,7 +69,8 @@
         "CONFIG_DIGEST_MISMATCH",
         "DATASET_DIGEST_MISMATCH",
         "BASE_MIGRATION_FAILED",
-        "BASELINE_DIVERGED"
+        "BASELINE_DIVERGED",
+        "REFERENCE_PREVIEW_FAILED"
       ],
       "title": "ErrorCode",
       "type": "string"

@@ -109,6 +109,42 @@ class StepResult:
 
 
 @dataclass(frozen=True)
+class PreviewAccess:
+    """How a reviewer reaches one environment's live preview: a URL and its run-scoped token.
+
+    ``login_url`` sets the token as an HTTP-only cookie; without it every route but the health
+    check answers 401.
+    """
+
+    url: str
+    token: str = field(repr=False)
+
+    @property
+    def login_url(self) -> str:
+        return f"{self.url}/__dataproof/login?token={self.token}"
+
+
+@dataclass(frozen=True)
+class PreviewResult:
+    """A preview that started serving, or why it did not; with what it cost to get there."""
+
+    access: PreviewAccess | None
+    failure: str | None
+    """``build`` (the frontend did not build), ``start`` (a server exited or never answered) or
+    ``None``."""
+    output: str
+    commit_sha: str
+    ready_seconds: float
+    build_seconds: float | None
+    peak_memory_bytes: int
+    cpu_seconds: float
+
+    @property
+    def ready(self) -> bool:
+        return self.access is not None
+
+
+@dataclass(frozen=True)
 class CleanupReport:
     run_id: UUID
     outcome: CleanupOutcome
@@ -156,6 +192,27 @@ class ExecutionBackend(Protocol):
         ``limits`` overrides the backend's default caps for this step, for example to give a
         frontend build the memory it needs.
         """
+        ...
+
+    def start_preview(
+        self,
+        environment: EnvironmentHandle,
+        *,
+        image: str,
+        source: StagedSource,
+        arguments: Sequence[str],
+        timeout: timedelta,
+        limits: ResourceLimits | None = None,
+    ) -> PreviewResult:
+        """Build and serve the source's application, reachable only through a trusted edge.
+
+        The application reads the database with the read-only role. The edge publishes one URL
+        that requires the preview token.
+        """
+        ...
+
+    def preview_access(self, environment: EnvironmentHandle) -> PreviewAccess | None:
+        """The access to a running preview, for a reviewer or a check; None if it is not up."""
         ...
 
     def dump_database(self, environment: EnvironmentHandle) -> bytes:

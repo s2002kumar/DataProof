@@ -56,6 +56,10 @@ class ProjectConfig(BaseModel):
     """The trusted runtime image, by image ID or digest."""
     baseline: Literal["commerce-v1"]
     alembic_config: RelativeFile = "sample-app/alembic.ini"
+    app_dir: RelativeFile = "sample-app"
+    """Where ``uvicorn app.main:app`` runs from."""
+    web_dir: RelativeFile = "sample-app/web"
+    """The Next.js frontend, built inside the environment's own container."""
     allowed_change_roots: tuple[RelativeDir, ...] = ("sample-app/", "dataproof/")
     dependency_file_patterns: tuple[str, ...] = DEPENDENCY_FILE_PATTERNS
     oracle_dir: RelativeDir = "dataproof/oracles/"
