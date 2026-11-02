@@ -207,7 +207,7 @@ def test_a_not_executed_run_is_reported_as_such(setup: Setup) -> None:
     claim = setup.store.advance(claim, S.ANALYZING)
     report = ReportRecord(
         verdict=ReportVerdict.NOT_EXECUTED,
-        conclusion=GitHubCheckConclusion.NEUTRAL,
+        conclusion=GitHubCheckConclusion.ACTION_REQUIRED,
         report={"not_executed_reason": "FORK_PULL_REQUEST", "coverage": []},
     )
     setup.store.advance(
@@ -218,6 +218,6 @@ def test_a_not_executed_run_is_reported_as_such(setup: Setup) -> None:
     )
     setup.publisher.publish(run_id)
     (check,) = setup.github.runs_on(HEAD_SHA)
-    assert (check.status, check.conclusion) == ("completed", "neutral")
+    assert (check.status, check.conclusion) == ("completed", "action_required")
     assert check.output["title"] == "NOT_EXECUTED: FORK_PULL_REQUEST"
     assert "No checks ran." in check.output["summary"]

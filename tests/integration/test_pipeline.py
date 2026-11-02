@@ -409,7 +409,7 @@ def test_a_dependency_change_is_not_executed_and_nothing_is_provisioned(harness:
     assert report is not None
     assert (report.verdict, report.conclusion) == (
         ReportVerdict.NOT_EXECUTED,
-        GitHubCheckConclusion.NEUTRAL,
+        GitHubCheckConclusion.ACTION_REQUIRED,
     )
     assert report.report["paths"] == [f"{SAMPLE_APP}/uv.lock"]
     assert harness.results.steps(run_id) == []
@@ -485,7 +485,7 @@ def test_a_fork_pull_request_is_not_executed_and_nothing_is_provisioned(harness:
     assert report is not None
     assert (report.verdict, report.conclusion) == (
         ReportVerdict.NOT_EXECUTED,
-        GitHubCheckConclusion.NEUTRAL,
+        GitHubCheckConclusion.ACTION_REQUIRED,
     )
     assert S.PROVISIONING not in harness.states(run_id)
     assert harness.backend.resources(run_id) == []
