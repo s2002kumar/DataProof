@@ -62,9 +62,25 @@ All times come from the database clock, so workers' clocks cannot disagree about
 - A correction of the commit it corrects is refused, and requesting the same correction twice returns the same run.
 - The original run, its transitions and its results are never changed, and the correction supersedes nothing.
 
+## Configurations and binding decisions
+
+Migration 0007 adds two write-once tables:
+
+- `project_configs` holds every project configuration under its digest, the one `RunInputs.config_digest` pins. `save_config` is idempotent, and a different configuration under a stored digest is refused (`ConfigConflictError`). The control plane does not interpret a configuration; the runner validates it again and checks its digest before running anything under it.
+- `human_decisions` holds `HumanDecision` documents.
+
+`RunStore.decide_binding(decision, configure=...)` records `APPROVE_BINDING` or `REJECT_BINDING` (ADR-0005):
+
+- The decision is bound to the head SHA of the run decided on and to the binding's digest. A head that the pull request has moved past is refused (`StaleHeadError`). The current head is the one of the pull request's latest webhook or manual run, or of a correction replay requested after it.
+- The first decision on a binding at a head stands. Repeating it returns it, with the run it started; contradicting it is refused (`DecisionConflictError`).
+- An approval starts a `BINDING_APPROVAL` run, with the run decided on as its parent, under the configuration that `configure` builds from every approval and rejection at that head. The configuration, the run and the decision are written in one transaction under the pull request's lock, so concurrent approvals at one head each see the ones before them.
+- The run decided on is never resumed or changed, and the new run supersedes nothing.
+
+Authorization and the approver rule belong to the caller, the reviewer API (work package 9). The store records what an authorized reviewer decided.
+
 ## Run results
 
-Migration 0002 adds write-once tables for a run's results: `run_sources` (staged archives and their digests), `run_steps` (each step's exit code, timeout, duration and redacted output), `run_checks` (`CheckResult` documents with any binding analysis), `run_evidence` (query and step evidence) and `run_reports` (verdict, GitHub conclusion and coverage). Workers write them with the `record_*` functions in `results.py` inside a transition's `effects`; `RunResults` reads them. Migration 0003 adds `run_snapshots` (each sealed `pg_dump`, the digests of the live and the restored database, and whether they match) and `run_manifests` (the run's `EvidenceManifest`). Migration 0006 adds `run_reproductions`, each a `Reproduction` document. Migration 0005 adds `run_investigations`: each advisory investigation, rule-based or by a model, as an `Investigation` document. Migration 0004 adds `run_previews`: each preview's commit, URL, readiness or failure and measured cost, with the SHA-256 of its token, never the token. `UPDATE` and `DELETE` are refused on all of them: a correction or a new decision is a new run.
+Migration 0002 adds write-once tables for a run's results: `run_sources` (staged archives and their digests), `run_steps` (each step's exit code, timeout, duration and redacted output), `run_checks` (`CheckResult` documents with any binding analysis), `run_evidence` (query and step evidence) and `run_reports` (verdict, GitHub conclusion and coverage). Workers write them with the `record_*` functions in `results.py` inside a transition's `effects`; `RunResults` reads them. Migration 0003 adds `run_snapshots` (each sealed `pg_dump`, the digests of the live and the restored database, and whether they match) and `run_manifests` (the run's `EvidenceManifest`). Migration 0006 adds `run_reproductions`, each a `Reproduction` document. Migration 0005 adds `run_investigations`: each advisory investigation, rule-based or by a model, as an `Investigation` document. Migration 0004 adds `run_previews`: each preview's commit, URL, readiness or failure and measured cost, with the SHA-256 of its token, never the token. Migration 0007 adds `run_checks.binding`, the candidate binding a check was evaluated against or is waiting on. `UPDATE` and `DELETE` are refused on all of them: a correction or a new decision is a new run.
 
 ## Schema migrations
 
@@ -72,7 +88,7 @@ Migration 0002 adds write-once tables for a run's results: `run_sources` (staged
 
 ## Tests
 
-`tests/unit/test_lifecycle.py` checks the table's properties: every state reaches a terminal state, interruptions lead only to cleanup, nothing skips a stage or goes back. `tests/integration/test_run_store.py` and `tests/integration/test_worker.py` run against PostgreSQL. They cover:
+`tests/unit/test_lifecycle.py` checks the table's properties: every state reaches a terminal state, interruptions lead only to cleanup, nothing skips a stage or goes back. `tests/integration/test_run_store.py`, `tests/integration/test_decisions.py` and `tests/integration/test_worker.py` run against PostgreSQL. They cover:
 
 - two workers racing for one job, and many workers claiming each job exactly once;
 - a stale worker fenced out after its lease expired;
@@ -80,4 +96,5 @@ Migration 0002 adds write-once tables for a run's results: `run_sources` (staged
 - cancellation in the middle of a stage, timeouts and supersession during review;
 - retries in place, retry-budget exhaustion and failed cleanup;
 - heartbeats keeping a slow stage alive;
-- the database rejecting illegal or rewritten transitions.
+- the database rejecting illegal or rewritten transitions;
+- binding decisions: stale heads, repeated and contradicting decisions, and concurrent approvals at one head.
