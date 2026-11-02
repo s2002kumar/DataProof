@@ -58,6 +58,19 @@
           "title": "Engine Version",
           "type": "string"
         },
+        "head_repository": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Repository"
+        },
         "head_sha": {
           "pattern": "^[0-9a-f]{40}$",
           "title": "Head Sha",

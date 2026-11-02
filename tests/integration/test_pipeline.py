@@ -146,12 +146,20 @@ class Harness:
         handlers = {**pipeline.handlers(), **replaced}
         return Worker(self.store, handlers, pipeline.cleanup, worker_id="w1", settings=SETTINGS)
 
-    def submit(self, project: ProjectConfig, head: str, *, pull_request: int = 7) -> UUID:
+    def submit(
+        self,
+        project: ProjectConfig,
+        head: str,
+        *,
+        pull_request: int = 7,
+        head_repository: str | None = None,
+    ) -> UUID:
         inputs = RunInputs(
             repository=REPOSITORY,
             pull_request=pull_request,
             base_sha=self.repo.base,
             head_sha=head,
+            head_repository=head_repository,
             config_digest=project.digest(),
             dataset_digest=PUBLISHED_DIGEST,
             engine_version="0.1.0",
@@ -447,6 +455,25 @@ def test_cancelling_during_migration_discards_its_result_and_leaves_nothing(
     assert harness.states(run_id)[-3:] == [S.CANCELLED, S.CLEANING, S.COMPLETE]
     assert harness.backend.resources(run_id) == []
     assert harness.results.report(run_id) is None
+
+
+def test_a_fork_pull_request_is_not_executed_and_nothing_is_provisioned(harness: Harness) -> None:
+    head = harness.repo.change(SAFE, {f"{SAMPLE_APP}/README.md": "From a fork.\n"})
+    project = harness.project(head)
+    run_id = harness.submit(project, head, head_repository="someone-else/commerce-demo")
+    harness.worker(harness.pipeline(project)).run_once()
+
+    run = harness.store.get_run(run_id)
+    assert run.state is S.NOT_EXECUTED
+    assert run.not_executed_reason is NotExecutedReason.FORK_PULL_REQUEST
+    report = harness.results.report(run_id)
+    assert report is not None
+    assert (report.verdict, report.conclusion) == (
+        ReportVerdict.NOT_EXECUTED,
+        GitHubCheckConclusion.NEUTRAL,
+    )
+    assert S.PROVISIONING not in harness.states(run_id)
+    assert harness.backend.resources(run_id) == []
 
 
 def test_a_run_pinned_to_another_configuration_is_not_run_under_this_one(
