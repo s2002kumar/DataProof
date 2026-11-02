@@ -34,6 +34,16 @@ Every resource is labelled with its scope, run, role and expiry. `destroy(run_id
 - `build-web --dir <frontend>` copies the verified frontend source next to the dependencies baked into the image and runs `next build` offline (Turbopack compiles nothing outside its project root). A source that ships its own `node_modules` is refused. Frontend builds run with `FRONTEND_BUILD_LIMITS` (2 GB, 2 CPUs).
 - A digest mismatch exits 65 (`SOURCE_DIGEST_MISMATCH`), and a missing or unsafe archive exits 66 (`SOURCE_INVALID`). In both cases no pull-request code runs.
 
+### Source broker
+
+`GitFetcher` (`broker.py`) fills the trusted mirror that `FETCHING` archives from:
+
+- It fetches the pinned base and head commits **by SHA**, so a branch moved after the event cannot substitute other code. Fetched commits are pinned under `refs/dataproof/commits/` so garbage collection keeps them.
+- A credential (for GitHub, an installation token with `contents: read`) reaches git only through the environment of that one command, as an `http.extraHeader`. It is never written to the mirror's configuration, put on a command line, or included in an error. Credential helpers are disabled, inherited `GIT_*` variables are dropped, and prompts are off.
+- A failed or timed-out fetch raises, so the worker retries the stage within its budget.
+
+Steps never see the mirror or the credential, only the digest-verified archive.
+
 ### Tested isolation
 
 `tests/integration/test_local_docker.py` provisions real environments. A hostile migration probes its sandbox from inside a candidate step and records what it could reach. Only its own database is reachable, and the following are refused:
@@ -67,7 +77,7 @@ Each stage records its results through the transition's `effects`, in the contro
 
 | Stage | What it does | Ends in |
 | --- | --- | --- |
-| `FETCHING` | Checks that the trusted `ProjectConfig` still has the digest the run was pinned to, then stages exact base and head archives in the artifact store | `ANALYZING`, or `ERROR: CONFIG_DIGEST_MISMATCH` |
+| `FETCHING` | Checks that the trusted `ProjectConfig` still has the digest the run was pinned to, has the source broker fetch the exact base and head commits into the trusted mirror if they are missing, then stages exact base and head archives in the artifact store | `ANALYZING`, or `ERROR: CONFIG_DIGEST_MISMATCH` |
 | `ANALYZING` | Refuses other repositories, a fork's pull request (`FORK_PULL_REQUEST`), and changes outside the allowed roots or to any dependency or runtime file (`pyproject.toml`, lockfiles, `package.json`, `Dockerfile` and similar, anywhere in the tree), before anything is provisioned | `PROVISIONING`, or `NOT_EXECUTED` with a neutral report |
 | `PROVISIONING` | Creates the reference and candidate environments, migrates both to the base schema **with the base source** inside steps, loads the baseline, proves both databases identical by a digest of every row, and serves the reference preview from the base source | `MIGRATING`, or `ERROR: DATASET_DIGEST_MISMATCH`, `BASE_MIGRATION_FAILED`, `SOURCE_DIGEST_MISMATCH`, `BASELINE_DIVERGED` or `REFERENCE_PREVIEW_FAILED` |
 | `MIGRATING` | Runs the head's migrations in the candidate, from the head source, inside a step, then builds and serves the candidate preview from the head source. A retried attempt first rebuilds the candidate, so the recorded migration is one clean execution | `VERIFYING` |
@@ -132,6 +142,7 @@ Problems caused by the pull request become check outcomes; problems with the tru
 - **Unapproved bindings:** `INCOMPLETE` (action required), with the binding analysis shown.
 - **Lockfile change:** `NOT_EXECUTED` (neutral), with nothing provisioned.
 - **Fork:** a pull request from a fork is `NOT_EXECUTED: FORK_PULL_REQUEST` (neutral), with nothing provisioned.
+- **Source broker:** a run whose commits exist only in the remote fetches them into an empty mirror. The staged archives have exactly the digests of archives made from the remote, and `ANALYZING` reads the changed paths from the mirror.
 - **Failing migration:** `BLOCKED`, with the contracts not run.
 - **Cancellation during migration:** the late result is discarded and nothing is left behind.
 - **Configuration drift:** an error, and nothing runs.
