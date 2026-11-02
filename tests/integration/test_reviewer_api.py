@@ -259,6 +259,7 @@ def test_checks_show_the_binding_a_reviewer_would_decide_on(stack: Stack) -> Non
     (check,) = viewer.get(f"/api/runs/{run_id}/checks").json()
     assert check["result"]["not_run_reason"] == "AWAITING_BINDING_REVIEW"
     assert check["binding"]["query_sql"] == binding.query_sql
+    assert check["binding_digest"] == binding.digest()
     assert viewer.get(f"/api/runs/{run_id}/evidence").json() == {}
 
 

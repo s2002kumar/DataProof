@@ -4,7 +4,8 @@
   ten-minute state cookie. A successful sign-in sets a signed session cookie (HttpOnly, Secure,
   SameSite=Lax) and keeps nothing else.
 * ``GET /api/session``: who is signed in, and the CSRF token that every write must send.
-* ``GET /api/runs``, ``GET /api/runs/{id}``, ``…/checks``, ``…/evidence``: runs of the
+* ``GET /api/runs``, ``GET /api/runs/{id}``, ``…/checks`` (each with the digest of the binding it
+  waits on or used), ``…/evidence``: runs of the
   registered repositories the reviewer can read on GitHub. A run the reviewer cannot read is
   answered exactly like a run that does not exist (404).
 * Writes (``POST``) need the session, the CSRF token in ``X-CSRF-Token`` and an ``Origin`` equal
@@ -249,7 +250,15 @@ class Reviewer:
         @router.get("/api/runs/{run_id}/checks")
         def checks(run_id: UUID, session: reader) -> list[Any]:
             self.readable_run(run_id, session.login)
-            return list(to_jsonable_python(self.results.checks(run_id)))
+            return [
+                {
+                    **to_jsonable_python(record),
+                    # The digest a binding decision must name, computed here so that clients
+                    # never re-implement the canonical form.
+                    "binding_digest": record.binding.digest() if record.binding else None,
+                }
+                for record in self.results.checks(run_id)
+            ]
 
         @router.get("/api/runs/{run_id}/evidence")
         def evidence(run_id: UUID, session: reader) -> dict[str, Any]:
