@@ -4,7 +4,7 @@ import json
 import re
 
 from dataproof_benchmark.__main__ import CORPUS, REPORT, RESULTS
-from dataproof_benchmark.corpus import build_corpus
+from dataproof_benchmark.corpus import build_api_cases, build_corpus
 from dataproof_benchmark.files import stale
 from dataproof_benchmark.score import report
 from dataproof_runner.project import ProjectConfig
@@ -34,11 +34,12 @@ def test_the_corpus_has_the_cases_benchmark_asks_for() -> None:
 
 
 def test_nothing_a_reviewer_or_investigator_reads_names_the_fault() -> None:
-    for case in build_corpus():
+    for case in [*build_corpus(), *build_api_cases()]:
         assert re.fullmatch(r"case-\d+", case.case_id)
         assert re.fullmatch(r"ledger-backfill-\d+", case.change)
         assert not REVEALING.search(case.source()), case.case_id
-    for path in (CORPUS / "changes").rglob("*"):
+        assert not REVEALING.search(case.api_source or ""), case.case_id
+    for path in [*(CORPUS / "changes").rglob("*"), *(CORPUS / "api").rglob("*")]:
         if path.is_file() and "__pycache__" not in path.parts:
             assert not REVEALING.search(path.read_text("utf-8")), path
 
@@ -56,3 +57,16 @@ def test_labels_are_only_in_the_evaluator_manifest_outside_every_source_root() -
 def test_the_committed_report_is_generated_from_the_committed_results() -> None:
     results = json.loads(RESULTS.read_text("utf-8"))
     assert REPORT.read_text("utf-8") == report(results)
+
+
+def test_the_api_cases_are_two_faults_and_a_clean_control_with_their_own_api() -> None:
+    cases = build_api_cases()
+    assert [c.label.kind for c in sorted(cases, key=lambda c: c.case_id)].count("fault") == 2
+    assert sum(c.label.kind == "clean" for c in cases) == 1
+    for case in cases:
+        assert case.api_source is not None
+        compile(case.api_source, case.case_id, "exec")
+        assert set(case.label.failing) <= {
+            "commerce.c6_order_totals_api",
+            "commerce.c6_refund_events_api",
+        }

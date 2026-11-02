@@ -26,6 +26,8 @@ The supervisor reaches environments only through `ExecutionBackend` (`backend.py
 
 Every resource is labelled with its scope, run, role and expiry. `destroy(run_id)` and `reap_expired(now)` work from labels alone, so cleanup does not depend on the control plane being up.
 
+**The independent reaper** (`reaper.py`, run as `python -m dataproof_api reaper`) calls `reap_expired` on a timer and journals each removal to a local JSON Lines file. It never writes a run's results. A run's own cleanup that comes later finds its environments `ALREADY_GONE` and records that. `tests/integration/test_reaper.py` runs the real process with no database URL or other secret: it removes an expired run, journals it exactly once, leaves a live run alone, and the run's cleanup then reports `ALREADY_GONE`.
+
 ### Runtime image and source delivery
 
 [`infra/docker/runtime/Dockerfile`](../../infra/docker/runtime/Dockerfile) builds the trusted runtime image from digest-pinned base images and the sample app's lockfile; a step never installs anything. The trusted supervisor stages an exact-commit archive (`source.py`, `git archive` of a trusted clone for now) and copies it into the step container before start. The image's [entrypoint](../../infra/docker/runtime/entrypoint.py), running as the unprivileged user, verifies the archive's SHA-256 against the launch parameter and unpacks it with tar's `data` filter. Only then does it run the step:

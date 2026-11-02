@@ -6,6 +6,7 @@ import os
 import socket
 import time
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx2
@@ -15,6 +16,7 @@ import uvicorn
 from dataproof_api.deployment import Stack
 from dataproof_api.registration import Registration, app_manifest
 from dataproof_control import migrate
+from dataproof_runner.reaper import reap
 
 log = logging.getLogger("dataproof")
 
@@ -48,6 +50,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     worker.add_argument("--poll", type=float, default=2.0, help="seconds between empty polls")
     publisher = processes.add_parser("publisher", help="publish check runs to GitHub")
     publisher.add_argument("--interval", type=float, default=5.0)
+    reaper = processes.add_parser(
+        "reaper", help="remove expired environments; needs no database or secret"
+    )
+    reaper.add_argument("--interval", type=float, default=60.0)
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
@@ -81,6 +87,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 swept = time.monotonic()
             if not runner.run_once() and not reproducer.run_once():
                 time.sleep(args.poll)
+    elif args.process == "reaper":
+        backend, journal = stack.backend(), stack.journal()
+        while True:
+            for report in reap(backend, journal, datetime.now(UTC)):
+                log.info("reaped run %s: %s", report.run_id, report.outcome.value)
+            time.sleep(args.interval)
     else:
         checks = stack.publisher()
         while True:

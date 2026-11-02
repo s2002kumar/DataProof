@@ -30,3 +30,5 @@ coverage/
 next-env.d.ts
 # Local demo stack logs (scripts/demo/stack.py)
 .dataproof-demo/
+# Pipeline-tier working repositories and artifacts (python -m dataproof_benchmark pipeline)
+benchmarks/.work/

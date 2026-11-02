@@ -43,6 +43,26 @@ Labels are read only after every case has run. The results hold nothing that var
 - development and holdout splits;
 - every miss.
 
+## Pipeline tier
+
+`python -m dataproof_benchmark pipeline --database <admin DSN> --image <runtime image ID>` runs cases **end to end by the real worker on local Docker**. The results are written to [`results/pipeline-results.json`](results/pipeline-results.json), and `pipeline-report` writes [`results/PIPELINE.md`](results/PIPELINE.md).
+
+- **What runs:** each case becomes a pull-request head in a throwaway repository, with the sample app and every protected oracle at its base. The real `Pipeline` then does everything from source staging to cleanup:
+  - policy checks;
+  - reference and candidate environments, and the migration;
+  - previews of both commits, with each frontend built offline;
+  - the data contracts, and the API behaviour contracts (C6) through the previews;
+  - sealed evidence, the report, and cleanup.
+
+  The case's bindings are approved in its trusted configuration, as a reviewer's approval would.
+- **Cases:**
+  - the first case of every data fault family and two clean controls from the database corpus;
+  - the **API behaviour cases** in [`corpus/api/`](corpus/api/). Their migration is the direct copy; the fault is in the payments API the pull request serves: a refunded total over every entry, or transaction amounts rounded to one decimal. A refactored but correct API is the clean control. Only the live previews can show these faults.
+- **Recorded:** the verdict and every check's outcome, seconds per stage from the run's transition log, each preview's build time, readiness, peak memory and CPU, and how many containers, networks or volumes cleanup left behind.
+- **Scoring:** each label is held to the contracts it was written for. Database-tier labels cover C1 to C3; API behaviour labels cover every contract. A data fault that also fails an API contract (C6), because the API serves the migrated data, is listed as *also failed* and is not scored.
+- **Results (one local run):** 11 of 12 faults were detected; the miss is the one fault the declared contracts cannot observe. No clean control was flagged (0 of 3), every failing set matched its label, and 7 of the 10 data faults also failed through the API previews. Every run left nothing behind. See [`results/PIPELINE.md`](results/PIPELINE.md) for timings.
+- **Variation:** timings vary between machines and runs, but outcomes must not. `tests/integration/test_benchmark_pipeline.py` reruns the first API case in CI and requires the committed outcomes, a complete cleanup, and C6 failing while the data contracts pass.
+
 ## Findings worth knowing
 
 - **Failures made of extra rows are not reproduced.** When a migration adds rows under new keys, as when refunds are inserted a second time, the failing keys exist only in the candidate. A subset seeded from the reference cannot contain them, so the replay passes and the result is honestly `NOT_REPRODUCED` (#8).
@@ -51,7 +71,6 @@ Labels are read only after every case has run. The results hold nothing that var
 
 ## Not covered yet
 
-- **The pipeline tier.** Full runs on local Docker with previews, API behaviour faults, stage timings and cleanup.
 - **`B3`**, the AI ablation, and the Change Analyst evaluation (#7).
 
 ## Tests
@@ -63,3 +82,4 @@ Labels are read only after every case has run. The results hold nothing that var
   - labels exist only in the evaluator manifest, outside every investigator source root;
   - the committed report is generated from the committed results.
 - **`tests/integration/test_benchmark_run.py`** (PostgreSQL): a fresh run reproduces the committed results exactly.
+- **`tests/integration/test_benchmark_pipeline.py`** (Docker): the first API behaviour case, run end to end, gives the committed outcomes and leaves nothing behind.

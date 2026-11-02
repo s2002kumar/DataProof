@@ -15,9 +15,11 @@ import random
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
+from decimal import ROUND_FLOOR, ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal
+from pathlib import Path
 from typing import Literal
 
+import commerce_scenario
 from commerce_scenario import Fixture, build_fixture
 from commerce_scenario.fixture import PaymentEvent
 
@@ -30,6 +32,10 @@ HOLDOUT_SHARE = 4
 C1 = "commerce.c1_event_preservation"
 C2 = "commerce.c2_refund_totals"
 C3 = "commerce.c3_capture_totals"
+C6_TOTALS = "commerce.c6_order_totals_api"
+C6_REFUNDS = "commerce.c6_refund_events_api"
+#: The ledger version of the sample app's payments API, which every case's pull request carries.
+LEDGER_API = Path(commerce_scenario.__file__).resolve().parents[2] / "ledger-app" / "payments.py"
 DOCSTRING = "Move legacy payment events into a per-order ledger."
 CAPTURE, REFUND = "CAPTURE", "REFUND"
 WITH_ORDERS = "legacy_payment_events AS e JOIN orders AS o ON o.order_id = e.order_id"
@@ -61,6 +67,8 @@ class Case:
     statements: tuple[str, ...]
     label: Label
     holdout: bool = False
+    api_source: str | None = None
+    """The payments API the pull request carries, when it is not the ledger version."""
 
     def source(self) -> str:
         """The revision file, as a pull request would add it."""
@@ -553,6 +561,104 @@ def build_corpus(seed: int = CORPUS_SEED) -> list[Case]:
                 statements=statements,
                 label=label,
                 holdout=order.randrange(HOLDOUT_SHARE) == 0,
+            )
+        )
+    return cases
+
+
+# API behaviour cases (pipeline tier) -------------------------------------------------------------
+# The migration is the direct copy; the fault, if any, is in the API the pull request serves. Only
+# the live previews can show these, so they run in the pipeline tier, not the database tier.
+
+
+def _api_source(old: str, new: str) -> str:
+    source = LEDGER_API.read_text("utf-8")
+    if source.count(old) != 1:
+        raise ValueError(f"the ledger API no longer contains {old!r}")
+    return source.replace(old, new)
+
+
+def api_variants(facts: Facts) -> Sequence[tuple[str, Label]]:
+    captured_orders = sorted({e.order_id for e in facts.events.values() if e.event_kind == CAPTURE})
+    rounded_refunds = facts.ids(
+        lambda e: (
+            e.event_kind == REFUND
+            and e.amount.quantize(Decimal("0.1"), ROUND_HALF_EVEN) != e.amount
+        )
+    )
+    return (
+        (
+            _api_source(
+                "COALESCE(SUM(amount) FILTER (WHERE entry_kind = 'REFUND'), 0) AS refunded",
+                "COALESCE(SUM(amount), 0) AS refunded",
+            ),
+            Label(
+                "API behaviour",
+                "fault",
+                "refunded total over every entry",
+                True,
+                (C6_TOTALS,),
+                tuple(captured_orders),
+                ("refunded_total",),
+            ),
+        ),
+        (
+            _api_source(
+                "    return [Transaction.model_validate(row) for row in rows]",
+                "    return [\n"
+                "        Transaction.model_validate(\n"
+                '            {**row, "amount": Decimal(row["amount"]).quantize(Decimal("0.1"))}\n'
+                "        )\n"
+                "        for row in rows\n"
+                "    ]",
+            ),
+            Label(
+                "API behaviour",
+                "fault",
+                "transaction amounts rounded",
+                True,
+                (C6_REFUNDS,),
+                rounded_refunds,
+                ("amount",),
+            ),
+        ),
+        (
+            _api_source(
+                "        SELECT COALESCE(SUM(amount) FILTER (WHERE entry_kind = 'CAPTURE'), 0)"
+                " AS captured,\n"
+                "               COALESCE(SUM(amount) FILTER (WHERE entry_kind = 'REFUND'), 0)"
+                " AS refunded\n"
+                "        FROM ledger_entries WHERE order_id = %s",
+                "        SELECT (SELECT COALESCE(SUM(amount), 0) FROM ledger_entries\n"
+                "                WHERE order_id = %s AND entry_kind = 'CAPTURE') AS captured,\n"
+                "               (SELECT COALESCE(SUM(amount), 0) FROM ledger_entries\n"
+                "                WHERE order_id = %s AND entry_kind = 'REFUND') AS refunded",
+            ).replace(
+                "        (order_id,),\n    ).fetchone()",
+                "        (order_id, order_id),\n    ).fetchone()",
+                1,
+            ),
+            Label("clean control", "clean", "totals from two subqueries", True, (), (), ()),
+        ),
+    )
+
+
+def build_api_cases(seed: int = CORPUS_SEED) -> list[Case]:
+    """The API behaviour cases, numbered from 201, in neutral shuffled order."""
+    variants = list(api_variants(Facts.of(build_fixture())))
+    random.Random(f"{seed}:api").shuffle(variants)
+    cases = []
+    for index, (api_source, label) in enumerate(variants):
+        number = 201 + index
+        revision = f"{random.Random(f'{seed}:revision:{number}').getrandbits(48):012x}"
+        cases.append(
+            Case(
+                case_id=f"case-{number}",
+                change=f"ledger-backfill-{number}",
+                revision=revision,
+                statements=SAFE,
+                label=label,
+                api_source=api_source,
             )
         )
     return cases

@@ -1,0 +1,15 @@
+# Proposed by the pull request; untrusted until a digest-bound APPROVE_BINDING.
+contract_id = "commerce.c3_capture_totals"
+query_sql = """
+SELECT o.order_id, o.currency::text AS currency,
+       COALESCE(SUM(l.amount) FILTER (WHERE l.entry_kind = 'CAPTURE'), 0)::numeric(18, 2)
+         AS capture_total
+FROM orders AS o
+LEFT JOIN ledger_entries AS l ON l.order_id = o.order_id
+GROUP BY o.order_id, o.currency
+"""
+
+[column_mapping]
+order_id = "order_id"
+currency = "currency"
+capture_total = "capture_total"
