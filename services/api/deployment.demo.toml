@@ -1,0 +1,29 @@
+# The local live demo (docs/DEMO.md, "Live setup"). Replace every <placeholder>; the file does not
+# load until you do. Secrets are never put here: they come from the secrets.env that
+# `python -m dataproof_api register-app` writes, and DATAPROOF_DATABASE_URL.
+
+[github]
+app_id = "<app ID from register-app>"
+private_key_file = "<home>/.dataproof/github-app/github-app.pem"
+client_id = "<client ID from register-app>"
+
+[dashboard]
+origin = "http://127.0.0.1:3000"        # loopback only; GitHub sign-in returns here
+
+[previews]
+domain = "previews.localhost"           # browsers resolve *.localhost to the loopback
+scheme = "http"
+port = 8080
+
+[worker]
+data_dir = "<home>/.dataproof/data"     # the trusted source mirror and artifact store
+scope = "demo"
+
+[[repositories]]
+name = "<owner>/<demo repository>"       # the only repository the App is installed on
+installation_id = 0                     # <installation ID shown after installing the App>
+
+[repositories.project]
+# `docker build --quiet --file infra/docker/runtime/Dockerfile .` prints this image ID.
+runtime_image = "<sha256:... runtime image ID>"
+baseline = "commerce-v1"

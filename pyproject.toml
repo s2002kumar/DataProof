@@ -100,6 +100,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 files = [
     "benchmarks/src",
+    "scripts",
     "packages/contracts/src",
     "packages/control/src",
     "packages/investigator/src",
