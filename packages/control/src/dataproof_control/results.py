@@ -17,6 +17,7 @@ from psycopg.types.json import Jsonb
 
 from dataproof_contracts import (
     BindingAnalysis,
+    CandidateBinding,
     CheckResult,
     Environment,
     EvidenceManifest,
@@ -55,6 +56,8 @@ class StepRecord:
 @dataclass(frozen=True)
 class CheckRecord:
     result: CheckResult
+    binding: CandidateBinding | None = None
+    """The single binding the check was evaluated against or is waiting on."""
     binding_analysis: BindingAnalysis | None = None
     binding_problem: str | None = None
 
@@ -145,14 +148,15 @@ def record_step(conn: psycopg.Connection[Any], run_id: UUID, step: StepRecord) -
 def record_check(conn: psycopg.Connection[Any], run_id: UUID, check: CheckRecord) -> None:
     result = check.result
     conn.execute(
-        "INSERT INTO run_checks (run_id, check_id, required, outcome, result, binding_analysis, "
-        "binding_problem) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        "INSERT INTO run_checks (run_id, check_id, required, outcome, result, binding, "
+        "binding_analysis, binding_problem) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
         (
             run_id,
             result.check_id,
             result.required,
             result.outcome.value,
             Jsonb(result.model_dump(mode="json")),
+            Jsonb(check.binding.model_dump(mode="json")) if check.binding else None,
             Jsonb(check.binding_analysis.model_dump(mode="json"))
             if check.binding_analysis
             else None,
@@ -297,13 +301,14 @@ class RunResults:
 
     def checks(self, run_id: UUID) -> list[CheckRecord]:
         rows = self._rows(
-            "SELECT result, binding_analysis, binding_problem FROM run_checks "
+            "SELECT result, binding, binding_analysis, binding_problem FROM run_checks "
             "WHERE run_id = %s ORDER BY check_id",
             run_id,
         )
         return [
             CheckRecord(
                 result=CheckResult.model_validate(row["result"]),
+                binding=CandidateBinding.model_validate(row["binding"]) if row["binding"] else None,
                 binding_analysis=BindingAnalysis.model_validate(row["binding_analysis"])
                 if row["binding_analysis"]
                 else None,

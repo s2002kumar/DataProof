@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import psycopg
 import pytest
@@ -20,19 +20,24 @@ import pytest
 from commerce_scenario import PUBLISHED_DIGEST
 from control_env import FAST_RETRY, create, make_due
 from dataproof_contracts import (
+    ApproverSeparation,
     CheckOutcome,
     DecimalValue,
     Environment,
     ErrorCode,
     GitHubCheckConclusion,
+    HumanDecision,
+    HumanDecisionAction,
     IntegerValue,
     InvestigationStatus,
     NotExecutedReason,
     NotRunReason,
     ReportVerdict,
     ReproductionStatus,
+    ReviewRun,
     RunInputs,
     RunState,
+    RunTrigger,
     ToolCallOutcome,
     canonical_json,
 )
@@ -41,6 +46,8 @@ from dataproof_investigator import Investigator, ScriptedModel, answer, call
 from dataproof_runner import StageContext, StageOutcome, Worker, WorkerSettings
 from dataproof_runner.artifacts import ArtifactIntegrityError, LocalArtifactStore
 from dataproof_runner.baselines import CommerceBaseline
+from dataproof_runner.configured import ConfiguredPipelines
+from dataproof_runner.decisions import NotAwaitingReviewError, awaiting_review, decide_binding
 from dataproof_runner.local_docker import LocalDockerBackend
 from dataproof_runner.pipeline import MIGRATION_CHECK, PREVIEW_CHECK, Pipeline, PipelineSettings
 from dataproof_runner.project import ProjectConfig
@@ -123,6 +130,13 @@ class Harness:
             baseline=CommerceBaseline(),
             settings=PipelineSettings(previews=previews),
             investigator=investigator,
+        )
+
+    def configured(self) -> Worker:
+        """A worker that runs each run under the stored configuration it pins."""
+        pipelines = ConfiguredPipelines(self.store, self.backend, self.pipeline)
+        return Worker(
+            self.store, pipelines.handlers(), pipelines.cleanup, worker_id="w1", settings=SETTINGS
         )
 
     def worker(
@@ -808,3 +822,88 @@ def test_a_correction_is_evaluated_as_a_new_run_and_the_original_stands(harness:
     assert harness.results.report(original) == report_before, "the original report stands"
     assert harness.results.checks(original) == checks_before
     assert harness.store.get_run(original).superseded_by is None
+
+
+def test_an_approval_runs_the_change_again_and_the_original_stays_incomplete(
+    harness: Harness,
+) -> None:
+    head = harness.repo.change(SAFE, {f"{SAMPLE_APP}/README.md": "Awaiting binding review.\n"})
+    project = harness.project(head, approve=False)
+    harness.store.save_config(project.stored())
+    worker = harness.configured()
+    original = harness.submit(project, head)
+    worker.run_once()
+    report_before = harness.results.report(original)
+    assert report_before is not None
+    assert report_before.verdict is ReportVerdict.INCOMPLETE
+
+    awaiting = awaiting_review(harness.results, original)
+    proposed = {c.result.check_id: c.binding for c in harness.results.checks(original)}
+    bindings = [b for c in (C1, C2, C3) if (b := proposed[c]) is not None]
+    assert len(bindings) == 3
+    assert {b.digest() for b in bindings} == set(awaiting), "each check waits on its binding"
+    with pytest.raises(NotAwaitingReviewError):
+        decide_binding(
+            harness.store,
+            harness.results,
+            _decision(harness.store.get_run(original), "0" * 64),
+            run_ttl=timedelta(minutes=30),
+            retry=FAST_RETRY,
+        )
+
+    started = []
+    for digest in sorted(awaiting):
+        outcome = decide_binding(
+            harness.store,
+            harness.results,
+            _decision(harness.store.get_run(original), digest),
+            run_ttl=timedelta(minutes=30),
+            retry=FAST_RETRY,
+        )
+        assert outcome.started is not None
+        started.append(outcome.started.run)
+    # Each approval starts a run; only the last carries all three, so the others are cancelled.
+    for run in started[:-1]:
+        assert harness.store.cancel(run.run_id, actor="user:maintainer")
+    while worker.run_once():
+        pass
+
+    approved = started[-1]
+    assert approved.trigger is RunTrigger.BINDING_APPROVAL
+    assert approved.parent_run_id == original
+    report = harness.results.report(approved.run_id)
+    assert report is not None
+    assert (report.verdict, report.conclusion) == (
+        ReportVerdict.CHECKED,
+        GitHubCheckConclusion.SUCCESS,
+    )
+    assert {harness.outcomes(approved.run_id)[c] for c in (C1, C2, C3)} == {CheckOutcome.PASS}
+    assert harness.results.report(original) == report_before, "the original is never resumed"
+    assert harness.store.get_run(original).superseded_by is None
+    assert [d.binding_digest for d in harness.store.decisions(original)] == sorted(awaiting)
+
+
+def test_a_run_whose_configuration_is_not_stored_is_an_error(harness: Harness) -> None:
+    head = harness.repo.change(SAFE, {f"{SAMPLE_APP}/README.md": "Unknown configuration.\n"})
+    run_id = harness.submit(harness.project(head), head)
+    harness.configured().run_once()
+
+    run = harness.store.get_run(run_id)
+    assert run.state is S.COMPLETE
+    assert run.error_code is ErrorCode.CONFIG_DIGEST_MISMATCH
+    assert S.FETCHING in harness.states(run_id)
+    assert harness.results.sources(run_id) == {}, "nothing ran under another configuration"
+
+
+def _decision(run: ReviewRun, digest: str) -> HumanDecision:
+    return HumanDecision(
+        decision_id=uuid4(),
+        run_id=run.run_id,
+        head_sha=run.inputs.head_sha,
+        action=HumanDecisionAction.APPROVE_BINDING,
+        actor="maintainer",
+        decided_at=datetime.now(UTC),
+        binding_digest=digest,
+        pr_author="developer",
+        approver_separation=ApproverSeparation.ORGANIZATIONAL,
+    )

@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_serializer
 
 from dataproof_contracts import sha256_digest
 from dataproof_contracts._base import RepositoryName, Sha256Hex
+from dataproof_control import StoredConfig
 
 _DIGEST_PINNED = re.compile(r"^(sha256:[0-9a-f]{64}|[^@\s]+@sha256:[0-9a-f]{64})$")
 
@@ -46,6 +47,10 @@ DEPENDENCY_FILE_PATTERNS = (
 _SEGMENT = r"[A-Za-z0-9_][A-Za-z0-9_.-]*"
 RelativeDir = Annotated[str, Field(pattern=rf"^{_SEGMENT}(/{_SEGMENT})*/$")]
 RelativeFile = Annotated[str, Field(pattern=rf"^{_SEGMENT}(/{_SEGMENT})*$")]
+
+
+class ConfigIntegrityError(ValueError):
+    """A stored configuration does not hash to the digest it is stored under."""
 
 
 class ProjectConfig(BaseModel):
@@ -93,6 +98,20 @@ class ProjectConfig(BaseModel):
     def digest(self) -> str:
         """SHA-256 of the canonical configuration; what ``RunInputs.config_digest`` pins."""
         return sha256_digest(self)
+
+    def stored(self) -> StoredConfig:
+        """This configuration as the control database stores it, under its digest."""
+        return StoredConfig(
+            digest=self.digest(), repository=self.repository, config=self.model_dump(mode="json")
+        )
+
+    @classmethod
+    def from_stored(cls, stored: StoredConfig) -> "ProjectConfig":
+        """Load a stored configuration, refusing one that does not hash to its digest."""
+        config = cls.model_validate(stored.config)
+        if config.digest() != stored.digest or config.repository != stored.repository:
+            raise ConfigIntegrityError(f"the configuration stored as {stored.digest} is altered")
+        return config
 
     def policy_violations(self, changed_paths: Iterable[str]) -> list[str]:
         """Changed paths that make a pull request ineligible for execution.

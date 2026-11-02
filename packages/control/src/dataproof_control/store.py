@@ -31,6 +31,8 @@ from psycopg.types.json import Jsonb
 
 from dataproof_contracts import (
     ErrorCode,
+    HumanDecision,
+    HumanDecisionAction,
     NotExecutedReason,
     ReviewRun,
     RunInputs,
@@ -38,6 +40,7 @@ from dataproof_contracts import (
     RunTrigger,
     WorkerLease,
 )
+from dataproof_contracts.enums import BINDING_DECISIONS
 from dataproof_control.lifecycle import (
     CANCELLABLE_STATES,
     INITIAL_STATE,
@@ -70,6 +73,18 @@ class LeaseLostError(RuntimeError):
 
 class RunNotFoundError(LookupError):
     pass
+
+
+class StaleHeadError(RuntimeError):
+    """The pull request has moved to a newer head than the one the decision is bound to."""
+
+
+class DecisionConflictError(RuntimeError):
+    """A different decision on this binding was already recorded at this head; it stands."""
+
+
+class ConfigConflictError(RuntimeError):
+    """A different configuration is already stored under this digest."""
 
 
 @dataclass(frozen=True)
@@ -115,6 +130,34 @@ class CreatedRun:
 
 
 @dataclass(frozen=True)
+class StoredConfig:
+    """A project configuration stored under its digest.
+
+    The control plane does not interpret the configuration. Whoever loads one validates it again
+    and checks that it hashes to its digest before running anything under it.
+    """
+
+    digest: str
+    repository: str
+    config: Mapping[str, Any]
+
+
+#: Builds the configuration for a binding-approval run from the digests approved and rejected so
+#: far at the head decided on (this decision included).
+Configure = Callable[[frozenset[str], frozenset[str]], StoredConfig]
+
+
+@dataclass(frozen=True)
+class RecordedDecision:
+    """A binding decision as recorded. ``recorded`` is False when the same decision already
+    stood, in which case the earlier one, and the run it started, are returned."""
+
+    decision: HumanDecision
+    recorded: bool
+    started: CreatedRun | None
+
+
+@dataclass(frozen=True)
 class Transition:
     seq: int
     from_state: RunState | None
@@ -157,56 +200,81 @@ class RunStore:
         request bound to a different head SHA.
         """
         with self._transaction() as conn:
-            if inputs.pull_request is not None:
-                # Serialize run creation per pull request so that the later head always wins.
-                conn.execute(
-                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-                    (f"{inputs.repository}#{inputs.pull_request}",),
-                )
-            run_id = uuid4()
-            inserted = conn.execute(
-                """
-                INSERT INTO runs (run_id, input_digest, inputs, repository, pull_request,
-                                  head_sha, trigger, parent_run_id, state, deadline_at,
-                                  created_at, updated_at)
-                VALUES (%(run_id)s, %(digest)s, %(inputs)s, %(repository)s, %(pull_request)s,
-                        %(head_sha)s, %(trigger)s, %(parent)s, %(state)s,
-                        statement_timestamp() + %(ttl)s,
-                        statement_timestamp(), statement_timestamp())
-                ON CONFLICT (input_digest) DO NOTHING
-                RETURNING run_id
-                """,
-                {
-                    "run_id": run_id,
-                    "digest": inputs.digest(),
-                    "inputs": Jsonb(inputs.model_dump(mode="json")),
-                    "repository": inputs.repository,
-                    "pull_request": inputs.pull_request,
-                    "head_sha": inputs.head_sha,
-                    "trigger": trigger.value,
-                    "parent": parent_run_id,
-                    "state": INITIAL_STATE.value,
-                    "ttl": run_ttl,
-                },
-            ).fetchone()
-            if inserted is None:
-                existing = _required(
-                    conn.execute(
-                        "SELECT run_id FROM runs WHERE input_digest = %s", (inputs.digest(),)
-                    ).fetchone(),
-                    "a conflicting input digest belongs to an existing run",
-                )
-                return CreatedRun(self._load(conn, existing["run_id"]), created=False)
-            self._log(conn, run_id, None, INITIAL_STATE, actor=actor, token=None, detail={})
-            conn.execute(
-                "INSERT INTO run_jobs (run_id, available_at, max_attempts) "
-                "VALUES (%s, statement_timestamp(), %s)",
-                (run_id, retry.max_attempts),
+            return self._create(
+                conn,
+                inputs,
+                trigger,
+                actor=actor,
+                run_ttl=run_ttl,
+                retry=retry,
+                parent_run_id=parent_run_id,
             )
-            superseded: tuple[UUID, ...] = ()
-            if inputs.pull_request is not None and trigger in _SUPERSEDING_TRIGGERS:
-                superseded = self._supersede(conn, run_id, inputs, actor=actor)
-            return CreatedRun(self._load(conn, run_id), created=True, superseded=superseded)
+
+    def _lock_pull_request(self, conn: Connection, inputs: RunInputs) -> None:
+        """Serialize run creation and decisions per pull request (released at commit)."""
+        if inputs.pull_request is not None:
+            conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f"{inputs.repository}#{inputs.pull_request}",),
+            )
+
+    def _create(
+        self,
+        conn: Connection,
+        inputs: RunInputs,
+        trigger: RunTrigger,
+        *,
+        actor: str,
+        run_ttl: timedelta,
+        retry: RetryPolicy,
+        parent_run_id: UUID | None,
+    ) -> CreatedRun:
+        # Serialized per pull request so that the later head always wins.
+        self._lock_pull_request(conn, inputs)
+        run_id = uuid4()
+        inserted = conn.execute(
+            """
+            INSERT INTO runs (run_id, input_digest, inputs, repository, pull_request,
+                              head_sha, trigger, parent_run_id, state, deadline_at,
+                              created_at, updated_at)
+            VALUES (%(run_id)s, %(digest)s, %(inputs)s, %(repository)s, %(pull_request)s,
+                    %(head_sha)s, %(trigger)s, %(parent)s, %(state)s,
+                    statement_timestamp() + %(ttl)s,
+                    statement_timestamp(), statement_timestamp())
+            ON CONFLICT (input_digest) DO NOTHING
+            RETURNING run_id
+            """,
+            {
+                "run_id": run_id,
+                "digest": inputs.digest(),
+                "inputs": Jsonb(inputs.model_dump(mode="json")),
+                "repository": inputs.repository,
+                "pull_request": inputs.pull_request,
+                "head_sha": inputs.head_sha,
+                "trigger": trigger.value,
+                "parent": parent_run_id,
+                "state": INITIAL_STATE.value,
+                "ttl": run_ttl,
+            },
+        ).fetchone()
+        if inserted is None:
+            existing = _required(
+                conn.execute(
+                    "SELECT run_id FROM runs WHERE input_digest = %s", (inputs.digest(),)
+                ).fetchone(),
+                "a conflicting input digest belongs to an existing run",
+            )
+            return CreatedRun(self._load(conn, existing["run_id"]), created=False)
+        self._log(conn, run_id, None, INITIAL_STATE, actor=actor, token=None, detail={})
+        conn.execute(
+            "INSERT INTO run_jobs (run_id, available_at, max_attempts) "
+            "VALUES (%s, statement_timestamp(), %s)",
+            (run_id, retry.max_attempts),
+        )
+        superseded: tuple[UUID, ...] = ()
+        if inputs.pull_request is not None and trigger in _SUPERSEDING_TRIGGERS:
+            superseded = self._supersede(conn, run_id, inputs, actor=actor)
+        return CreatedRun(self._load(conn, run_id), created=True, superseded=superseded)
 
     def start_correction_replay(
         self,
@@ -241,6 +309,176 @@ class RunStore:
             retry=retry,
             parent_run_id=original_run_id,
         )
+
+    # Configurations and decisions ------------------------------------------------------------
+
+    def save_config(self, config: StoredConfig) -> None:
+        """Store a configuration under its digest (idempotent; a stored one never changes)."""
+        with self._transaction() as conn:
+            self._save_config(conn, config)
+
+    def _save_config(self, conn: Connection, config: StoredConfig) -> None:
+        conn.execute(
+            "INSERT INTO project_configs (config_digest, repository, config) VALUES (%s, %s, %s) "
+            "ON CONFLICT (config_digest) DO NOTHING",
+            (config.digest, config.repository, Jsonb(dict(config.config))),
+        )
+        stored = _required(
+            conn.execute(
+                "SELECT repository, config FROM project_configs WHERE config_digest = %s",
+                (config.digest,),
+            ).fetchone(),
+            "a stored configuration is missing",
+        )
+        if (stored["repository"], stored["config"]) != (config.repository, dict(config.config)):
+            raise ConfigConflictError(f"another configuration has digest {config.digest}")
+
+    def config(self, digest: str) -> StoredConfig | None:
+        with self._transaction() as conn:
+            row = conn.execute(
+                "SELECT repository, config FROM project_configs WHERE config_digest = %s",
+                (digest,),
+            ).fetchone()
+        if row is None:
+            return None
+        return StoredConfig(digest=digest, repository=row["repository"], config=row["config"])
+
+    def decide_binding(
+        self,
+        decision: HumanDecision,
+        *,
+        configure: Configure,
+        run_ttl: timedelta,
+        retry: RetryPolicy,
+    ) -> RecordedDecision:
+        """Record ``APPROVE_BINDING`` or ``REJECT_BINDING`` on a run (ADR-0005).
+
+        The decision is bound to the head of the run decided on and to the binding's digest, and
+        that head must still be current for the pull request. The first decision on a binding at
+        a head stands: repeating it returns it, contradicting it is refused. An approval starts a
+        new run (``binding_approval``, parent = the run decided on) under the configuration that
+        ``configure`` builds from every approval and rejection at that head. The run decided on
+        is never resumed or changed, and the new run supersedes nothing. Authorization and the
+        approver rule are the caller's: this records what an authorized reviewer decided.
+        """
+        if decision.action not in BINDING_DECISIONS:
+            raise ValueError(f"{decision.action} is not a binding decision")
+        with self._transaction() as conn:
+            run = self._load(conn, decision.run_id)
+            inputs = run.inputs
+            self._lock_pull_request(conn, inputs)
+            if decision.head_sha != inputs.head_sha:
+                raise ValueError("a binding decision is bound to the head of the run it decides on")
+            self._ensure_current_head(conn, inputs)
+            at_head = conn.execute(
+                "SELECT action, binding_digest, decision, started_run_id FROM human_decisions "
+                "WHERE repository = %s AND head_sha = %s AND binding_digest IS NOT NULL",
+                (inputs.repository, inputs.head_sha),
+            ).fetchall()
+            for row in at_head:
+                if row["binding_digest"] != decision.binding_digest:
+                    continue
+                earlier = HumanDecision.model_validate(row["decision"])
+                if earlier.action is not decision.action:
+                    raise DecisionConflictError(
+                        f"{earlier.action} by {earlier.actor} already stands for this binding"
+                    )
+                started = None
+                if row["started_run_id"] is not None:
+                    started = CreatedRun(self._load(conn, row["started_run_id"]), created=False)
+                return RecordedDecision(earlier, recorded=False, started=started)
+
+            created = None
+            if decision.action is HumanDecisionAction.APPROVE_BINDING:
+                approved = {
+                    r["binding_digest"] for r in at_head if r["action"] == "APPROVE_BINDING"
+                }
+                rejected = {r["binding_digest"] for r in at_head if r["action"] == "REJECT_BINDING"}
+                approved.add(decision.binding_digest)
+                config = configure(frozenset(approved), frozenset(rejected))
+                if config.repository != inputs.repository:
+                    raise ValueError("the configuration belongs to another repository")
+                self._save_config(conn, config)
+                created = self._create(
+                    conn,
+                    inputs.model_copy(update={"config_digest": config.digest}),
+                    RunTrigger.BINDING_APPROVAL,
+                    actor=f"user:{decision.actor}",
+                    run_ttl=run_ttl,
+                    retry=retry,
+                    parent_run_id=run.run_id,
+                )
+            conn.execute(
+                """
+                INSERT INTO human_decisions (decision_id, run_id, repository, head_sha, action,
+                                             actor, binding_digest, started_run_id, decision)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    decision.decision_id,
+                    decision.run_id,
+                    inputs.repository,
+                    decision.head_sha,
+                    decision.action.value,
+                    decision.actor,
+                    decision.binding_digest,
+                    created.run.run_id if created else None,
+                    Jsonb(decision.model_dump(mode="json")),
+                ),
+            )
+            return RecordedDecision(decision, recorded=True, started=created)
+
+    def decisions(self, run_id: UUID) -> list[HumanDecision]:
+        """The decisions recorded on a run, oldest first."""
+        with self._transaction() as conn:
+            rows = conn.execute(
+                "SELECT decision FROM human_decisions WHERE run_id = %s "
+                "ORDER BY recorded_at, decision_id",
+                (run_id,),
+            ).fetchall()
+        return [HumanDecision.model_validate(row["decision"]) for row in rows]
+
+    def _ensure_current_head(self, conn: Connection, inputs: RunInputs) -> None:
+        """Refuse a decision on a head that the pull request has moved past.
+
+        The current head is the one of the pull request's latest webhook or manual run, or of a
+        correction replay requested after it.
+        """
+        if inputs.pull_request is None:
+            return
+        latest = conn.execute(
+            """
+            SELECT head_sha, created_at FROM runs
+            WHERE repository = %s AND pull_request = %s AND trigger = ANY(%s)
+            ORDER BY created_at DESC, run_id DESC LIMIT 1
+            """,
+            (
+                inputs.repository,
+                inputs.pull_request,
+                [trigger.value for trigger in _SUPERSEDING_TRIGGERS],
+            ),
+        ).fetchone()
+        if latest is None or latest["head_sha"] == inputs.head_sha:
+            return
+        correction = conn.execute(
+            """
+            SELECT 1 FROM runs
+            WHERE repository = %s AND pull_request = %s AND head_sha = %s
+              AND trigger = %s AND created_at > %s
+            LIMIT 1
+            """,
+            (
+                inputs.repository,
+                inputs.pull_request,
+                inputs.head_sha,
+                RunTrigger.CORRECTION_REPLAY.value,
+                latest["created_at"],
+            ),
+        ).fetchone()
+        if correction is None:
+            raise StaleHeadError(
+                f"pull request #{inputs.pull_request} has moved to {latest['head_sha']}"
+            )
 
     def _supersede(
         self, conn: Connection, new_run: UUID, inputs: RunInputs, *, actor: str
