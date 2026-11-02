@@ -51,6 +51,8 @@ Keep the distinction: AI is evaluated for diagnosis and useful test suggestions,
 
 Declare dataset/version, fault seed, input SHA, oracle + binding digests, image versions, configured B1 aggregate fields, baseline applicability and model/config **before** evaluation. Use matched evidence budgets for rule-only vs AI diagnosis; evaluate the change-analyst role separately because its benefit is unproven. Freeze a holdout subset before tuning. Include negative examples where DataProof fails or flags false alarms. Require a single machine-readable `benchmark-results.json` + report generator and a one-command rerun in a fresh environment once code exists.
 
+*Implementation note (work package 10, #58):* the database tier is implemented in [`benchmarks/`](../benchmarks/README.md). The corpus has 20 seeded faults across ten families and 11 clean controls, with neutral names, labels only in an evaluator manifest, and a frozen holdout. The baselines are B0, B1 (configured as above) and B2. B3 waits for an approved model budget. A rerun must reproduce the committed results exactly. The pipeline tier, reproduction rates (#8) and the AI ablation (#7) are not built yet.
+
 ## Benchmark acceptance
 
 The final README may publish measured results only after reproducible full runs. No minimum "beat baseline by X%" is assumed; if AI is not useful in some categories, say so and keep it advisory. Honest negative results are preferable to invented accuracy.
