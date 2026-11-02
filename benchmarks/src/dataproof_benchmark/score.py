@@ -303,7 +303,7 @@ def pipeline_report(results: Mapping[str, Any]) -> str:
         scope = case["labelled_contracts"]
         failing = sorted(k for k in scope if case["outcomes"].get(k) in FAILED)
         named = ", ".join(f"`{name.removeprefix('commerce.')}`" for name in failing) or "none"
-        also = ", ".join(f"`{n.removeprefix('commerce.')}`" for n in case["also_failed"]) or ""
+        also = ", ".join(f"`{n.removeprefix('commerce.')}`" for n in case["also_failed"]) or "none"
         labelled = "yes" if case["agrees"] else "**no**"
         lines.append(
             f"| `{case['case_id']}` | {case['family']} | {case['variant']} | "
