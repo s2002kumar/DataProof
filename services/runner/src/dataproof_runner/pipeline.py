@@ -89,6 +89,7 @@ from dataproof_runner.backend import (
     StepResult,
 )
 from dataproof_runner.baselines import Baseline, database_digest, user_tables
+from dataproof_runner.broker import SourceFetcher
 from dataproof_runner.preview_client import PreviewApi
 from dataproof_runner.project import ProjectConfig
 from dataproof_runner.source import archive_commit, changed_paths
@@ -326,6 +327,7 @@ class Pipeline:
         baseline: Baseline,
         settings: PipelineSettings | None = None,
         investigator: Investigator | None = None,
+        fetcher: SourceFetcher | None = None,
     ) -> None:
         if baseline.name != project.baseline:
             raise ValueError(f"project expects baseline {project.baseline}, got {baseline.name}")
@@ -338,6 +340,8 @@ class Pipeline:
         self.settings = settings or PipelineSettings()
         self.investigator = investigator
         """Optional: without a model, failures are explained by the model-off diagnosis only."""
+        self.fetcher = fetcher
+        """Optional: fetches the pinned commits into ``clone`` first (the source broker)."""
 
     def handlers(self) -> dict[RunState, StageHandler]:
         return {
@@ -369,6 +373,8 @@ class Pipeline:
                 error_code=ErrorCode.CONFIG_DIGEST_MISMATCH,
                 detail={"pinned": run.inputs.config_digest, "configured": actual},
             )
+        if self.fetcher is not None:
+            self.fetcher.ensure(run.inputs.repository, [run.inputs.base_sha, run.inputs.head_sha])
         records = []
         for role, sha in (
             (Environment.REFERENCE, run.inputs.base_sha),

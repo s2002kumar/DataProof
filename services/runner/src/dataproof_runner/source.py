@@ -1,8 +1,8 @@
 """Source staging by the trusted broker: exact-commit archives of a configured repository.
 
-Locally the repository is a trusted clone on disk; the GitHub tarball endpoint replaces it when
-the GitHub App arrives. Either way, steps receive only the archive and its digest, never the
-repository or any credential.
+The repository is a trusted mirror on disk, which the source broker (``broker``) fills with the
+exact commits a run pins before ``FETCHING`` archives them. Steps receive only the archive and
+its digest, never the repository or any credential.
 """
 
 import re

@@ -6,6 +6,7 @@ and candidate environments, then cleaned up. The tests assert the recorded resul
 
 import hashlib
 import json
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -49,11 +50,13 @@ from dataproof_investigator import Investigator, ScriptedModel, answer, call
 from dataproof_runner import StageContext, StageOutcome, Worker, WorkerSettings
 from dataproof_runner.artifacts import ArtifactIntegrityError, LocalArtifactStore
 from dataproof_runner.baselines import CommerceBaseline
+from dataproof_runner.broker import GitFetcher, GitRemote, SourceFetcher
 from dataproof_runner.configured import ConfiguredPipelines
 from dataproof_runner.decisions import NotAwaitingReviewError, awaiting_review, decide_binding
 from dataproof_runner.local_docker import LocalDockerBackend
 from dataproof_runner.pipeline import MIGRATION_CHECK, PREVIEW_CHECK, Pipeline, PipelineSettings
 from dataproof_runner.project import ProjectConfig
+from dataproof_runner.source import archive_commit
 from dataproof_verifier import parse_binding
 from docker_env import BINDING_DIR, CHANGES, SAMPLE_APP, CommerceRepo, http_get, revision
 from github_env import APP_ID, INSTALLATION, PRIVATE_KEY_PEM, FakeGitHub, pull_request_event
@@ -123,11 +126,14 @@ class Harness:
         *,
         previews: bool = False,
         investigator: Investigator | None = None,
+        clone: Path | None = None,
+        fetcher: SourceFetcher | None = None,
     ) -> Pipeline:
         """Previews are off unless a test is about them: each one builds a frontend."""
         return Pipeline(
             project=project,
-            clone=self.repo.path,
+            clone=clone or self.repo.path,
+            fetcher=fetcher,
             backend=self.backend,
             artifacts=self.artifacts,
             results=self.results,
@@ -982,3 +988,31 @@ def test_a_signed_pull_request_event_ends_as_a_failing_check_on_its_head_commit(
     assert check.output["title"].startswith("BLOCKED")
     assert f"| `{C1}` | yes | FAIL |" in check.output["summary"]
     assert github.runs_on(harness.repo.base) == [], "only the head commit is reported on"
+
+
+def test_the_broker_fetches_the_pinned_commits_into_an_empty_mirror(
+    harness: Harness, tmp_path: Path
+) -> None:
+    lock = (harness.repo.path / SAMPLE_APP / "uv.lock").read_text("utf-8")
+    head = harness.repo.change(SAFE, {f"{SAMPLE_APP}/uv.lock": lock + "\n# fetched\n"})
+    remote = harness.repo.path
+    subprocess.run(
+        ["git", "-C", str(remote), "config", "uploadpack.allowAnySHA1InWant", "true"],
+        check=True,
+    )
+    mirror = tmp_path / "mirror.git"
+    subprocess.run(["git", "init", "--quiet", "--bare", str(mirror)], check=True)
+    broker = GitFetcher(mirror, lambda _: GitRemote(remote.as_uri()))
+    project = harness.project(head)
+    run_id = harness.submit(project, head)
+    harness.worker(harness.pipeline(project, clone=mirror, fetcher=broker)).run_once()
+
+    assert broker.has(harness.repo.base)
+    assert broker.has(head)
+    sources = harness.results.sources(run_id)
+    assert sources[Environment.REFERENCE].sha256 == archive_commit(remote, harness.repo.base).sha256
+    assert sources[Environment.CANDIDATE].sha256 == archive_commit(remote, head).sha256
+    run = harness.store.get_run(run_id)
+    assert run.not_executed_reason is NotExecutedReason.DEPENDENCY_CHANGE_REQUIRES_IMAGE_APPROVAL, (
+        "ANALYZING read the changed paths from the mirror"
+    )
