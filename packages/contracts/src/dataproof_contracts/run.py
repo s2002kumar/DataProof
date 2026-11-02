@@ -33,6 +33,9 @@ class RunInputs(Contract):
     pull_request: PositiveInt | None
     base_sha: GitSha
     head_sha: GitSha
+    head_repository: RepositoryName | None = None
+    """Where the head commit was pushed, when that is not ``repository``: a fork's pull
+    request. Such a run is ``NOT_EXECUTED: FORK_PULL_REQUEST``."""
     config_digest: Sha256Hex
     dataset_digest: Sha256Hex
     engine_version: NonEmptyText

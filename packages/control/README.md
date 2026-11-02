@@ -78,6 +78,15 @@ Migration 0007 adds two write-once tables:
 
 Authorization and the approver rule belong to the caller, the reviewer API (work package 9). The store records what an authorized reviewer decided.
 
+## GitHub intake records
+
+Migration 0008 adds two write-once tables for [webhook intake](../../services/api/README.md), read and written through `GitHubRecords`:
+
+- `github_deliveries`: every delivery whose signature verified, and what intake did with it.
+- `github_pull_request_heads`: each head's author, head repository and installation, as GitHub reported them.
+
+`RunStore.close_pull_request` cancels every working or reviewable run of a closed pull request, under the pull request's lock.
+
 ## Run results
 
 Migration 0002 adds write-once tables for a run's results: `run_sources` (staged archives and their digests), `run_steps` (each step's exit code, timeout, duration and redacted output), `run_checks` (`CheckResult` documents with any binding analysis), `run_evidence` (query and step evidence) and `run_reports` (verdict, GitHub conclusion and coverage). Workers write them with the `record_*` functions in `results.py` inside a transition's `effects`; `RunResults` reads them. Migration 0003 adds `run_snapshots` (each sealed `pg_dump`, the digests of the live and the restored database, and whether they match) and `run_manifests` (the run's `EvidenceManifest`). Migration 0006 adds `run_reproductions`, each a `Reproduction` document. Migration 0005 adds `run_investigations`: each advisory investigation, rule-based or by a model, as an `Investigation` document. Migration 0004 adds `run_previews`: each preview's commit, URL, readiness or failure and measured cost, with the SHA-256 of its token, never the token. Migration 0007 adds `run_checks.binding`, the candidate binding a check was evaluated against or is waiting on. `UPDATE` and `DELETE` are refused on all of them: a correction or a new decision is a new run.

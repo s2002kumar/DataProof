@@ -6,7 +6,7 @@ Typed result contracts shared by DataProof services. They are Pydantic v2 models
 
 | Model | Purpose | Enforced at validation time |
 | --- | --- | --- |
-| `ReviewRun` | One review run and its lifecycle state | `input_digest` is the canonical SHA-256 of `inputs` (the idempotency key); `binding_approval` and `correction_replay` runs carry `parent_run_id`, other runs do not; `NOT_EXECUTED` exactly when a policy reason is given. There is no binding-review run state. |
+| `ReviewRun` | One review run and its lifecycle state | `input_digest` is the canonical SHA-256 of `inputs` (the idempotency key); `binding_approval` and `correction_replay` runs carry `parent_run_id`, other runs do not; `NOT_EXECUTED` exactly when a policy reason is given. `inputs.head_repository` is set only for a fork's pull request, whose run is `NOT_EXECUTED: FORK_PULL_REQUEST`. There is no binding-review run state. |
 | `DataContract` | Protected `oracle` plus untrusted `candidate_binding` (ADR-0005) | The binding has no fields for comparators, tolerances, requiredness or key filters; `APPROVED` only with the digest of the current binding, so any binding edit needs new review; `binding_coverage_gaps()` reports unmapped oracle columns instead of dropping them |
 | `CheckResult` | Outcome of one deterministic check | `NOT_RUN` exactly when a reason is given; `ERROR` exactly when an error code is given; `PASS` has no mismatches; `FAIL` cites evidence; a check that did not run reports nothing |
 | `Finding` | A reviewer-facing finding | Every finding cites evidence; non-static findings reference their deterministic check; without a source location, localization is `UNKNOWN` |

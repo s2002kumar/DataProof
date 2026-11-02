@@ -8,6 +8,7 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "dataproof-api",
     "dataproof-contracts",
     "dataproof-control",
     "dataproof-investigator",
@@ -313,6 +314,27 @@ wheels = [
 ]
 
 [[package]]
+name = "dataproof-api"
+version = "0.1.0"
+source = { editable = "services/api" }
+dependencies = [
+    { name = "dataproof-contracts" },
+    { name = "dataproof-control" },
+    { name = "dataproof-runner" },
+    { name = "fastapi" },
+    { name = "psycopg" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dataproof-contracts", editable = "packages/contracts" },
+    { name = "dataproof-control", editable = "packages/control" },
+    { name = "dataproof-runner", editable = "services/runner" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "psycopg", specifier = ">=3.2" },
+]
+
+[[package]]
 name = "dataproof-contracts"
 version = "0.1.0"
 source = { editable = "packages/contracts" }
@@ -422,6 +444,7 @@ source = { virtual = "." }
 dev = [
     { name = "alembic" },
     { name = "anthropic" },
+    { name = "dataproof-api" },
     { name = "dataproof-contracts" },
     { name = "dataproof-control" },
     { name = "dataproof-investigator" },
@@ -449,6 +472,7 @@ dev = [
 dev = [
     { name = "alembic", specifier = ">=1.16" },
     { name = "anthropic", specifier = ">=2.3,<3" },
+    { name = "dataproof-api", editable = "services/api" },
     { name = "dataproof-contracts", editable = "packages/contracts" },
     { name = "dataproof-control", editable = "packages/control" },
     { name = "dataproof-investigator", editable = "packages/investigator" },

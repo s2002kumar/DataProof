@@ -409,6 +409,8 @@ def test_concurrent_heads_on_one_pull_request_leave_exactly_one_open_run(
         "run_reproductions",
         "project_configs",
         "human_decisions",
+        "github_deliveries",
+        "github_pull_request_heads",
     ],
 )
 def test_run_results_are_write_once(control_dsn: str, table: str) -> None:

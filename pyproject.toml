@@ -8,6 +8,7 @@ dependencies = []
 [dependency-groups]
 dev = [
     "alembic>=1.16",
+    "dataproof-api",
     "dataproof-contracts",
     "dataproof-control",
     "dataproof-investigator",
@@ -40,6 +41,7 @@ members = ["packages/*", "scenarios/*", "services/*"]
 exclude = ["sample-app"]
 
 [tool.uv.sources]
+dataproof-api = { workspace = true }
 dataproof-contracts = { workspace = true }
 dataproof-control = { workspace = true }
 dataproof-investigator = { workspace = true }
@@ -66,6 +68,7 @@ known-first-party = [
     "control_env",
     "docker_env",
     "sample_app_env",
+    "dataproof_api",
     "dataproof_contracts",
     "dataproof_control",
     "dataproof_investigator",
@@ -89,6 +92,7 @@ files = [
     "packages/control/src",
     "packages/investigator/src",
     "packages/verifier/src",
+    "services/api/src",
     "services/runner/src",
     "scenarios/commerce/src",
     "scenarios/commerce/changes",

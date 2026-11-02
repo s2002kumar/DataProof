@@ -400,6 +400,13 @@ class Pipeline:
                 NotExecutedReason.REPOSITORY_NOT_ALLOWLISTED,
                 {"repository": run.inputs.repository},
             )
+        if run.inputs.head_repository not in (None, run.inputs.repository):
+            # Code from a fork is never executed, however harmless its changes look.
+            return self._not_executed(
+                run,
+                NotExecutedReason.FORK_PULL_REQUEST,
+                {"head_repository": run.inputs.head_repository},
+            )
         paths = changed_paths(self.clone, run.inputs.base_sha, run.inputs.head_sha)
         violations = self.project.policy_violations(paths)
         if violations:
