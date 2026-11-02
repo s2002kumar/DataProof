@@ -51,7 +51,7 @@ flowchart LR
 | --- | --- | --- |
 | `BLOCKED` | A required check failed or errored | `failure` |
 | `INCOMPLETE` | A required check did not run, including checks awaiting binding review | `action_required` |
-| `NOT_EXECUTED` | Policy, path or dependency rules prevented execution | `neutral` |
+| `NOT_EXECUTED` | Policy, path or dependency rules prevented execution | `action_required` |
 | `CHECKED` | Every required check passed, with no warnings | `success`, with a coverage table |
 | `CHECKED_WITH_WARNINGS` | Every required check passed; optional or advisory checks warned | `success`, with a coverage table |
 
