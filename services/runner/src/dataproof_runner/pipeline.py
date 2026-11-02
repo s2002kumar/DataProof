@@ -25,12 +25,12 @@ import hashlib
 import io
 import json
 import tarfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import psycopg
 from pydantic import ValidationError
@@ -42,15 +42,19 @@ from dataproof_contracts import (
     ErrorCode,
     EvidenceManifest,
     EvidenceRecord,
+    FailureKey,
     NotExecutedReason,
     NotRunReason,
     Oracle,
     ReportVerdict,
+    Reproduction,
+    ReproductionStatus,
     RestoreVerification,
     ReviewRun,
     RunState,
     SnapshotArtifact,
     SourceArtifact,
+    SubsetTable,
     canonical_json,
     github_check_conclusion,
 )
@@ -75,7 +79,7 @@ from dataproof_control.results import (
     record_step,
 )
 from dataproof_investigator import Investigator, ToolContext, diagnose
-from dataproof_runner.artifacts import ArtifactIntegrityError, LocalArtifactStore
+from dataproof_runner.artifacts import ArtifactIntegrityError, ArtifactRef, LocalArtifactStore
 from dataproof_runner.backend import (
     FRONTEND_BUILD_LIMITS,
     EnvironmentHandle,
@@ -88,6 +92,7 @@ from dataproof_runner.baselines import Baseline, database_digest, user_tables
 from dataproof_runner.preview_client import PreviewApi
 from dataproof_runner.project import ProjectConfig
 from dataproof_runner.source import archive_commit, changed_paths
+from dataproof_runner.subset import Catalog, closure, export, load
 from dataproof_runner.worker import StageContext, StageHandler, StageOutcome
 from dataproof_verifier import (
     OracleFile,
@@ -107,6 +112,10 @@ PREVIEW_CHECK = "preview.candidate"
 PREVIEW_CONTRACT = "dataproof.preview_serves"
 RESTORE_VARIANT = "restore"
 REPLAY_VARIANT = "replay"
+REPRODUCTION_VARIANT = "repro"
+SUBSET_SOURCE_VARIANT = "reprosrc"
+SEED_KEYS = 3
+"""How many failing keys a reproduction starts from: the first ones, in a fixed order."""
 
 
 @dataclass(frozen=True)
@@ -124,6 +133,46 @@ class ReplayReport:
     @property
     def matches(self) -> bool:
         return not self.differences
+
+
+def _signature(result: CheckResult) -> list[FailureKey]:
+    """The first ``SEED_KEYS`` failing keys, in a fixed order, with their differing columns."""
+    columns: dict[str, set[str]] = {}
+    keys: dict[str, Any] = {}
+    for mismatch in result.mismatch_examples:
+        encoded = json.dumps([k.model_dump(mode="json") for k in mismatch.key], sort_keys=True)
+        keys[encoded] = mismatch.key
+        columns.setdefault(encoded, set())
+        if (
+            mismatch.column is not None
+            and mismatch.expected is not None
+            and mismatch.observed is not None
+        ):
+            columns[encoded].add(mismatch.column)
+    return [
+        FailureKey(key=keys[encoded], columns=tuple(sorted(columns[encoded])))
+        for encoded in sorted(keys)[:SEED_KEYS]
+    ]
+
+
+def _unconfirmed(signature: Sequence[FailureKey], result: CheckResult) -> list[FailureKey]:
+    """Seed keys the result does not show failing on the same columns."""
+    seen: dict[str, set[str]] = {}
+    for mismatch in result.mismatch_examples:
+        encoded = json.dumps([k.model_dump(mode="json") for k in mismatch.key], sort_keys=True)
+        seen.setdefault(encoded, set())
+        if (
+            mismatch.column is not None
+            and mismatch.expected is not None
+            and mismatch.observed is not None
+        ):
+            seen[encoded].add(mismatch.column)
+    return [
+        key
+        for key in signature
+        if seen.get(json.dumps([k.model_dump(mode="json") for k in key.key], sort_keys=True))
+        != set(key.columns)
+    ]
 
 
 def _fingerprint(result: CheckResult) -> tuple[object, ...]:
@@ -840,6 +889,158 @@ class Pipeline:
             for role in (Environment.REFERENCE, Environment.CANDIDATE):
                 self.backend.destroy(run.run_id, role=role, variant=REPLAY_VARIANT)
         return _compare_replay(run.run_id, self.results, replayed, evidence)
+
+    # Reproduction ------------------------------------------------------------------------------
+
+    def reproduce(self, run: ReviewRun, check_id: str) -> Reproduction:
+        """Replay one failed check on an FK-closure subset of the sealed baseline.
+
+        The subset follows a fixed rule (``subset``), starting from the check's first
+        ``SEED_KEYS`` failing keys. It is loaded into fresh reference and candidate
+        environments; the candidate runs the head migration from the head source; the contract
+        is evaluated again. ``REPRODUCED`` needs every seed key to fail again on the same
+        columns. Anything else is ``NOT_REPRODUCED`` with the reason; the subset is never
+        widened to force a result. Every environment used is destroyed again, and the run
+        itself is never changed.
+        """
+        recorded = {c.result.check_id: c.result for c in self.results.checks(run.run_id)}
+        original = recorded.get(check_id)
+        if original is None or original.outcome is not CheckOutcome.FAIL:
+            raise ValueError(f"{check_id} did not fail in run {run.run_id}")
+        if self.project.digest() != run.inputs.config_digest:
+            raise ValueError("this run was pinned to another configuration")
+        sealed = self.results.manifest(run.run_id)
+        if sealed is None:
+            raise ValueError(f"run {run.run_id} has no sealed evidence")
+        oracle = next((o for o in self._oracle_specs(run) if o[0].contract_id == check_id), None)
+        if oracle is None or oracle[1].api_route is not None:
+            raise ValueError(f"{check_id} is not a data contract of this run")
+        key_columns = oracle[1].key_columns
+        signature = _signature(original)
+        seeds = [tuple(getattr(k, "value", None) for k in fk.key) for fk in signature]
+
+        def outcome(
+            status: ReproductionStatus,
+            *,
+            reason: str | None = None,
+            table: str | None = None,
+            data: Mapping[str, str] | None = None,
+            stored: ArtifactRef | None = None,
+            result: CheckResult | None = None,
+        ) -> Reproduction:
+            reproduction = Reproduction(
+                reproduction_id=uuid4(),
+                run_id=run.run_id,
+                check_id=check_id,
+                status=status,
+                signature=tuple(signature),
+                seed_table=table,
+                subset=tuple(
+                    SubsetTable(table=t, rows=text.count("\n"))
+                    for t, text in sorted((data or {}).items())
+                ),
+                subset_sha256=stored.sha256 if stored else None,
+                object_key=stored.object_key if stored else None,
+                result=result,
+                reason=reason,
+                created_at=datetime.now(UTC),
+            )
+            self.results.save_reproduction(reproduction)
+            return reproduction
+
+        snapshot = next(
+            s for s in sealed.manifest.snapshots if s.environment is Environment.REFERENCE
+        )
+        dump = self.artifacts.get(snapshot.object_key, snapshot.sha256)
+        try:
+            source = self._fresh(run.run_id, Environment.REFERENCE, SUBSET_SOURCE_VARIANT)
+            self.backend.restore_database(source, dump)
+            with psycopg.connect(source.database.conninfo(source.database.owner)) as conn:
+                catalog = Catalog.read(conn)
+                table = catalog.seed_table(key_columns)
+                if table is None:
+                    return outcome(
+                        ReproductionStatus.NOT_REPRODUCED,
+                        reason=f"no baseline table holds the keys {list(key_columns)}",
+                    )
+                data = export(conn, catalog, closure(conn, catalog, table, key_columns, seeds))
+        finally:
+            self.backend.destroy(run.run_id, variant=SUBSET_SOURCE_VARIANT)
+        stored = self.artifacts.put(
+            run.run_id, f"reproduction-{check_id}.json", _json({"tables": dict(data)})
+        )
+
+        try:
+            environments: list[EnvironmentHandle] = []
+            for role in (Environment.REFERENCE, Environment.CANDIDATE):
+                handle = self._fresh(run.run_id, role, REPRODUCTION_VARIANT)
+                base = self.backend.run_step(
+                    handle,
+                    image=self.project.runtime_image,
+                    source=self._source(run.run_id, Environment.REFERENCE),
+                    arguments=self._migrate_arguments,
+                    timeout=self._step_timeout,
+                )
+                if not base.succeeded:
+                    raise RuntimeError("the base migration failed while preparing a reproduction")
+                with psycopg.connect(handle.database.conninfo(handle.database.owner)) as conn:
+                    load(conn, data)
+                environments.append(handle)
+            migrated = self.backend.run_step(
+                environments[1],
+                image=self.project.runtime_image,
+                source=self._source(run.run_id, Environment.CANDIDATE),
+                arguments=self._migrate_arguments,
+                timeout=self._step_timeout,
+            )
+            if not migrated.succeeded:
+                return outcome(
+                    ReproductionStatus.NOT_REPRODUCED,
+                    reason="the candidate migration did not run on the subset",
+                    table=table,
+                    data=data,
+                    stored=stored,
+                )
+            evidence: dict[str, Mapping[str, Any]] = {}
+            checks = self._contract_checks(
+                run, evidence, (environments[0], environments[1]), live=False
+            )
+            (result,) = [c.result for c in checks if c.result.check_id == check_id]
+        finally:
+            for role in (Environment.REFERENCE, Environment.CANDIDATE):
+                self.backend.destroy(run.run_id, role=role, variant=REPRODUCTION_VARIANT)
+
+        missing = _unconfirmed(signature, result)
+        if result.outcome is CheckOutcome.FAIL and not missing:
+            return outcome(
+                ReproductionStatus.REPRODUCED,
+                table=table,
+                data=data,
+                stored=stored,
+                result=result,
+            )
+        reason = (
+            f"the check is {result.outcome.value} on the subset"
+            if result.outcome is not CheckOutcome.FAIL
+            else f"{len(missing)} seed key(s) did not fail the same way on the subset"
+        )
+        return outcome(
+            ReproductionStatus.NOT_REPRODUCED,
+            reason=reason,
+            table=table,
+            data=data,
+            stored=stored,
+            result=result,
+        )
+
+    def _fresh(self, run_id: UUID, role: Environment, variant: str) -> EnvironmentHandle:
+        self.backend.destroy(run_id, role=role, variant=variant)
+        return self.backend.provision(
+            run_id,
+            role,
+            expires_at=datetime.now(UTC) + self.settings.environment_ttl,
+            variant=variant,
+        )
 
     # REPORTING ---------------------------------------------------------------------------------
 

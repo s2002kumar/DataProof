@@ -103,6 +103,20 @@ Snapshots and the manifest are recorded in the control database's write-once tab
 
 API behaviour checks need live previews, so a replay reports them as skipped, not as matched. A replay never changes the run. Diagnosis and reproduction start from this.
 
+### Reproduction
+
+`Pipeline.reproduce(run, check_id)` replays one failed data contract on a small subset of the sealed baseline:
+
+1. **Seed keys.** It takes the check's first three failing keys, in a fixed order, with the columns that differed.
+2. **Subset.** It restores the sealed reference snapshot into a fresh environment and extracts an FK-closure subset by a fixed rule (`subset.py`):
+   - the seed rows, in the table that holds the oracle's keys;
+   - the rows that reference them or their direct parents (their aggregate, such as an order's items and other events);
+   - every row those reference.
+3. **Replay.** It loads the subset into fresh reference and candidate environments, migrates both to the base schema, runs the head migration from the head source in the candidate, and evaluates the contract again.
+4. **Verdict.** `REPRODUCED` needs every seed key to fail again on the same columns. Otherwise the result is `NOT_REPRODUCED` with the reason. The subset is never widened until a failure recurs (#8).
+
+The subset is stored as an artifact with its digest, the `Reproduction` is recorded write-once, and every environment used is destroyed. The run is never changed.
+
 Problems caused by the pull request become check outcomes; problems with the trusted setup become a typed run `ERROR`; transient failures are retried. Source archives are written once to `LocalArtifactStore` and re-verified by SHA-256 on every read.
 
 `tests/integration/test_pipeline.py` runs commerce change sets end to end on local Docker:
@@ -119,6 +133,7 @@ Problems caused by the pull request become check outcomes; problems with the tru
 - **Supersession:** a new head on the same pull request cancels a run in review. That run is cleaned up and ends `SUPERSEDED`.
 - **Previews:** a run serves the reference at the base SHA and the candidate at the head SHA. Through each edge with its token, the reference API's refunds and the candidate API's ledger transactions both show the 49.99 refund, and so does each frontend page. Without the token, every route answers 401. Cleanup removes both previews. A candidate frontend that does not build gives `ERROR: CANDIDATE_BUILD_FAILED` (`BLOCKED`); the data checks still run, and the API checks are `NOT_RUN`.
 - **Investigation:** an F1 run with a scripted model goes through `INVESTIGATING`; the model reads the live candidate (refund 1002 at 99.98), and both its investigation and the model-off diagnosis are reported as advisory while the verdict stays `BLOCKED`. A hostile model's `DELETE` and `approve_binding` are denied, its "every check passes" answer is rejected, and the data and verdict are unchanged.
+- **Reproduction:** after cleanup, F1's C1 failure reproduces on a subset of under 100 of the baseline's rows (customers, orders, items, events). A fault that corrupts data only when the events table holds over 100 rows is honestly `NOT_REPRODUCED` ("the check is PASS on the subset"). Only a failed check can be reproduced.
 - **API behaviour (C6):** on the safe change both C6 checks pass for all 208 orders through the previews. On F1 the app itself works (`preview.candidate` passes), but both C6 checks fail, with refund 1002 at 49.99 expected and 99.98 observed through the candidate API.
 
 ## Status
