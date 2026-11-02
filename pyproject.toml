@@ -10,6 +10,7 @@ dev = [
     "alembic>=1.16",
     "dataproof-contracts",
     "dataproof-control",
+    "dataproof-investigator",
     "dataproof-runner",
     "dataproof-scenario-commerce",
     "dataproof-verifier",
@@ -40,6 +41,7 @@ exclude = ["sample-app"]
 [tool.uv.sources]
 dataproof-contracts = { workspace = true }
 dataproof-control = { workspace = true }
+dataproof-investigator = { workspace = true }
 dataproof-runner = { workspace = true }
 dataproof-scenario-commerce = { workspace = true }
 dataproof-verifier = { workspace = true }
@@ -65,6 +67,7 @@ known-first-party = [
     "sample_app_env",
     "dataproof_contracts",
     "dataproof_control",
+    "dataproof_investigator",
     "dataproof_runner",
     "dataproof_verifier",
 ]
@@ -83,6 +86,7 @@ plugins = ["pydantic.mypy"]
 files = [
     "packages/contracts/src",
     "packages/control/src",
+    "packages/investigator/src",
     "packages/verifier/src",
     "services/runner/src",
     "scenarios/commerce/src",

@@ -143,16 +143,15 @@ def _fingerprint(connection: psycopg.Connection[Any], name: str) -> tuple[object
     return None if row is None else tuple(row)
 
 
-def analyze_binding(
-    binding: CandidateBinding,
-    reference: psycopg.Connection[Any],
-    candidate: psycopg.Connection[Any],
-    limits: QueryLimits = DEFAULT_LIMITS,
-) -> BindingAnalysis:
-    """Validate a binding query and describe what it reads. Executes nothing from it."""
-    if binding.query_sql is None:
-        raise BindingRejectedError("binding has no query to analyze")
-    _idle(reference)
+def _inspect(
+    candidate: psycopg.Connection[Any], query_sql: str, limits: QueryLimits
+) -> tuple[list[Any], list[Any]]:
+    """Have PostgreSQL parse ``query_sql`` as a view and check everything it reads.
+
+    Returns the relations reached (with the views they were reached through) and the functions
+    used. Raises :class:`BindingRejectedError` for anything that is not a single plain query
+    over application relations with allowlisted built-in functions. Executes nothing of it.
+    """
     _idle(candidate)
     timeout = sql.SQL("SET LOCAL statement_timeout = {}").format(
         sql.Literal(limits.statement_timeout_ms)
@@ -168,7 +167,7 @@ def analyze_binding(
                 # One prepared statement: a second statement is a protocol error, not a command.
                 # The binding is untrusted text embedded in DDL on purpose: PostgreSQL must parse
                 # it as a view body, which only a single plain query can be.
-                probe_ddl = f"CREATE TEMP VIEW {PROBE} AS {binding.query_sql}"
+                probe_ddl = f"CREATE TEMP VIEW {PROBE} AS {query_sql}"
                 candidate.execute(probe_ddl, prepare=True)
             except psycopg.Error as exc:
                 message = str(exc).splitlines()[0]
@@ -211,6 +210,31 @@ def analyze_binding(
             raise BindingRejectedError(f"system relation {name} cannot be read by a binding")
         if relkind not in READABLE_RELKINDS:
             raise BindingRejectedError(f"relation {name} of kind {relkind!r} cannot be read")
+    return reached, functions
+
+
+def check_read_query(
+    connection: psycopg.Connection[Any], query_sql: str, limits: QueryLimits = DEFAULT_LIMITS
+) -> None:
+    """Refuse any query a binding could not be: one plain query, no hidden reads.
+
+    Used for diagnostic queries as well as bindings, so both pass the same PostgreSQL-backed
+    checks before :func:`run_read_only` executes anything.
+    """
+    _inspect(connection, query_sql, limits)
+
+
+def analyze_binding(
+    binding: CandidateBinding,
+    reference: psycopg.Connection[Any],
+    candidate: psycopg.Connection[Any],
+    limits: QueryLimits = DEFAULT_LIMITS,
+) -> BindingAnalysis:
+    """Validate a binding query and describe what it reads. Executes nothing from it."""
+    if binding.query_sql is None:
+        raise BindingRejectedError("binding has no query to analyze")
+    _idle(reference)
+    reached, functions = _inspect(candidate, binding.query_sql, limits)
 
     relations = []
     for name, _, _, through, _ in reached:

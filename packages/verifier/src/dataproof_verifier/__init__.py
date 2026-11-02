@@ -5,6 +5,7 @@ from dataproof_verifier.binding_review import (
     ALLOWED_FUNCTIONS,
     BindingRejectedError,
     analyze_binding,
+    check_read_query,
 )
 from dataproof_verifier.compare import compare_keyed, values_match
 from dataproof_verifier.engine import QueryEvidence, Verification, verify_contract
@@ -34,6 +35,7 @@ __all__ = [
     "Verification",
     "analyze_binding",
     "assemble_contract",
+    "check_read_query",
     "compare_keyed",
     "derive_verdict",
     "load_binding",

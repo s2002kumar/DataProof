@@ -1,0 +1,19 @@
+[project]
+name = "dataproof-investigator"
+version = "0.1.0"
+description = "Bounded, evidence-citing AI investigation of DataProof check failures"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+dependencies = [
+    "dataproof-contracts",
+    "dataproof-verifier",
+    "psycopg>=3.2",
+]
+
+[tool.uv.sources]
+dataproof-contracts = { workspace = true }
+dataproof-verifier = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12,<0.14"]
+build-backend = "uv_build"
