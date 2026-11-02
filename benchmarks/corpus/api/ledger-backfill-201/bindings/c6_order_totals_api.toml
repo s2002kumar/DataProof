@@ -1,0 +1,9 @@
+# Proposed by the pull request; untrusted until a digest-bound APPROVE_BINDING.
+contract_id = "commerce.c6_order_totals_api"
+api_route = "/orders/{order_id}"
+
+[column_mapping]
+order_id = "order_id"
+currency = "currency"
+captured_total = "captured_total"
+refunded_total = "refunded_total"
