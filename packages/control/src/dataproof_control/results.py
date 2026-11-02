@@ -23,6 +23,7 @@ from dataproof_contracts import (
     GitHubCheckConclusion,
     Investigation,
     ReportVerdict,
+    Reproduction,
 )
 
 
@@ -375,6 +376,30 @@ class RunResults:
             sha256=row["sha256"],
             manifest=EvidenceManifest.model_validate(row["manifest"]),
         )
+
+    def save_reproduction(self, reproduction: Reproduction) -> None:
+        """Record a reproduction. It is made outside the run's lifecycle, so it is written
+        directly, write-once, and never touches the run's own results."""
+        with psycopg.connect(self._conninfo) as conn:
+            conn.execute(
+                "INSERT INTO run_reproductions (reproduction_id, run_id, check_id, status, "
+                "reproduction) VALUES (%s, %s, %s, %s, %s)",
+                (
+                    reproduction.reproduction_id,
+                    reproduction.run_id,
+                    reproduction.check_id,
+                    reproduction.status.value,
+                    Jsonb(reproduction.model_dump(mode="json")),
+                ),
+            )
+
+    def reproductions(self, run_id: UUID) -> list[Reproduction]:
+        rows = self._rows(
+            "SELECT reproduction FROM run_reproductions WHERE run_id = %s "
+            "ORDER BY recorded_at, reproduction_id",
+            run_id,
+        )
+        return [Reproduction.model_validate(row["reproduction"]) for row in rows]
 
     def investigations(self, run_id: UUID) -> list[Investigation]:
         rows = self._rows(

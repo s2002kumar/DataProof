@@ -1,0 +1,46 @@
+{
+  "reproduction_id": "7a6b5c4d-3e2f-4a1b-9c8d-7e6f5a4b3c2d",
+  "run_id": "6f1d2c3e-0a4b-4c5d-8e9f-0123456789ab",
+  "check_id": "commerce.c1_event_preservation",
+  "status": "REPRODUCED",
+  "signature": [
+    {
+      "key": [{"type": "integer", "value": 1002}],
+      "columns": ["amount"]
+    }
+  ],
+  "seed_table": "legacy_payment_events",
+  "subset": [
+    {"table": "customers", "rows": 1},
+    {"table": "legacy_payment_events", "rows": 9},
+    {"table": "order_items", "rows": 8},
+    {"table": "orders", "rows": 4}
+  ],
+  "subset_sha256": "0b9f6d3e2c1a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e",
+  "object_key": "runs/6f1d2c3e-0a4b-4c5d-8e9f-0123456789ab/reproduction-commerce.c1_event_preservation.json",
+  "result": {
+    "check_id": "commerce.c1_event_preservation",
+    "contract_id": "commerce.c1_event_preservation",
+    "contract_version": 1,
+    "required": true,
+    "outcome": "FAIL",
+    "not_run_reason": null,
+    "error_code": null,
+    "expected_key_count": 9,
+    "observed_key_count": 9,
+    "mismatch_count": 1,
+    "mismatch_examples": [
+      {
+        "key": [{"type": "integer", "value": 1002}],
+        "column": "amount",
+        "expected": {"type": "decimal", "value": "49.99"},
+        "observed": {"type": "decimal", "value": "99.98"}
+      }
+    ],
+    "evidence_ids": ["commerce.c1_event_preservation:candidate:binding"],
+    "dataset_digest": "2ef5ff6cd15b671553dadac08e6131a8780a5aae1ab1afb4c12b34cb63f44de0",
+    "elapsed_ms": 40
+  },
+  "reason": null,
+  "created_at": "2026-10-30T15:20:00Z"
+}

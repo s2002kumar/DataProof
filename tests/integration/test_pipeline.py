@@ -30,6 +30,7 @@ from dataproof_contracts import (
     NotExecutedReason,
     NotRunReason,
     ReportVerdict,
+    ReproductionStatus,
     RunInputs,
     RunState,
     ToolCallOutcome,
@@ -702,3 +703,69 @@ def test_a_hostile_investigator_changes_nothing_in_the_run(harness: Harness) -> 
         remaining = conn.execute("SELECT count(*) FROM ledger_entries").fetchone()
     assert remaining is not None
     assert remaining[0] > 0, "the hostile DELETE never ran"
+
+
+def test_f1_reproduces_on_a_small_subset_of_its_sealed_baseline(harness: Harness) -> None:
+    head = harness.repo.change(F1, {f"{SAMPLE_APP}/README.md": "Reproduce me.\n"})
+    project = harness.project(head)
+    pipeline = harness.pipeline(project)
+    worker = harness.worker(pipeline)
+    run_id = harness.submit(project, head)
+    worker.run_once()
+    make_due(harness.dsn, run_id)
+    worker.run_once()
+    assert harness.backend.resources(run_id) == []
+
+    reproduction = pipeline.reproduce(harness.store.get_run(run_id), C1)
+
+    assert reproduction.status is ReproductionStatus.REPRODUCED, reproduction.reason
+    assert reproduction.seed_table == "legacy_payment_events"
+    assert 1 <= len(reproduction.signature) <= 3
+    rows = {t.table: t.rows for t in reproduction.subset}
+    assert set(rows) == {"customers", "orders", "order_items", "legacy_payment_events"}
+    assert sum(rows.values()) < 100, "a small subset of the 1172-row baseline"
+    assert reproduction.result is not None
+    assert reproduction.result.outcome is CheckOutcome.FAIL
+    stored = harness.artifacts.get(reproduction.object_key or "", reproduction.subset_sha256 or "")
+    assert stored, "the subset itself is stored for anyone to rerun"
+    assert harness.results.reproductions(run_id) == [reproduction]
+    assert harness.backend.resources(run_id) == []
+    assert harness.store.get_run(run_id).state is S.COMPLETE
+
+
+def test_a_failure_the_subset_cannot_show_is_honestly_not_reproduced(harness: Harness) -> None:
+    """A fault that only corrupts data when the table is large does not recur on a subset."""
+    (safe_revision,) = (CHANGES / SAFE).glob("*.py")
+    size_dependent = (
+        "    op.execute(\n"
+        "        \"UPDATE ledger_entries SET amount = amount * 2 WHERE entry_kind = 'REFUND' \"\n"
+        '        "AND (SELECT count(*) FROM legacy_payment_events) > 100"\n'
+        "    )\n"
+    )
+    marker = "\n\ndef downgrade() -> None:"
+    text = safe_revision.read_text("utf-8").replace(marker, "\n" + size_dependent + marker)
+    head = harness.repo.change(
+        SAFE, {f"{SAMPLE_APP}/migrations/versions/{safe_revision.name}": text}
+    )
+    project = harness.project(head)
+    pipeline = harness.pipeline(project)
+    run_id = harness.submit(project, head)
+    harness.worker(pipeline).run_once()
+    assert harness.outcomes(run_id)[C1] is CheckOutcome.FAIL
+
+    reproduction = pipeline.reproduce(harness.store.get_run(run_id), C1)
+
+    assert reproduction.status is ReproductionStatus.NOT_REPRODUCED
+    assert reproduction.reason == "the check is PASS on the subset"
+    assert reproduction.result is not None
+    assert reproduction.result.outcome is CheckOutcome.PASS
+
+
+def test_only_failed_checks_can_be_reproduced(harness: Harness) -> None:
+    head = harness.repo.change(SAFE, {f"{SAMPLE_APP}/README.md": "Nothing to reproduce.\n"})
+    project = harness.project(head)
+    pipeline = harness.pipeline(project)
+    run_id = harness.submit(project, head)
+    harness.worker(pipeline).run_once()
+    with pytest.raises(ValueError, match="did not fail"):
+        pipeline.reproduce(harness.store.get_run(run_id), C1)
