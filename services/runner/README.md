@@ -78,7 +78,7 @@ Each stage records its results through the transition's `effects`, in the contro
 | Stage | What it does | Ends in |
 | --- | --- | --- |
 | `FETCHING` | Checks that the trusted `ProjectConfig` still has the digest the run was pinned to, has the source broker fetch the exact base and head commits into the trusted mirror if they are missing, then stages exact base and head archives in the artifact store | `ANALYZING`, or `ERROR: CONFIG_DIGEST_MISMATCH` |
-| `ANALYZING` | Refuses other repositories, a fork's pull request (`FORK_PULL_REQUEST`), and changes outside the allowed roots or to any dependency or runtime file (`pyproject.toml`, lockfiles, `package.json`, `Dockerfile` and similar, anywhere in the tree), before anything is provisioned | `PROVISIONING`, or `NOT_EXECUTED` with a neutral report |
+| `ANALYZING` | Refuses other repositories, a fork's pull request (`FORK_PULL_REQUEST`), and changes outside the allowed roots or to any dependency or runtime file (`pyproject.toml`, lockfiles, `package.json`, `Dockerfile` and similar, anywhere in the tree), before anything is provisioned | `PROVISIONING`, or `NOT_EXECUTED` with an `action_required` report |
 | `PROVISIONING` | Creates the reference and candidate environments, migrates both to the base schema **with the base source** inside steps, loads the baseline, proves both databases identical by a digest of every row, and serves the reference preview from the base source | `MIGRATING`, or `ERROR: DATASET_DIGEST_MISMATCH`, `BASE_MIGRATION_FAILED`, `SOURCE_DIGEST_MISMATCH`, `BASELINE_DIVERGED` or `REFERENCE_PREVIEW_FAILED` |
 | `MIGRATING` | Runs the head's migrations in the candidate, from the head source, inside a step, then builds and serves the candidate preview from the head source. A retried attempt first rebuilds the candidate, so the recorded migration is one clean execution | `VERIFYING` |
 | `VERIFYING` | The required `migration.execute` check (`FAIL` if the migration errored or overran) and `preview.candidate` check (`ERROR: CANDIDATE_BUILD_FAILED` or `CANDIDATE_START_FAILED`), then every oracle **from the base archive** against the binding the pull request proposes **in the head archive**: data contracts through the read-only role, and API behaviour contracts (C6) through both previews' edges, which they need to be serving (otherwise `NOT_RUN: PREREQUISITE_FAILED`). If the migration failed, the contracts are `NOT_RUN: PREREQUISITE_FAILED`. A missing binding is `NOT_RUN: AWAITING_BINDING_REVIEW` | `INVESTIGATING` if a required check failed or errored, else `REPORTING` |
@@ -142,8 +142,8 @@ Problems caused by the pull request become check outcomes; problems with the tru
 - **Safe change:** `CHECKED` (success), even after a failed verification attempt that the next attempt recovers from by reattaching to both environments.
 - **F1:** `BLOCKED` with the 49.99 to 99.98 refund mismatch. Run twice, it gives identical outcomes and evidence digests.
 - **Unapproved bindings:** `INCOMPLETE` (action required), with the binding analysis shown.
-- **Lockfile change:** `NOT_EXECUTED` (neutral), with nothing provisioned.
-- **Fork:** a pull request from a fork is `NOT_EXECUTED: FORK_PULL_REQUEST` (neutral), with nothing provisioned.
+- **Lockfile change:** `NOT_EXECUTED` (`action_required`), with nothing provisioned.
+- **Fork:** a pull request from a fork is `NOT_EXECUTED: FORK_PULL_REQUEST` (`action_required`), with nothing provisioned.
 - **Source broker:** a run whose commits exist only in the remote fetches them into an empty mirror. The staged archives have exactly the digests of archives made from the remote, and `ANALYZING` reads the changed paths from the mirror.
 - **Failing migration:** `BLOCKED`, with the contracts not run.
 - **Cancellation during migration:** the late result is discarded and nothing is left behind.
