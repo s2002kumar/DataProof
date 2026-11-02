@@ -37,7 +37,19 @@ The runner moves a run from `VERIFYING` to `INVESTIGATING` only when a required 
 
 - `InvestigatorModel` / `ModelSession` is the provider interface. An adapter keeps its own conversation state.
 - `ScriptedModel` plays a fixed script of turns and makes no network call. Tests use it, including hostile scripts.
-- **No paid model is called without the owner's approval** (ADR-0006 owner decision). The Anthropic adapter (work package 7c) is opt-in.
+- **No paid model is called without the owner's approval** (ADR-0006 owner decision).
+
+### Claude (opt-in)
+
+`AnthropicModel(client)` (install the `anthropic` extra: `dataproof-investigator[anthropic]`) runs the investigation on Claude Opus 5.5 (`claude-opus-5-5`) through the Anthropic SDK's Messages API:
+
+- **Thinking:** adaptive, at `high` effort. Every assistant turn is passed back unchanged, thinking blocks included.
+- **Tools:** the five tools are `strict` and `tool_choice` stays `auto`, because forced tool use is rejected on this model. Keywords strict schemas do not accept are removed from what is sent and still enforced client-side.
+- **Answer:** the final answer is constrained to the `InvestigationOutput` JSON schema, then validated and citation-checked like any other.
+- **Fallbacks:** server-side refusal fallbacks (`fallbacks: "default"`) are on by default; pass `fallbacks=False` to turn them off. The investigation records the model that actually served it.
+- **Cost:** every turn records tokens and cost at first-party list prices ($4 and $20 per million input and output tokens for Claude Opus 5.5).
+
+Nothing configures it automatically. Using it needs credentials (`ANTHROPIC_API_KEY` or an `ant auth login` profile), and, for this project, the owner's approval of the spend. Its tests (`tests/unit/test_anthropic_adapter.py`) replace the HTTP transport with a mock and make no network call.
 
 ## Model-off baseline
 

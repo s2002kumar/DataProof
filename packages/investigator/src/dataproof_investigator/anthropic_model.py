@@ -1,0 +1,186 @@
+"""An opt-in investigator model backed by Claude through the Anthropic SDK.
+
+Nothing constructs this unless an operator configures it, with credentials, and with the
+owner's approval of the spend (ADR-0006 owner decision: no paid service without approval).
+Tests drive it through a mocked HTTP transport and make no network call.
+
+Request shape (Claude Opus 5.5, the default):
+* adaptive thinking with an explicit effort; assistant turns are passed back unchanged, so
+  thinking blocks stay valid;
+* ``tool_choice`` is left ``auto`` (forced tool use is rejected on this model), and each of the
+  five tools is ``strict``. Keywords strict schemas do not support are removed from what is
+  sent; the investigator still validates every argument against the full schema;
+* the final answer is constrained to the ``InvestigationOutput`` JSON schema, and validated
+  again by the investigator;
+* server-side refusal fallbacks are on by default, and the turn records which model served it.
+"""
+
+from collections.abc import Mapping, Sequence
+from decimal import Decimal
+from typing import Any
+
+import anthropic
+from anthropic.types.beta import (
+    BetaMessageParam,
+    BetaTextBlock,
+    BetaToolResultBlockParam,
+    BetaToolUseBlock,
+)
+
+from dataproof_investigator.model import (
+    ModelSession,
+    ModelTurn,
+    StopReason,
+    ToolResult,
+    ToolSpec,
+    ToolUse,
+)
+
+DEFAULT_MODEL = "claude-opus-5-5"
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+#: USD per million input and output tokens, first-party API rates (claude-api skill, 2026-10).
+PRICES: Mapping[str, tuple[Decimal, Decimal]] = {
+    "claude-opus-5-5": (Decimal(4), Decimal(20)),
+    "claude-opus-5": (Decimal(5), Decimal(25)),
+    "claude-opus-4-8": (Decimal(5), Decimal(25)),
+    "claude-fable-5-1": (Decimal(10), Decimal(50)),
+    "claude-sonnet-5-5": (Decimal(2), Decimal(10)),
+    "claude-haiku-5-5": (Decimal("0.10"), Decimal("0.50")),
+}
+
+_UNSUPPORTED = frozenset(
+    {
+        "minLength",
+        "maxLength",
+        "minItems",
+        "maxItems",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "pattern",
+        "title",
+        "default",
+    }
+)
+_STOPS: Mapping[str, StopReason] = {
+    "tool_use": "tool_use",
+    "end_turn": "end",
+    "stop_sequence": "end",
+    "refusal": "refusal",
+    "max_tokens": "max_tokens",
+}
+
+
+def strict_schema(schema: Any) -> Any:
+    """A JSON Schema reduced to what strict tools and structured outputs accept.
+
+    Every object forbids extra properties and requires all of its properties (optional values
+    are nullable instead). Removed constraints are still enforced client-side.
+    """
+    if isinstance(schema, list):
+        return [strict_schema(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+    reduced = {k: strict_schema(v) for k, v in schema.items() if k not in _UNSUPPORTED}
+    if reduced.get("type") == "object" and "properties" in reduced:
+        reduced["additionalProperties"] = False
+        reduced["required"] = sorted(reduced["properties"])
+    return reduced
+
+
+def _cost(model: str, input_tokens: int, output_tokens: int) -> Decimal:
+    input_price, output_price = PRICES.get(model, PRICES[DEFAULT_MODEL])
+    return (input_price * input_tokens + output_price * output_tokens) / Decimal(1_000_000)
+
+
+class AnthropicModel:
+    def __init__(
+        self,
+        client: anthropic.Anthropic,
+        *,
+        model: str = DEFAULT_MODEL,
+        effort: str = "high",
+        max_tokens: int = 16000,
+        fallbacks: bool = True,
+    ) -> None:
+        self._client = client
+        self._model = model
+        self._effort = effort
+        self._max_tokens = max_tokens
+        self._fallbacks = fallbacks
+        self.name = f"anthropic:{model}"
+
+    def open(
+        self,
+        *,
+        system: str,
+        task: str,
+        tools: Sequence[ToolSpec],
+        output_schema: Mapping[str, Any],
+    ) -> ModelSession:
+        request: dict[str, Any] = {
+            "model": self._model,
+            "max_tokens": self._max_tokens,
+            "system": system,
+            "tools": [
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": strict_schema(dict(tool.input_schema)),
+                    "strict": True,
+                }
+                for tool in tools
+            ],
+            "thinking": {"type": "adaptive"},
+            "output_config": {
+                "effort": self._effort,
+                "format": {"type": "json_schema", "schema": strict_schema(dict(output_schema))},
+            },
+        }
+        if self._fallbacks:
+            request["betas"] = [FALLBACK_BETA]
+            request["fallbacks"] = "default"
+        return _AnthropicSession(self._client, request, task)
+
+
+class _AnthropicSession:
+    def __init__(self, client: anthropic.Anthropic, request: dict[str, Any], task: str) -> None:
+        self._client = client
+        self._request = request
+        self._messages: list[BetaMessageParam] = [{"role": "user", "content": task}]
+
+    def send(self, tool_results: Sequence[ToolResult]) -> ModelTurn:
+        if tool_results:
+            results: list[BetaToolResultBlockParam] = [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": result.tool_use_id,
+                    "content": result.content,
+                    "is_error": result.is_error,
+                }
+                for result in tool_results
+            ]
+            self._messages.append({"role": "user", "content": results})
+        response = self._client.beta.messages.create(**self._request, messages=self._messages)
+        # Append the assistant content exactly as returned, thinking blocks included.
+        self._messages.append({"role": "assistant", "content": response.content})
+        stop = _STOPS.get(str(response.stop_reason))
+        if stop is None:
+            raise RuntimeError(f"unexpected stop reason {response.stop_reason!r}")
+        usage = response.usage
+        return ModelTurn(
+            stop=stop,
+            tool_uses=tuple(
+                ToolUse(id=block.id, name=block.name, arguments=dict(block.input))
+                for block in response.content
+                if isinstance(block, BetaToolUseBlock)
+            ),
+            text="".join(b.text for b in response.content if isinstance(b, BetaTextBlock)) or None,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            cost_usd=_cost(response.model, usage.input_tokens, usage.output_tokens),
+            served_by=f"anthropic:{response.model}",
+        )

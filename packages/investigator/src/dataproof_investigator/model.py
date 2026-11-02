@@ -42,6 +42,9 @@ class ModelTurn:
     input_tokens: int = 0
     output_tokens: int = 0
     cost_usd: Decimal = Decimal(0)
+    served_by: str | None = None
+    """``provider:model`` that produced this turn, when it differs from the one asked for
+    (for example after a refusal fallback)."""
 
 
 class ModelSession(Protocol):

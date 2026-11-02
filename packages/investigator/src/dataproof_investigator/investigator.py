@@ -87,6 +87,7 @@ class Investigator:
         calls: list[ToolCall] = []
         tokens = {"input": 0, "output": 0}
         cost = Decimal(0)
+        served = {"by": self.model.name}
 
         def finish(
             status: InvestigationStatus,
@@ -99,7 +100,7 @@ class Investigator:
                 run_id=run_id,
                 role=InvestigatorRole.FAILURE_INVESTIGATOR,
                 status=status,
-                model=self.model.name,
+                model=served["by"],
                 prompt_version=PROMPT_VERSION,
                 tool_version=TOOL_VERSION,
                 tool_calls=tuple(calls),
@@ -137,6 +138,8 @@ class Investigator:
                 tokens["input"] += turn.input_tokens
                 tokens["output"] += turn.output_tokens
                 cost += turn.cost_usd
+                if turn.served_by:
+                    served["by"] = turn.served_by
                 if turn.stop == "refusal":
                     return finish(InvestigationStatus.NOT_AVAILABLE, failure="the model declined")
                 if turn.stop == "max_tokens":
