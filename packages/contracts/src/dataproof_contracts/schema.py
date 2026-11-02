@@ -25,6 +25,7 @@ from dataproof_contracts.decision import HumanDecision
 from dataproof_contracts.evidence import EvidenceManifest
 from dataproof_contracts.finding import Finding
 from dataproof_contracts.investigation import Investigation
+from dataproof_contracts.reproduction import Reproduction
 from dataproof_contracts.run import ReviewRun
 
 JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
@@ -38,6 +39,7 @@ EXPORTED_MODELS: Mapping[str, type[BaseModel]] = MappingProxyType(
         "Finding": Finding,
         "HumanDecision": HumanDecision,
         "Investigation": Investigation,
+        "Reproduction": Reproduction,
         "ReviewRun": ReviewRun,
     }
 )

@@ -12,6 +12,7 @@ Typed result contracts shared by DataProof services. They are Pydantic v2 models
 | `Finding` | A reviewer-facing finding | Every finding cites evidence; non-static findings reference their deterministic check; without a source location, localization is `UNKNOWN` |
 | `EvidenceManifest` | Sealed evidence for one run | At most one source artifact and one snapshot per environment; restore verifications refer to snapshots in the manifest; evidence IDs are unique; retention ends after sealing |
 | `Investigation` | An advisory AI (or rule-based) explanation of failures | A completed investigation has hypotheses and a caveat, and every hypothesis cites at least one evidence ID; citations of the investigation's own tool results must match successful calls, whose evidence IDs are fixed by their sequence; anything not completed records why and offers no conclusions |
+| `Reproduction` | A failed check replayed on an FK-closure subset | `REPRODUCED` needs a failing result for the same check plus the subset and its digest; anything else carries a reason; at least one seed key |
 | `HumanDecision` | A recorded human action | Binding decisions are bound to a binding digest and the PR author; an `ORGANIZATIONAL` approval by the PR author is rejected; a single-maintainer approval is recorded as `PROCEDURAL` |
 
 `github_check_conclusion()` maps report verdicts to GitHub check conclusions. Only `CHECKED` and `CHECKED_WITH_WARNINGS` map to `success`; `NOT_EXECUTED` is `neutral` and `INCOMPLETE` is `action_required`.

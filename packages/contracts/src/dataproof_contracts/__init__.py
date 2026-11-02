@@ -46,6 +46,12 @@ from dataproof_contracts.investigation import (
     ToolCall,
     ToolCallOutcome,
 )
+from dataproof_contracts.reproduction import (
+    FailureKey,
+    Reproduction,
+    ReproductionStatus,
+    SubsetTable,
+)
 from dataproof_contracts.run import ReviewRun, RunInputs, WorkerLease
 from dataproof_contracts.values import (
     BooleanValue,
@@ -79,6 +85,7 @@ __all__ = [
     "ErrorCode",
     "EvidenceManifest",
     "EvidenceRecord",
+    "FailureKey",
     "Finding",
     "FindingKind",
     "GitHubCheckConclusion",
@@ -98,6 +105,8 @@ __all__ = [
     "Oracle",
     "RelationProvenance",
     "ReportVerdict",
+    "Reproduction",
+    "ReproductionStatus",
     "RestoreVerification",
     "ReviewRun",
     "RunInputs",
@@ -107,6 +116,7 @@ __all__ = [
     "SnapshotArtifact",
     "SourceArtifact",
     "SourceLocation",
+    "SubsetTable",
     "TextValue",
     "TimestampValue",
     "ToolCall",
