@@ -1,6 +1,6 @@
 # DataProof control plane API
 
-The control plane's HTTP surface and its GitHub connector (ARCHITECTURE, GitHub connector and API surface). It is being built in work package 9 (#47). Implemented so far: GitHub webhook intake, GitHub App authentication and commit-bound check runs.
+The control plane's HTTP surface and its GitHub connector (ARCHITECTURE, GitHub connector and API surface). It is being built in work package 9 (#47). Implemented so far: GitHub webhook intake, GitHub App authentication, commit-bound check runs and the GitHub remote for the source broker.
 
 ## Webhook intake
 
@@ -41,11 +41,14 @@ Rules:
 - **Trusted content only.** The summary holds check IDs, outcomes, reasons and counts from the run's results, plus the run's commits and configuration digest. No text from the pull request appears in it.
 - **Scope.** Only runs of registered repositories with a pull request are published.
 
+## Source fetching
+
+`github_remotes(app, installations)` tells the runner's source broker where a registered repository lives on GitHub. Each fetch gets a fresh installation token for that repository alone, which the broker passes to git through one command's environment ([runner](../runner/README.md#source-broker)).
+
 ## Not built yet
 
 These are the remaining steps of work package 9 (#47):
 
-- the source broker that fetches exact commits;
 - the reviewer API with sign-in and authorization;
 - the signed preview gateway;
 - the dashboard.
@@ -63,6 +66,15 @@ No GitHub App is registered for this project. Everything here is tested against 
   - forks and closing;
   - signed bodies that are not events.
 - **`tests/unit/test_github_app.py`:** the token request's repository and permission scope, caching and renewal near expiry, a JWT from another key refused, a repository outside the installation refused, and no token in errors.
+- **`tests/unit/test_source_broker.py`** (git only):
+  - pinned commits are fetched by SHA, including a commit that is no longer the branch tip, and are kept under `refs/dataproof/`;
+  - commits already present need no remote;
+  - the credential appears in no file of the mirror;
+  - git sees the credential only as that command's header;
+  - inherited `GIT_*` settings are dropped;
+  - a missing commit is an error that does not carry the credential;
+  - only full SHAs are accepted;
+  - the GitHub remote uses a token scoped to that repository alone.
 - **`tests/integration/test_check_runs.py`** (PostgreSQL):
   - `queued`, then `in_progress`, then `completed: failure` on the head commit, with the coverage table, and nothing re-sent once complete;
   - cancelled, superseded, errored and timed-out runs completed as `cancelled`, `cancelled`, `failure` and `timed_out`;
