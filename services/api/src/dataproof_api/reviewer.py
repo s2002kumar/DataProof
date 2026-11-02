@@ -8,23 +8,59 @@
   registered repositories the reviewer can read on GitHub. A run the reviewer cannot read is
   answered exactly like a run that does not exist (404).
 * Writes (``POST``) need the session, the CSRF token in ``X-CSRF-Token`` and an ``Origin`` equal
-  to the dashboard's own.
+  to the dashboard's own, and ``write`` permission on the run's repository:
+  ``…/binding-decisions`` (ADR-0005, with the approver rule), ``…/cancel`` and
+  ``…/correction-replay``. Each is recorded as a ``HumanDecision``; none changes a check result.
 """
 
 import hmac
-from collections.abc import Callable
-from datetime import UTC, datetime
-from typing import Annotated, Any
-from uuid import UUID
+from collections.abc import Callable, Mapping
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Any, Literal
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_core import to_jsonable_python
 
 from dataproof_api.reviewers import GitHubSignIn, Permissions, SignInError
 from dataproof_api.sessions import CSRF_HEADER, SESSION_COOKIE, STATE_COOKIE, Session, Sessions
-from dataproof_contracts import ReviewRun
-from dataproof_control import GitHubRecords, RunNotFoundError, RunResults, RunStore
+from dataproof_contracts import ApproverSeparation, HumanDecision, HumanDecisionAction, ReviewRun
+from dataproof_contracts._base import GitSha, Sha256Hex
+from dataproof_control import (
+    DecisionConflictError,
+    GitHubRecords,
+    RetryPolicy,
+    RunNotFoundError,
+    RunResults,
+    RunStore,
+    StaleHeadError,
+)
+from dataproof_runner.decisions import NotAwaitingReviewError, decide_binding
+from dataproof_runner.project import ProjectConfig
+
+Comment = Annotated[str | None, Field(default=None, min_length=1, max_length=2000)]
+
+
+class _Request(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class BindingDecisionRequest(_Request):
+    action: Literal["APPROVE_BINDING", "REJECT_BINDING"]
+    binding_digest: Sha256Hex
+    comment: Comment = None
+
+
+class CancelRequest(_Request):
+    comment: Comment = None
+
+
+class CorrectionRequest(_Request):
+    head_sha: GitSha
+    """The correction commit, in the run's repository."""
+    comment: Comment = None
 
 
 class Reviewer:
@@ -37,7 +73,10 @@ class Reviewer:
         sign_in: GitHubSignIn,
         permissions: Permissions,
         *,
+        configs: Mapping[str, ProjectConfig],
         public_origin: str,
+        run_ttl: timedelta,
+        retry: RetryPolicy,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.store = store
@@ -49,6 +88,10 @@ class Reviewer:
         self.public_origin = public_origin.rstrip("/")
         """The dashboard's origin (``https://host``); writes from any other origin are refused."""
         self.secure_cookies = self.public_origin.startswith("https://")
+        self.configs = dict(configs)
+        """Each registered repository's trusted configuration, for runs a reviewer starts."""
+        self.run_ttl = run_ttl
+        self.retry = retry
         self.clock = clock
 
     # Dependencies ------------------------------------------------------------------------------
@@ -82,6 +125,25 @@ class Reviewer:
         if not self.permissions.can_read(login, run.inputs.repository):
             raise HTTPException(404, "no such run")
         return run
+
+    def decidable_run(self, run_id: UUID, login: str) -> ReviewRun:
+        run = self.readable_run(run_id, login)
+        if not self.permissions.can_decide(login, run.inputs.repository):
+            raise HTTPException(403, "deciding needs write permission on the repository")
+        return run
+
+    def _decision(
+        self, run: ReviewRun, login: str, action: HumanDecisionAction, **fields: Any
+    ) -> HumanDecision:
+        return HumanDecision(
+            decision_id=uuid4(),
+            run_id=run.run_id,
+            head_sha=fields.pop("head_sha", run.inputs.head_sha),
+            action=action,
+            actor=login,
+            decided_at=self.clock(),
+            **fields,
+        )
 
     # Routes ------------------------------------------------------------------------------------
 
@@ -173,7 +235,118 @@ class Reviewer:
             self.readable_run(run_id, session.login)
             return dict(to_jsonable_python(self.results.evidence(run_id)))
 
+        @router.post("/api/runs/{run_id}/binding-decisions", status_code=201)
+        def binding_decision(
+            run_id: UUID, request: BindingDecisionRequest, session: writer
+        ) -> dict[str, Any]:
+            return self._binding_decision(run_id, request, session.login)
+
+        @router.post("/api/runs/{run_id}/cancel")
+        def cancel(run_id: UUID, request: CancelRequest, session: writer) -> dict[str, Any]:
+            run = self.decidable_run(run_id, session.login)
+            decision = self._decision(
+                run, session.login, HumanDecisionAction.CANCEL_RUN, comment=request.comment
+            )
+            cancelled = self.store.cancel(
+                run_id,
+                actor=f"user:{session.login}",
+                reason="cancelled by a reviewer",
+                decision=decision,
+            )
+            if not cancelled:
+                raise HTTPException(409, "the run is already ending or has ended")
+            return {"decision": decision.model_dump(mode="json")}
+
+        @router.post("/api/runs/{run_id}/correction-replay", status_code=201)
+        def correction_replay(
+            run_id: UUID, request: CorrectionRequest, session: writer
+        ) -> dict[str, Any]:
+            return self._correction(run_id, request, session.login)
+
         return router
+
+    # Decisions ---------------------------------------------------------------------------------
+
+    def _binding_decision(
+        self, run_id: UUID, request: BindingDecisionRequest, login: str
+    ) -> dict[str, Any]:
+        run = self.decidable_run(run_id, login)
+        inputs = run.inputs
+        head = (
+            self.records.head(inputs.repository, inputs.pull_request, inputs.head_sha)
+            if inputs.pull_request is not None
+            else None
+        )
+        if head is None:
+            raise HTTPException(409, "binding decisions need a pull request with a known author")
+        action = HumanDecisionAction(request.action)
+        separation = None
+        if action is HumanDecisionAction.APPROVE_BINDING:
+            if login.casefold() != head.author.casefold():
+                separation = ApproverSeparation.ORGANIZATIONAL
+            elif len(self.permissions.repository(inputs.repository).maintainers()) > 1:
+                raise HTTPException(
+                    403,
+                    "the pull request's author cannot approve its bindings while the "
+                    "repository has other maintainers",
+                )
+            else:
+                separation = ApproverSeparation.PROCEDURAL
+        decision = self._decision(
+            run,
+            login,
+            action,
+            comment=request.comment,
+            binding_digest=request.binding_digest,
+            pr_author=head.author,
+            approver_separation=separation,
+        )
+        try:
+            outcome = decide_binding(
+                self.store, self.results, decision, run_ttl=self.run_ttl, retry=self.retry
+            )
+        except NotAwaitingReviewError as error:
+            raise HTTPException(422, str(error)) from None
+        except (StaleHeadError, DecisionConflictError) as error:
+            raise HTTPException(409, str(error)) from None
+        return {
+            "decision": outcome.decision.model_dump(mode="json"),
+            "recorded": outcome.recorded,
+            "started_run_id": str(outcome.started.run.run_id) if outcome.started else None,
+        }
+
+    def _correction(self, run_id: UUID, request: CorrectionRequest, login: str) -> dict[str, Any]:
+        run = self.decidable_run(run_id, login)
+        repository = run.inputs.repository
+        config = self.configs.get(repository)
+        if config is None:
+            raise HTTPException(409, "the repository has no registered configuration")
+        if request.head_sha == run.inputs.head_sha:
+            raise HTTPException(422, "a correction must be a different commit")
+        if not self.permissions.repository(repository).has_commit(request.head_sha):
+            raise HTTPException(422, f"{request.head_sha} is not a commit of {repository}")
+        self.store.save_config(config.stored())
+        decision = self._decision(
+            run,
+            login,
+            HumanDecisionAction.REQUEST_CORRECTION_REPLAY,
+            head_sha=request.head_sha,
+            comment=request.comment,
+        )
+        created = self.store.start_correction_replay(
+            run_id,
+            head_sha=request.head_sha,
+            config_digest=config.digest(),
+            actor=f"user:{login}",
+            run_ttl=self.run_ttl,
+            retry=self.retry,
+            decision=decision,
+        )
+        return {
+            "run_id": str(created.run.run_id),
+            "created": created.created,
+            "decision": decision.model_dump(mode="json"),
+        }
 
     # Representations ---------------------------------------------------------------------------
 

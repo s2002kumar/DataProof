@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 
 import httpx2
 
-from dataproof_api.github_app import API_VERSION, GitHubApp
+from dataproof_api.github_app import API_VERSION, GitHubApp, Repository
 
 _LOGIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$")
 READ_LEVELS = frozenset({"admin", "write", "read"})
@@ -123,3 +123,10 @@ class Permissions:
 
     def readable(self, login: str) -> list[str]:
         return [r for r in self.installations if self.can_read(login, r)]
+
+    def repository(self, repository: str) -> Repository:
+        """GitHub calls about a registered repository, as its installation."""
+        installation = self.installations.get(repository)
+        if installation is None:
+            raise LookupError(f"{repository} is not a registered repository")
+        return self._app.repository(installation, repository)
