@@ -11,7 +11,7 @@ The reviewer's view of DataProof (ARCHITECTURE, review UI; work package 9, #47).
   - **Previews:** buttons that open the reference and candidate previews through the [signed gateway](../api/README.md#signed-preview-gateway), each on its own host, in a new tab with `noopener,noreferrer`.
   - **Checks:** outcomes, the first mismatches (key, column, expected and observed, with SQL `NULL` and absent values told apart), and the evidence each check cites.
   - **Binding inspector:** for a check awaiting binding review, the binding's SQL or API route, its column mapping, and the relations it reads with their provenance. Relations the pull request did not create or alter are flagged (ADR-0005). The inspector has **Approve** and **Reject**, with an optional comment, and states that approving does not approve the migration or change a result.
-  - **Findings:** investigations labelled **Advisory**, with their hypotheses, confidence, cited evidence IDs, suggested action and caveat. Reproductions, with their outcome and subset.
+  - **Findings:** investigations labelled **Advisory**, with their hypotheses, confidence, cited evidence IDs, suggested action and caveat. Reproductions, with their outcome and subset, and pending or failed reproduction requests. Failed data checks offer **Reproduce on a small subset**.
   - **Decisions:** every recorded decision, a correction-replay form (a full commit SHA), and cancellation.
   - **Timeline:** every transition, with its actor.
 

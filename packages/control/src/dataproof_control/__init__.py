@@ -17,6 +17,11 @@ from dataproof_control.lifecycle import (
     is_terminal,
 )
 from dataproof_control.migrate import MigrationDriftError, migrate, migrations
+from dataproof_control.reproductions import (
+    ReproductionClaim,
+    ReproductionQueue,
+    ReproductionRequest,
+)
 from dataproof_control.results import (
     CheckRecord,
     ManifestRecord,
@@ -68,6 +73,9 @@ __all__ = [
     "PullRequestHead",
     "RecordedDecision",
     "ReportRecord",
+    "ReproductionClaim",
+    "ReproductionQueue",
+    "ReproductionRequest",
     "RetryPolicy",
     "RunNotFoundError",
     "RunResults",

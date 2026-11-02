@@ -77,7 +77,7 @@ Implemented in [`packages/contracts`](../packages/contracts/README.md) as Pydant
 - `POST /github/webhook` → validated signed event, idempotent webhook intake.
 - `POST /runs/{id}/cancel` → authorized cancellation and cleanup.
 
-The listed endpoints specify desired behavior; the implemented ones are noted in the [control plane API](../services/api/README.md): webhook intake, sign-in, run, check and evidence reads, binding decisions with the approver rule, cancellation and correction replay, all with authorization read from GitHub, and an OpenAPI document checked for drift. `/diagnose`, `/reproduce` and `/evidence` signed artifact downloads are not routes yet. The operations behind three of them exist without a route or its authorization: correction replay as `RunStore.start_correction_replay` ([control](../packages/control/README.md#correction-replay)), reproduction as `Pipeline.reproduce` ([runner](../services/runner/README.md#reproduction)) and binding decisions as `decisions.decide_binding` ([runner](../services/runner/README.md#binding-decisions)). OpenAPI schemas are generated and contract-tested once coding begins.
+The listed endpoints specify desired behavior. The implemented ones are documented in the [control plane API](../services/api/README.md): webhook intake, GitHub sign-in, run, check and evidence reads, binding decisions with the approver rule, cancellation, correction replay, reproduction (queued, then run by a worker), and preview links. All of them are authorized from GitHub on each request, and the OpenAPI document is checked for drift. `/diagnose` and signed downloads of evidence artifacts are not routes yet.
 
 ## Shadow preview and behavior comparison
 

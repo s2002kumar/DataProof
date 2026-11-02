@@ -49,7 +49,7 @@ from dataproof_contracts import (
     ToolCallOutcome,
     canonical_json,
 )
-from dataproof_control import GitHubRecords, RunResults, RunStore
+from dataproof_control import GitHubRecords, ReproductionQueue, RunResults, RunStore
 from dataproof_investigator import Investigator, ScriptedModel, answer, call
 from dataproof_runner import StageContext, StageOutcome, Worker, WorkerSettings
 from dataproof_runner.artifacts import ArtifactIntegrityError, LocalArtifactStore
@@ -60,6 +60,7 @@ from dataproof_runner.decisions import NotAwaitingReviewError, awaiting_review, 
 from dataproof_runner.local_docker import LocalDockerBackend
 from dataproof_runner.pipeline import MIGRATION_CHECK, PREVIEW_CHECK, Pipeline, PipelineSettings
 from dataproof_runner.project import ProjectConfig
+from dataproof_runner.reproducer import Reproducer
 from dataproof_runner.source import archive_commit
 from dataproof_verifier import parse_binding
 from docker_env import BINDING_DIR, CHANGES, SAMPLE_APP, CommerceRepo, http_get, revision
@@ -798,7 +799,18 @@ def test_f1_reproduces_on_a_small_subset_of_its_sealed_baseline(harness: Harness
     worker.run_once()
     assert harness.backend.resources(run_id) == []
 
-    reproduction = pipeline.reproduce(harness.store.get_run(run_id), C1)
+    # A reviewer's request, run by a worker under the run's stored configuration.
+    harness.store.save_config(project.stored())
+    queue = ReproductionQueue(harness.dsn)
+    queue.request(run_id, C1, requested_by="maintainer")
+    pipelines = ConfiguredPipelines(harness.store, harness.backend, harness.pipeline)
+    reproducer = Reproducer(queue, harness.store, pipelines, worker_id="w1")
+    assert reproducer.run_once()
+    assert not reproducer.run_once(), "nothing else is queued"
+    (done,) = queue.requests(run_id)
+    assert done.state == "reproduced", done.failure
+    (reproduction,) = harness.results.reproductions(run_id)
+    assert reproduction.reproduction_id == done.reproduction_id
 
     assert reproduction.status is ReproductionStatus.REPRODUCED, reproduction.reason
     assert reproduction.seed_table == "legacy_payment_events"

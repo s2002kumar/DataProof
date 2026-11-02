@@ -28,7 +28,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         served = processes.add_parser(name, help=f"serve the {name}")
         served.add_argument("--host", default="127.0.0.1")
         served.add_argument("--port", type=int, default=port)
-    worker = processes.add_parser("worker", help="claim and run queued runs")
+    worker = processes.add_parser("worker", help="run queued runs and reproductions")
     worker.add_argument("--poll", type=float, default=2.0, help="seconds between empty polls")
     publisher = processes.add_parser("publisher", help="publish check runs to GitHub")
     publisher.add_argument("--interval", type=float, default=5.0)
@@ -45,13 +45,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.process == "gateway":
         uvicorn.run(stack.gateway(), host=args.host, port=args.port, proxy_headers=False)
     elif args.process == "worker":
-        runner = stack.worker(worker_id=f"{socket.gethostname()}-{os.getpid()}")
+        worker_id = f"{socket.gethostname()}-{os.getpid()}"
+        backend = stack.backend()
+        runner = stack.worker(backend, worker_id=worker_id)
+        reproducer = stack.reproducer(backend, worker_id=worker_id)
         swept = 0.0
         while True:
             if time.monotonic() - swept > 30:
                 runner.sweep()
                 swept = time.monotonic()
-            if not runner.run_once():
+            if not runner.run_once() and not reproducer.run_once():
                 time.sleep(args.poll)
     else:
         checks = stack.publisher()

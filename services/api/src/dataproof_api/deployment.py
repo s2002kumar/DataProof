@@ -36,7 +36,13 @@ from dataproof_api.reviewers import GitHubSignIn, Permissions
 from dataproof_api.sessions import Sessions
 from dataproof_api.sources import github_remotes
 from dataproof_contracts._base import RepositoryName
-from dataproof_control import GitHubRecords, RetryPolicy, RunResults, RunStore
+from dataproof_control import (
+    GitHubRecords,
+    ReproductionQueue,
+    RetryPolicy,
+    RunResults,
+    RunStore,
+)
 from dataproof_runner import Worker, WorkerSettings
 from dataproof_runner.artifacts import LocalArtifactStore
 from dataproof_runner.baselines import baseline_for
@@ -45,6 +51,7 @@ from dataproof_runner.configured import ConfiguredPipelines
 from dataproof_runner.local_docker import LocalDockerBackend
 from dataproof_runner.pipeline import Pipeline, PipelineSettings
 from dataproof_runner.project import ProjectConfig
+from dataproof_runner.reproducer import Reproducer
 
 _LOOPBACK = ("http://127.0.0.1", "http://localhost")
 
@@ -235,6 +242,7 @@ class Stack:
             previews=PreviewLinks(
                 self.grants(), settings.previews.domain, settings.previews.scheme
             ),
+            reproductions=ReproductionQueue(self.secrets.database_url),
         )
         return create_app(
             intake,
@@ -267,8 +275,29 @@ class Stack:
         )
 
     def worker(self, backend: LocalDockerBackend | None = None, *, worker_id: str) -> Worker:
+        """Claims and runs queued runs, each under its stored configuration."""
+        pipelines = self.pipelines(backend or self.backend())
+        return Worker(
+            self.store(),
+            pipelines.handlers(),
+            pipelines.cleanup,
+            worker_id=worker_id,
+            settings=WorkerSettings(retry=self.retry()),
+        )
+
+    def reproducer(
+        self, backend: LocalDockerBackend | None = None, *, worker_id: str
+    ) -> Reproducer:
+        """Runs queued reproduction requests, each under its run's stored configuration."""
+        return Reproducer(
+            ReproductionQueue(self.secrets.database_url),
+            self.store(),
+            self.pipelines(backend or self.backend()),
+            worker_id=worker_id,
+        )
+
+    def pipelines(self, backend: LocalDockerBackend) -> ConfiguredPipelines:
         settings = self.deployment
-        backend = backend or self.backend()
         data = settings.worker.data_dir
         mirror = data / "mirror.git"
         if not (mirror / "HEAD").exists():
@@ -294,11 +323,4 @@ class Stack:
                 fetcher=fetcher,
             )
 
-        pipelines = ConfiguredPipelines(store, backend, build)
-        return Worker(
-            store,
-            pipelines.handlers(),
-            pipelines.cleanup,
-            worker_id=worker_id,
-            settings=WorkerSettings(retry=self.retry()),
-        )
+        return ConfiguredPipelines(store, backend, build)

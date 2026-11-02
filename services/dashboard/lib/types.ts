@@ -103,6 +103,16 @@ export interface Reproduction {
   subset: { table: string; rows: number }[];
 }
 
+export interface ReproductionRequest {
+  request_id: string;
+  check_id: string;
+  requested_by: string;
+  requested_at: string;
+  state: "queued" | "running" | "reproduced" | "failed";
+  reproduction_id: string | null;
+  failure: string | null;
+}
+
 export interface HumanDecision {
   decision_id: string;
   action: string;
@@ -162,6 +172,7 @@ export interface RunDetail {
   decisions: HumanDecision[];
   investigations: Investigation[];
   reproductions: Reproduction[];
+  reproduction_requests: ReproductionRequest[];
   previews: Record<string, { commit_sha: string; ready: boolean; failure: string | null }>;
   check_run: { id: number; url: string } | null;
 }

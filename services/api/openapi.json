@@ -99,6 +99,22 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "ReproductionRequestBody": {
+        "additionalProperties": false,
+        "properties": {
+          "check_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Check Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "check_id"
+        ],
+        "title": "ReproductionRequestBody",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -754,6 +770,90 @@
           }
         },
         "summary": "Preview Link"
+      }
+    },
+    "/api/runs/{run_id}/reproductions": {
+      "post": {
+        "operationId": "reproduce_api_runs__run_id__reproductions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-csrf-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dataproof_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dataproof Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReproductionRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Reproduce Api Runs  Run Id  Reproductions Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reproduce"
       }
     },
     "/api/session": {

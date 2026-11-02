@@ -1,4 +1,4 @@
-import type { Investigation, Reproduction } from "@/lib/types";
+import type { Investigation, Reproduction, ReproductionRequest } from "@/lib/types";
 
 /** AI and rule-based findings: advisory, cited, and never a verdict (ADR-0002). */
 export function Findings({ investigations }: { investigations: Investigation[] }) {
@@ -32,10 +32,25 @@ export function Findings({ investigations }: { investigations: Investigation[] }
   );
 }
 
-export function Reproductions({ reproductions }: { reproductions: Reproduction[] }) {
-  if (reproductions.length === 0) return <p className="muted">No reproduction was attempted.</p>;
+export function Reproductions({
+  reproductions,
+  requests = [],
+}: {
+  reproductions: Reproduction[];
+  requests?: ReproductionRequest[];
+}) {
+  const pending = requests.filter((request) => request.state !== "reproduced");
+  if (reproductions.length === 0 && pending.length === 0) {
+    return <p className="muted">No reproduction was attempted.</p>;
+  }
   return (
     <ul>
+      {pending.map((request) => (
+        <li key={request.request_id}>
+          <code>{request.check_id}</code>: {request.state}, requested by {request.requested_by}
+          {request.failure !== null && <span className="warning"> ({request.failure})</span>}
+        </li>
+      ))}
       {reproductions.map((reproduction) => (
         <li key={reproduction.reproduction_id}>
           <code>{reproduction.check_id}</code>: <strong>{reproduction.status}</strong>
