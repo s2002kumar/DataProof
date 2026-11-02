@@ -18,7 +18,7 @@ Rows are always locked in the order ``runs`` then ``run_jobs``. A claim locks on
 skips locked rows, so it can never wait on a run lock.
 """
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -803,6 +803,26 @@ class RunStore:
     def get_run(self, run_id: UUID) -> ReviewRun:
         with self._transaction() as conn:
             return self._load(conn, run_id)
+
+    def runs(
+        self,
+        repositories: Sequence[str],
+        *,
+        pull_request: int | None = None,
+        limit: int = 50,
+    ) -> list[ReviewRun]:
+        """The latest runs of these repositories (optionally one pull request), newest first."""
+        with self._transaction() as conn:
+            rows = conn.execute(
+                """
+                SELECT run_id FROM runs
+                WHERE repository = ANY(%s) AND (%s::integer IS NULL OR pull_request = %s)
+                ORDER BY created_at DESC, run_id DESC
+                LIMIT %s
+                """,
+                (list(repositories), pull_request, pull_request, limit),
+            ).fetchall()
+            return [self._load(conn, row["run_id"]) for row in rows]
 
     def transitions(self, run_id: UUID) -> list[Transition]:
         with self._transaction() as conn:
