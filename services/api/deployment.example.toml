@@ -1,0 +1,32 @@
+# An example DataProof deployment (services/api/README.md, "Running a deployment").
+# This file is trusted operator configuration. It holds no secrets: those come only from the
+# environment (DATAPROOF_DATABASE_URL, DATAPROOF_WEBHOOK_SECRET, DATAPROOF_SESSION_SECRET,
+# DATAPROOF_PREVIEW_SECRET, DATAPROOF_GITHUB_CLIENT_SECRET), and unknown keys are refused.
+
+[github]
+app_id = "123456"                       # the GitHub App's ID
+private_key_file = "/run/secrets/dataproof-github-app.pem"
+client_id = "Iv1.0000000000000000"      # the App's OAuth client ID, for reviewer sign-in
+
+[dashboard]
+origin = "https://dataproof.example"    # where reviewers open the dashboard
+
+[previews]
+domain = "previews.dataproof-previews.example"  # a separate registrable domain
+
+[worker]
+data_dir = "/var/lib/dataproof"         # the trusted source mirror and artifact store
+scope = "dataproof"
+
+[runs]
+ttl_minutes = 240
+max_attempts = 3
+
+[[repositories]]
+name = "example-org/commerce-demo"
+installation_id = 4242
+
+[repositories.project]
+# The trusted runtime image, by image ID or digest (infra/docker/runtime).
+runtime_image = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+baseline = "commerce-v1"

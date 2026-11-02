@@ -69,6 +69,8 @@ class FakeGitHub:
     """One-time sign-in code to the login it signs in."""
     user_tokens: dict[str, str] = field(default_factory=dict)
     commits: set[str] = field(default_factory=set)
+    signing_in: str | None = None
+    """The login that GitHub's authorize page signs in, as if the user had approved."""
     """Status codes to answer the next requests with, in order (simulated outages)."""
     _ids: Iterator[int] = field(default_factory=lambda: itertools.count(1001))
 
@@ -89,6 +91,8 @@ class FakeGitHub:
         path = request.url.path
         if path == "/login/oauth/access_token" and request.method == "POST":
             return self._exchange_code(request)
+        if path == "/login/oauth/authorize":
+            return self._authorize(request)
         if path == "/user":
             login = self.user_tokens.get(
                 request.headers.get("Authorization", "").removeprefix("Bearer ")
@@ -121,6 +125,15 @@ class FakeGitHub:
         return httpx2.Response(
             201, json={"token": token, "expires_at": expires.isoformat().replace("+00:00", "Z")}
         )
+
+    def _authorize(self, request: httpx2.Request) -> httpx2.Response:
+        query = {k: v[0] for k, v in parse_qs(request.url.query.decode()).items()}
+        if query.get("client_id") != CLIENT_ID or self.signing_in is None:
+            return httpx2.Response(404, json={"message": "Not Found"})
+        code = f"code-{next(self._ids)}"
+        self.oauth_codes[code] = self.signing_in
+        target = f"{query['redirect_uri']}?code={code}&state={query['state']}"
+        return httpx2.Response(302, headers={"Location": target})
 
     def _exchange_code(self, request: httpx2.Request) -> httpx2.Response:
         form = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
@@ -255,3 +268,38 @@ def pull_request_event(
     if installation is not None:
         event["installation"] = {"id": installation}
     return event
+
+
+class FakeGitHubServer:
+    """The fake GitHub as an ASGI app, for tests that need it over real HTTP (a browser)."""
+
+    def __init__(self, fake: FakeGitHub) -> None:
+        self.fake = fake
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            return
+        body = b""
+        while True:
+            message = await receive()
+            body += message.get("body", b"")
+            if not message.get("more_body"):
+                break
+        host = dict(scope["headers"]).get(b"host", b"127.0.0.1").decode()
+        query = scope["query_string"].decode()
+        url = f"http://{host}{scope['path']}" + (f"?{query}" if query else "")
+        request = httpx2.Request(
+            scope["method"],
+            url,
+            headers=[(k.decode(), v.decode()) for k, v in scope["headers"]],
+            content=body,
+        )
+        response = self.fake.handle(request)
+        await send(
+            {
+                "type": "http.response.start",
+                "status": response.status_code,
+                "headers": [(k.encode(), v.encode()) for k, v in response.headers.items()],
+            }
+        )
+        await send({"type": "http.response.body", "body": response.content})

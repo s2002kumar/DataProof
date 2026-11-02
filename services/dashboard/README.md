@@ -17,7 +17,7 @@ The reviewer's view of DataProof (ARCHITECTURE, review UI; work package 9, #47).
 
 ## Security
 
-- The dashboard and the API share one origin. In development Next.js forwards `/api` and `/auth` to `DATAPROOF_API_ORIGIN` (default `http://127.0.0.1:8000`); a production reverse proxy may route them directly. The session cookie never leaves that origin.
+- The dashboard and the API share one origin. Next.js forwards `/api` and `/auth` to `DATAPROOF_API_ORIGIN` (default `http://127.0.0.1:8000`), which is fixed when the app is built; a production reverse proxy may route them directly instead. The session cookie never leaves that origin.
 - Every write sends the session's CSRF token; the browser adds the `Origin` the API checks.
 - Text from a pull request (binding SQL, routes, paths, check IDs) is rendered only as React text, never as HTML. A test renders SQL containing markup and checks that no element is created.
 - Pages are served with a restrictive Content Security Policy (`default-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`), `X-Frame-Options: DENY`, `nosniff` and `Referrer-Policy: no-referrer`.
@@ -42,9 +42,10 @@ The dashboard stays on TypeScript 5.9 because Next.js type-checks through the Ty
 - **Binding inspector:** hostile SQL is shown as text; relations the pull request did not create or alter are flagged; the reviewer's decision is sent with their comment; a refusal is shown.
 - **Views:** a failed check's mismatch row reads `1002 amount 49.99 99.98`; findings are labelled advisory and show their citations; a reproduction shows its outcome; the runs list links to each run and shows its verdict.
 
-## Not built yet
+**Browser end to end** (`tests/e2e/test_review_in_browser.py`, CI's `e2e` job, or locally with `DATAPROOF_E2E=1`):
 
-These are the remaining steps of work package 9 (#47):
-
-- a browser end-to-end test of the whole review against a local stack;
-- an entry point that composes the API from deployment configuration, so the stack runs without code.
+1. The stack is the API composed from a deployment file, this dashboard built and served by Next.js, PostgreSQL, and a fake GitHub over HTTP.
+2. A signed webhook creates a run, and its check waiting on binding review is recorded as `VERIFYING` records it.
+3. In Chromium, the reviewer signs in through the fake GitHub, opens the run from the list, sees the binding's SQL and the flagged `public.orders`, writes a comment and approves.
+4. The page reports the new run, and the decision appears in the list.
+5. The control database then holds the decision (actor, author, comment, binding digest) and exactly one `binding_approval` child run.
