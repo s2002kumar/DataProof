@@ -125,7 +125,7 @@ API behaviour checks need live previews, so a replay reports them as skipped, no
    - the rows that reference them or their direct parents (their aggregate, such as an order's items and other events);
    - every row those reference.
 3. **Replay.** It loads the subset into fresh reference and candidate environments, migrates both to the base schema, runs the head migration from the head source in the candidate, and evaluates the contract again.
-4. **Verdict.** `REPRODUCED` needs every seed key to fail again on the same columns. Otherwise the result is `NOT_REPRODUCED` with the reason. The subset is never widened until a failure recurs (#8).
+4. **Verdict.** `REPRODUCED` needs every seed key to fail again on the same columns. These rules live in `signature.py`, so the benchmark applies exactly the same ones. Otherwise the result is `NOT_REPRODUCED` with the reason. The subset is never widened until a failure recurs (#8).
 
 The subset is stored as an artifact with its digest, the `Reproduction` is recorded write-once, and every environment used is destroyed. The run is never changed.
 

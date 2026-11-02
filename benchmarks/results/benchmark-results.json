@@ -22,6 +22,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -48,6 +51,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -74,6 +80,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -103,6 +112,9 @@
         "refund sums",
         "capture sums"
       ],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 14,
       "detected_by": {
         "B0": false,
         "B1": true,
@@ -146,6 +158,9 @@
         "key hash",
         "refund sums"
       ],
+      "reproduction": "NOT_REPRODUCED",
+      "reproduction_reason": "the check is PASS on the subset",
+      "subset_rows": 0,
       "detected_by": {
         "B0": false,
         "B1": true,
@@ -178,6 +193,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -208,6 +226,9 @@
       "b1_signals": [
         "key hash"
       ],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": true,
@@ -238,6 +259,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -264,6 +288,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 14,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -304,6 +331,9 @@
         "refund sums",
         "capture sums"
       ],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 8,
       "detected_by": {
         "B0": false,
         "B1": true,
@@ -341,6 +371,9 @@
         "refund sums",
         "capture sums"
       ],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 6,
       "detected_by": {
         "B0": false,
         "B1": true,
@@ -380,6 +413,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 10,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -415,6 +451,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -441,6 +480,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 14,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -476,6 +518,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -502,6 +547,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -528,6 +576,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -557,6 +608,9 @@
         "refund sums",
         "capture sums"
       ],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 7,
       "detected_by": {
         "B0": false,
         "B1": true,
@@ -601,6 +655,9 @@
         "refund sums",
         "capture sums"
       ],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 13,
       "detected_by": {
         "B0": false,
         "B1": true,
@@ -635,6 +692,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -664,6 +724,9 @@
         "refund sums",
         "capture sums"
       ],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 18,
       "detected_by": {
         "B0": false,
         "B1": true,
@@ -703,6 +766,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -731,6 +797,9 @@
       "b1_signals": [
         "refund sums"
       ],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 14,
       "detected_by": {
         "B0": false,
         "B1": true,
@@ -770,6 +839,9 @@
       "b1_signals": [
         "capture sums"
       ],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 8,
       "detected_by": {
         "B0": false,
         "B1": true,
@@ -807,6 +879,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 5,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -847,6 +922,9 @@
         "key hash",
         "refund sums"
       ],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": true,
@@ -879,6 +957,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -905,6 +986,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": null,
+      "reproduction_reason": null,
+      "subset_rows": null,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -933,6 +1017,9 @@
       "b1_signals": [
         "refund sums"
       ],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 8,
       "detected_by": {
         "B0": false,
         "B1": true,
@@ -970,6 +1057,9 @@
       },
       "error_codes": {},
       "b1_signals": [],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 8,
       "detected_by": {
         "B0": false,
         "B1": false,
@@ -1007,6 +1097,9 @@
       "b1_signals": [
         "refund sums"
       ],
+      "reproduction": "REPRODUCED",
+      "reproduction_reason": null,
+      "subset_rows": 6,
       "detected_by": {
         "B0": false,
         "B1": true,
@@ -1241,6 +1334,48 @@
           }
         }
       },
+      "reproduction_by_family": {
+        "join multiplication": {
+          "hits": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "lossy numeric conversion": {
+          "hits": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "orphaned reference": {
+          "hits": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "partial migration": {
+          "hits": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "retry effects": {
+          "hits": 1,
+          "total": 2,
+          "rate": 0.5
+        },
+        "timestamp shift": {
+          "hits": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "transposition": {
+          "hits": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "wrong column mapping": {
+          "hits": 2,
+          "total": 2,
+          "rate": 1.0
+        }
+      },
       "B2_contracts_agree": {
         "hits": 31,
         "total": 31,
@@ -1457,6 +1592,43 @@
           }
         }
       },
+      "reproduction_by_family": {
+        "join multiplication": {
+          "hits": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "orphaned reference": {
+          "hits": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "partial migration": {
+          "hits": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "retry effects": {
+          "hits": 1,
+          "total": 2,
+          "rate": 0.5
+        },
+        "timestamp shift": {
+          "hits": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "transposition": {
+          "hits": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "wrong column mapping": {
+          "hits": 1,
+          "total": 1,
+          "rate": 1.0
+        }
+      },
       "B2_contracts_agree": {
         "hits": 20,
         "total": 20,
@@ -1656,6 +1828,38 @@
             "total": 1,
             "rate": 1.0
           }
+        }
+      },
+      "reproduction_by_family": {
+        "join multiplication": {
+          "hits": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "lossy numeric conversion": {
+          "hits": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "orphaned reference": {
+          "hits": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "partial migration": {
+          "hits": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "timestamp shift": {
+          "hits": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "wrong column mapping": {
+          "hits": 1,
+          "total": 1,
+          "rate": 1.0
         }
       },
       "B2_contracts_agree": {

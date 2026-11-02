@@ -10,6 +10,10 @@ one reference:
   F1 included (#12).
 * ``B2``, DataProof's deterministic contracts C1 to C3 with the case's bindings approved.
 
+When C1 fails, the failure is also reproduced on a foreign-key-closure subset of the reference,
+loaded into fresh databases, with the pipeline's own rules (``dataproof_runner.signature``):
+``REPRODUCED`` only if every seed key fails again on the same columns (#8).
+
 Labels are read only after every case has run. The results contain nothing that varies between
 runs (no timings), so a rerun must reproduce them exactly.
 """
@@ -24,8 +28,10 @@ import psycopg
 import commerce_scenario
 from commerce_scenario import PUBLISHED_DIGEST
 from dataproof_benchmark.corpus import C1, C2, C3
-from dataproof_benchmark.harness import DatabaseFactory, candidate, databases, reference
-from dataproof_contracts import CheckOutcome, DataContract
+from dataproof_benchmark.harness import DatabaseFactory, candidate, databases, migrate, reference
+from dataproof_contracts import CheckOutcome, CheckResult, DataContract, ReproductionStatus
+from dataproof_runner.signature import failure_signature, seeds, verdict
+from dataproof_runner.subset import Catalog, closure, export, load
 from dataproof_verifier import (
     QueryLimits,
     Verification,
@@ -109,6 +115,10 @@ class CaseResult:
     c1_mismatch_count: int
     c1_example_keys: tuple[int, ...]
     c1_example_columns: tuple[str, ...]
+    reproduction: str | None = None
+    """``REPRODUCED`` or ``NOT_REPRODUCED``; None when C1 did not fail."""
+    reproduction_reason: str | None = None
+    subset_rows: int | None = None
 
     @property
     def detected_by(self) -> dict[str, bool]:
@@ -120,6 +130,48 @@ class CaseResult:
         }
 
 
+def reproduce(
+    new_database: DatabaseFactory,
+    reference_dsn: str,
+    change_dir: Path,
+    contract: DataContract,
+    failed: CheckResult,
+) -> tuple[str, str | None, int]:
+    """Replay a failed check on a small subset of the reference, by the pipeline's rules."""
+    signature = failure_signature(failed)
+    key_columns = list(contract.oracle.key_columns)
+    with psycopg.connect(reference_dsn) as conn:
+        catalog = Catalog.read(conn)
+        table = catalog.seed_table(key_columns)
+        if table is None:
+            return ReproductionStatus.NOT_REPRODUCED.value, "no baseline table holds the keys", 0
+        data = export(conn, catalog, closure(conn, catalog, table, key_columns, seeds(signature)))
+    rows = sum(text.count("\n") for text in data.values())
+    environments = []
+    for change in (None, change_dir):
+        dsn = new_database()
+        migrate(dsn, None)
+        with psycopg.connect(dsn) as conn:
+            load(conn, data)
+        if change is not None:
+            try:
+                migrate(dsn, change)
+            except Exception:
+                return (
+                    ReproductionStatus.NOT_REPRODUCED.value,
+                    "the candidate migration did not run on the subset",
+                    rows,
+                )
+        environments.append(dsn)
+    with (
+        psycopg.connect(environments[0], autocommit=True) as ref,
+        psycopg.connect(environments[1], autocommit=True) as cand,
+    ):
+        result = verify_contract(contract, ref, cand, PUBLISHED_DIGEST, QueryLimits()).check
+    status, reason = verdict(signature, result)
+    return status.value, reason, rows
+
+
 def run_case(new_database: DatabaseFactory, reference_dsn: str, change_dir: Path) -> CaseResult:
     case_id = "case-" + change_dir.name.rsplit("-", 1)[1]
     try:
@@ -127,15 +179,19 @@ def run_case(new_database: DatabaseFactory, reference_dsn: str, change_dir: Path
     except Exception as error:  # a failing migration is a result, not a crash
         return CaseResult(case_id, False, type(error).__name__, (), {}, {}, 0, (), ())
     verifications: dict[str, Verification] = {}
+    by_id = {contract.contract_id: contract for contract in contracts(change_dir)}
     with (
         psycopg.connect(reference_dsn, autocommit=True) as ref,
         psycopg.connect(candidate_dsn, autocommit=True) as cand,
     ):
-        for contract in contracts(change_dir):
-            verifications[contract.contract_id] = verify_contract(
+        for contract_id, contract in by_id.items():
+            verifications[contract_id] = verify_contract(
                 contract, ref, cand, PUBLISHED_DIGEST, QueryLimits()
             )
     c1 = verifications[C1].check
+    reproduction: tuple[str | None, str | None, int | None] = (None, None, None)
+    if c1.outcome is CheckOutcome.FAIL:
+        reproduction = reproduce(new_database, reference_dsn, change_dir, by_id[C1], c1)
     keys = sorted({int(str(getattr(m.key[0], "value", 0))) for m in c1.mismatch_examples})
     columns = sorted({m.column for m in c1.mismatch_examples if m.column is not None})
     return CaseResult(
@@ -150,6 +206,9 @@ def run_case(new_database: DatabaseFactory, reference_dsn: str, change_dir: Path
         c1_mismatch_count=c1.mismatch_count,
         c1_example_keys=tuple(keys),
         c1_example_columns=tuple(columns),
+        reproduction=reproduction[0],
+        reproduction_reason=reproduction[1],
+        subset_rows=reproduction[2],
     )
 
 

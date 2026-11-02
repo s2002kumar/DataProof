@@ -29,6 +29,8 @@ The fault benchmark from [BENCHMARK](../docs/BENCHMARK.md) (work package 10, #58
 | `B2` | DataProof's deterministic contracts C1 to C3, with the case's bindings approved. |
 | `B3` | `B2` plus AI investigation on the same evidence. **Not run:** live model calls are a paid service that has not been approved (#7). |
 
+When C1 fails, the failure is also **reproduced** on a foreign-key-closure subset of the reference (#8). It is loaded into fresh base-schema databases, the case's migration runs on the candidate, and C1 is verified again under the pipeline's own rules (`dataproof_runner.signature`): `REPRODUCED` only if every seed key fails again on the same columns.
+
 Labels are read only after every case has run. The results hold nothing that varies between runs, such as timings, so a rerun must reproduce them exactly. `tests/integration/test_benchmark_run.py` checks this in CI.
 
 `python -m dataproof_benchmark report` writes the Markdown report from the results. It covers:
@@ -37,13 +39,19 @@ Labels are read only after every case has run. The results hold nothing that var
 - false positives on clean controls;
 - agreement of the failing contracts with the labels;
 - C1 localization: reported columns, the exact mismatch count, and the precision of the example keys (the verifier reports at most 20 examples);
+- reproduction per family, with subset sizes and every case not reproduced or not attempted;
 - development and holdout splits;
 - every miss.
+
+## Findings worth knowing
+
+- **Failures made of extra rows are not reproduced.** When a migration adds rows under new keys, as when refunds are inserted a second time, the failing keys exist only in the candidate. A subset seeded from the reference cannot contain them, so the replay passes and the result is honestly `NOT_REPRODUCED` (#8).
+- **Duplicated keys are an error, not a failure.** When a migration duplicates a key, C1 reports `ERROR: DUPLICATE_KEY`. That still blocks the pull request, but a reproduction needs a failed check, so none is attempted.
+- **Reconciliation misses aggregate-preserving faults.** `B1` misses faults that keep counts, keys and sums: transpositions, timestamp shifts, and times taken from the wrong column. This is the case for per-record contracts that BENCHMARK predicts.
 
 ## Not covered yet
 
 - **The pipeline tier.** Full runs on local Docker with previews, API behaviour faults, stage timings and cleanup.
-- **Reproduction rates per family (#8).**
 - **`B3`**, the AI ablation, and the Change Analyst evaluation (#7).
 
 ## Tests

@@ -44,6 +44,9 @@ def joined(
                 "outcomes": result["outcomes"],
                 "error_codes": result["error_codes"],
                 "b1_signals": result["b1_signals"],
+                "reproduction": result["reproduction"],
+                "reproduction_reason": result["reproduction_reason"],
+                "subset_rows": result["subset_rows"],
                 "detected_by": result["detected_by"],
                 "failing": failing,
                 "expected_failing": sorted(label["failing"]),
@@ -89,6 +92,14 @@ def _summary(cases: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
                 for family, members in sorted(families.items())
             },
         }
+    attempted: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    for case in faults:
+        if case["reproduction"] is not None:
+            attempted[case["family"]].append(case)
+    summary["reproduction_by_family"] = {
+        family: _rate(sum(c["reproduction"] == "REPRODUCED" for c in members), len(members))
+        for family, members in sorted(attempted.items())
+    }
     localized = [c["localization"] for c in faults if c["localization"]]
     summary["B2_contracts_agree"] = _rate(sum(c["contracts_agree"] for c in cases), len(cases))
     summary["B2_localization"] = {
@@ -180,6 +191,44 @@ def report(results: Mapping[str, Any]) -> str:
         f"in {_pct(localization['example_columns_match'])}, the full mismatch count equals the "
         f"labelled count in {_pct(localization['exact_mismatch_count'])}, and the mean precision "
         f"of the reported example keys is {localization['mean_example_key_precision']}.",
+        "",
+        "## Reproduction (#8)",
+        "",
+        "When C1 failed, the failure was replayed on a foreign-key-closure subset of the "
+        "reference with the pipeline's own rules: `REPRODUCED` only if every seed key fails "
+        "again on the same columns.",
+        "",
+        "| Family | Reproduced | Subset rows |",
+        "| --- | --- | --- |",
+        *(
+            f"| {family} | {_pct(rate)} | "
+            + ", ".join(
+                str(c["subset_rows"])
+                for c in results["cases"]
+                if c["family"] == family and c["reproduction"] is not None
+            )
+            + " |"
+            for family, rate in every["reproduction_by_family"].items()
+        ),
+        "",
+        *(
+            f"- `{c['case_id']}` ({c['family']}, {c['variant']}) was not reproduced: "
+            f"{c['reproduction_reason']}."
+            for c in results["cases"]
+            if c["reproduction"] == "NOT_REPRODUCED"
+        ),
+        *(
+            f"- `{c['case_id']}` ({c['family']}, {c['variant']}): not attempted, because C1 "
+            f"was {c['outcomes'].get('commerce.c1_event_preservation')}"
+            + (
+                f" ({c['error_codes']['commerce.c1_event_preservation']})"
+                if "commerce.c1_event_preservation" in c["error_codes"]
+                else ""
+            )
+            + "; a reproduction starts from a failed check."
+            for c in results["cases"]
+            if c["kind"] == "fault" and c["reproduction"] is None
+        ),
         "",
         "## Development and holdout",
         "",
