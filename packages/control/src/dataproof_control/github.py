@@ -1,12 +1,13 @@
 """What GitHub told the control plane: verified webhook deliveries and pull request heads.
 
-Both are write-once. A delivery is recorded only after its signature was verified, so the table
+All are write-once. A delivery is recorded only after its signature was verified, so the table
 is an audit of what intake did with every genuine event, including the ones it ignored or
 refused. Pull request heads carry the facts that later decisions need, such as who opened the
-pull request (ADR-0005, approver rule).
+pull request (ADR-0005, approver rule). Check runs and their publications are the outbox from
+which each run's status reaches GitHub.
 """
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -35,6 +36,16 @@ class Delivery:
     repository: str | None = None
     run_id: UUID | None = None
     detail: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class CheckRun:
+    """The GitHub check run that reports one run, on its exact head commit."""
+
+    run_id: UUID
+    repository: str
+    head_sha: str
+    check_run_id: int
 
 
 @dataclass(frozen=True)
@@ -123,3 +134,74 @@ class GitHubRecords:
                 (repository, pull_request, head_sha),
             ).fetchone()
         return PullRequestHead(**row) if row else None
+
+    # Check runs --------------------------------------------------------------------------------
+
+    def check_run(self, run_id: UUID) -> CheckRun | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT run_id, repository, head_sha, check_run_id FROM github_check_runs "
+                "WHERE run_id = %s",
+                (run_id,),
+            ).fetchone()
+        return CheckRun(**row) if row else None
+
+    def record_check_run(self, check: CheckRun) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO github_check_runs (run_id, repository, head_sha, check_run_id) "
+                "VALUES (%s, %s, %s, %s)",
+                (check.run_id, check.repository, check.head_sha, check.check_run_id),
+            )
+
+    def publications(self, run_id: UUID) -> dict[str, str | None]:
+        """What has been published for a run: status to conclusion (None until completed)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT status, conclusion FROM github_check_publications WHERE run_id = %s",
+                (run_id,),
+            ).fetchall()
+        return {row["status"]: row["conclusion"] for row in rows}
+
+    def record_publication(self, run_id: UUID, status: str, conclusion: str | None) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO github_check_publications (run_id, status, conclusion) "
+                "VALUES (%s, %s, %s) ON CONFLICT (run_id, status) DO NOTHING",
+                (run_id, status, conclusion),
+            )
+
+    def unpublished(self, repositories: Sequence[str], limit: int) -> list[UUID]:
+        """Pull request runs of these repositories whose completion has not reached GitHub,
+        least recently changed first."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT r.run_id FROM runs AS r
+                WHERE r.pull_request IS NOT NULL AND r.repository = ANY(%s)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM github_check_publications AS p
+                      WHERE p.run_id = r.run_id AND p.status = 'completed'
+                  )
+                ORDER BY r.updated_at, r.run_id
+                LIMIT %s
+                """,
+                (list(repositories), limit),
+            ).fetchall()
+        return [row["run_id"] for row in rows]
+
+    @contextmanager
+    def publishing(self, run_id: UUID) -> Iterator[bool]:
+        """Hold the right to publish a run's check run; yields False if another publisher has
+        it. Held for the duration of the GitHub calls, so a check run is never created twice."""
+        with self._connect() as conn:
+            key = f"github-check:{run_id}"
+            row = conn.execute(
+                "SELECT pg_try_advisory_lock(hashtextextended(%s, 0)) AS held", (key,)
+            ).fetchone()
+            held = bool(row and row["held"])
+            try:
+                yield held
+            finally:
+                if held:
+                    conn.execute("SELECT pg_advisory_unlock(hashtextextended(%s, 0))", (key,))

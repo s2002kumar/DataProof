@@ -8,7 +8,9 @@ dependencies = [
     "dataproof-contracts",
     "dataproof-control",
     "dataproof-runner",
+    "cryptography>=44",  # RS256 signing of GitHub App JWTs
     "fastapi>=0.115",
+    "httpx2>=2.16",  # GitHub REST client
     "psycopg>=3.2",
 ]
 

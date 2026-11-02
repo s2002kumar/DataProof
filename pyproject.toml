@@ -67,6 +67,7 @@ known-first-party = [
     "conftest",
     "control_env",
     "docker_env",
+    "github_env",
     "sample_app_env",
     "dataproof_api",
     "dataproof_contracts",

@@ -15,7 +15,7 @@ Typed result contracts shared by DataProof services. They are Pydantic v2 models
 | `Reproduction` | A failed check replayed on an FK-closure subset | `REPRODUCED` needs a failing result for the same check plus the subset and its digest; anything else carries a reason; at least one seed key |
 | `HumanDecision` | A recorded human action | Binding decisions are bound to a binding digest and the PR author; an `ORGANIZATIONAL` approval by the PR author is rejected; a single-maintainer approval is recorded as `PROCEDURAL` |
 
-`github_check_conclusion()` maps report verdicts to GitHub check conclusions. Only `CHECKED` and `CHECKED_WITH_WARNINGS` map to `success`; `NOT_EXECUTED` is `neutral` and `INCOMPLETE` is `action_required`.
+`github_check_conclusion()` maps report verdicts to GitHub check conclusions. Only `CHECKED` and `CHECKED_WITH_WARNINGS` map to `success`; `NOT_EXECUTED` is `neutral` and `INCOMPLETE` is `action_required`. `cancelled` and `timed_out` are only for runs interrupted before they reported.
 
 ## Value encoding
 

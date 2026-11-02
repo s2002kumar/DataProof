@@ -1,6 +1,6 @@
 # DataProof control plane API
 
-The control plane's HTTP surface (ARCHITECTURE, GitHub connector and API surface). It is being built in work package 9 (#47). Implemented so far: GitHub webhook intake.
+The control plane's HTTP surface and its GitHub connector (ARCHITECTURE, GitHub connector and API surface). It is being built in work package 9 (#47). Implemented so far: GitHub webhook intake, GitHub App authentication and commit-bound check runs.
 
 ## Webhook intake
 
@@ -15,18 +15,42 @@ The control plane's HTTP surface (ARCHITECTURE, GitHub connector and API surface
 
 The pull request's author and head repository are recorded per head in `github_pull_request_heads`; the approver rule (ADR-0005) needs the author.
 
+## GitHub App authentication
+
+`GitHubApp` signs a short-lived RS256 JWT with the App's private key (`iat` backdated a minute, lifetime nine minutes) and exchanges it for an installation token. The token is scoped to **one repository** and to `checks: write`, `contents: read`, `metadata: read` and `pull_requests: read`. Tokens are cached until five minutes before they expire. The key and tokens stay in the trusted control plane: they are never given to a run's containers, and a refused request raises `GitHubError` with the status and route only.
+
+## Check runs
+
+`CheckPublisher` reports each pull request run as one check run named `DataProof`, on the run's **exact head commit**, with the run's ID as its external ID. It publishes from the control database, so a run's status reaches GitHub whatever process changed it.
+
+| Run | Check run |
+| --- | --- |
+| queued | `queued` |
+| working | `in_progress` |
+| reported | `completed` with the report's conclusion, its title (failed and not-run required checks) and the coverage table |
+| error before reporting | `completed`, `failure` (with the error code) |
+| timed out | `completed`, `timed_out` |
+| cancelled or superseded | `completed`, `cancelled` |
+
+An interrupted run is never green. `NOT_EXECUTED` is `neutral`, which GitHub branch protection counts as passing; see #51.
+
+Rules:
+
+- **Recorded once, then repeated only if missing.** Each status is recorded write-once (migration 0009) after GitHub accepted it. A status that failed to publish, for example during an outage, is published on the next pass.
+- **One check run per run.** A per-run lock keeps concurrent publishers from creating two. Before creating one, the publisher looks for an existing check run with the run's external ID on that commit, so a crash between GitHub accepting a check run and recording it does not duplicate it.
+- **Trusted content only.** The summary holds check IDs, outcomes, reasons and counts from the run's results, plus the run's commits and configuration digest. No text from the pull request appears in it.
+- **Scope.** Only runs of registered repositories with a pull request are published.
+
 ## Not built yet
 
 These are the remaining steps of work package 9 (#47):
 
-- GitHub App authentication;
-- commit-bound check runs;
 - the source broker that fetches exact commits;
 - the reviewer API with sign-in and authorization;
 - the signed preview gateway;
 - the dashboard.
 
-No GitHub App is registered for this project. Intake is tested only with signed fixture events.
+No GitHub App is registered for this project. Everything here is tested against signed fixture events and a fake GitHub (`tests/github_env.py`) that verifies App JWTs against the App's public key and checks token scope and expiry. Nothing has talked to the real GitHub.
 
 ## Tests
 
@@ -38,4 +62,15 @@ No GitHub App is registered for this project. Intake is tested only with signed 
   - unconfigured repositories, foreign installations and cross-repository pull requests;
   - forks and closing;
   - signed bodies that are not events.
-- **`tests/integration/test_pipeline.py`** (Docker): a fork's run is `NOT_EXECUTED` (neutral) and nothing is provisioned.
+- **`tests/unit/test_github_app.py`:** the token request's repository and permission scope, caching and renewal near expiry, a JWT from another key refused, a repository outside the installation refused, and no token in errors.
+- **`tests/integration/test_check_runs.py`** (PostgreSQL):
+  - `queued`, then `in_progress`, then `completed: failure` on the head commit, with the coverage table, and nothing re-sent once complete;
+  - cancelled, superseded, errored and timed-out runs completed as `cancelled`, `cancelled`, `failure` and `timed_out`;
+  - a check run created before a crash is found, not duplicated;
+  - an outage is retried;
+  - other repositories and runs without a pull request are not published;
+  - four concurrent publishers create one check run;
+  - `NOT_EXECUTED` is `neutral`.
+- **`tests/integration/test_pipeline.py`** (Docker):
+  - a fork's run is `NOT_EXECUTED` (neutral) and nothing is provisioned;
+  - a signed F1 `pull_request` event goes through intake, a worker under the stored configuration and the publisher, and ends as a `failure` check run on F1's head commit (`queued`, then `completed`) with C1 failing in its table, and nothing on the base commit.

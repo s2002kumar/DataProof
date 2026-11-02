@@ -19,6 +19,9 @@ import pytest
 
 from commerce_scenario import PUBLISHED_DIGEST
 from control_env import FAST_RETRY, create, make_due
+from dataproof_api import Intake, Registration
+from dataproof_api.checks import CheckPublisher
+from dataproof_api.github_app import GitHubApp, load_private_key
 from dataproof_contracts import (
     ApproverSeparation,
     CheckOutcome,
@@ -41,7 +44,7 @@ from dataproof_contracts import (
     ToolCallOutcome,
     canonical_json,
 )
-from dataproof_control import RunResults, RunStore
+from dataproof_control import GitHubRecords, RunResults, RunStore
 from dataproof_investigator import Investigator, ScriptedModel, answer, call
 from dataproof_runner import StageContext, StageOutcome, Worker, WorkerSettings
 from dataproof_runner.artifacts import ArtifactIntegrityError, LocalArtifactStore
@@ -53,6 +56,7 @@ from dataproof_runner.pipeline import MIGRATION_CHECK, PREVIEW_CHECK, Pipeline, 
 from dataproof_runner.project import ProjectConfig
 from dataproof_verifier import parse_binding
 from docker_env import BINDING_DIR, CHANGES, SAMPLE_APP, CommerceRepo, http_get, revision
+from github_env import APP_ID, INSTALLATION, PRIVATE_KEY_PEM, FakeGitHub, pull_request_event
 
 pytestmark = [pytest.mark.integration, pytest.mark.docker]
 S = RunState
@@ -934,3 +938,47 @@ def _decision(run: ReviewRun, digest: str) -> HumanDecision:
         pr_author="developer",
         approver_separation=ApproverSeparation.ORGANIZATIONAL,
     )
+
+
+def test_a_signed_pull_request_event_ends_as_a_failing_check_on_its_head_commit(
+    harness: Harness,
+) -> None:
+    """GitHub event to commit-bound check, through intake, the worker and the publisher."""
+    head = harness.repo.change(F1, {f"{SAMPLE_APP}/README.md": "Opened on GitHub.\n"})
+    records = GitHubRecords(harness.dsn)
+    registration = Registration(
+        project=harness.project(head),
+        installation_id=INSTALLATION,
+        dataset_digest=PUBLISHED_DIGEST,
+        engine_version="0.1.0",
+    )
+    intake = Intake(
+        harness.store,
+        records,
+        {REPOSITORY: registration},
+        run_ttl=timedelta(minutes=30),
+        retry=FAST_RETRY,
+    )
+    github = FakeGitHub({INSTALLATION: {REPOSITORY}})
+    publisher = CheckPublisher(
+        harness.store,
+        harness.results,
+        records,
+        GitHubApp(APP_ID, load_private_key(PRIVATE_KEY_PEM), client=github.client()),
+        {REPOSITORY: INSTALLATION},
+    )
+
+    received = intake.receive(
+        "delivery-1", "pull_request", pull_request_event(head=head, base=harness.repo.base)
+    )
+    assert received.run_id is not None
+    publisher.publish_pending()
+    harness.configured().run_once()
+    publisher.publish_pending()
+
+    (check,) = github.runs_on(head)
+    assert check.external_id == str(received.run_id)
+    assert check.history == [("queued", None), ("completed", "failure")]
+    assert check.output["title"].startswith("BLOCKED")
+    assert f"| `{C1}` | yes | FAIL |" in check.output["summary"]
+    assert github.runs_on(harness.repo.base) == [], "only the head commit is reported on"
