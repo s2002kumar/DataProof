@@ -70,6 +70,9 @@ class FakeGitHub:
     user_tokens: dict[str, str] = field(default_factory=dict)
     commits: set[str] = field(default_factory=set)
     signing_in: str | None = None
+    conversions: dict[str, dict[str, Any]] = field(default_factory=dict)
+    """One-time manifest codes to the App credentials GitHub returns for them."""
+    hook_config: dict[str, Any] | None = None
     """The login that GitHub's authorize page signs in, as if the user had approved."""
     """Status codes to answer the next requests with, in order (simulated outages)."""
     _ids: Iterator[int] = field(default_factory=lambda: itertools.count(1001))
@@ -93,6 +96,16 @@ class FakeGitHub:
             return self._exchange_code(request)
         if path == "/login/oauth/authorize":
             return self._authorize(request)
+        if match := re.fullmatch(r"/app-manifests/([^/]+)/conversions", path):
+            conversion = self.conversions.pop(match.group(1), None)
+            if request.method != "POST" or conversion is None:
+                return httpx2.Response(404, json={"message": "Not Found"})
+            return httpx2.Response(201, json=conversion)
+        if path == "/app/hook/config" and request.method == "PATCH":
+            if not self.verify_app_jwt(request.headers.get("Authorization", "")):
+                return httpx2.Response(401, json={"message": "Bad credentials"})
+            self.hook_config = json.loads(request.content)
+            return httpx2.Response(200, json=self.hook_config)
         if path == "/user":
             login = self.user_tokens.get(
                 request.headers.get("Authorization", "").removeprefix("Bearer ")

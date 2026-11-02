@@ -84,8 +84,11 @@ class DashboardSettings(_Settings):
 
 class PreviewSettings(_Settings):
     domain: Annotated[str, Field(pattern=r"^[a-z0-9.-]+$")]
-    """Each preview is served at ``<role>-<run>.<domain>``: use a separate registrable domain."""
+    """Each preview is served at ``<role>-<run>.<domain>``: use a separate registrable domain.
+    For local use, ``previews.localhost`` resolves to the loopback in browsers."""
     scheme: Literal["https", "http"] = "https"
+    port: Annotated[int, Field(gt=0, lt=65536)] | None = None
+    """The port in preview links, when the gateway is not on the scheme's default."""
 
 
 class RunSettings(_Settings):
@@ -240,7 +243,10 @@ class Stack:
             run_ttl=self.run_ttl(),
             retry=self.retry(),
             previews=PreviewLinks(
-                self.grants(), settings.previews.domain, settings.previews.scheme
+                self.grants(),
+                settings.previews.domain,
+                settings.previews.scheme,
+                settings.previews.port,
             ),
             reproductions=ReproductionQueue(self.secrets.database_url),
         )
@@ -248,6 +254,21 @@ class Stack:
             intake,
             webhook_secret=self.secrets.get("DATAPROOF_WEBHOOK_SECRET", minimum=16).encode(),
             reviewer=reviewer,
+        )
+
+    def webhook(self) -> FastAPI:
+        """Webhook intake alone, with no other route: what a tunnel exposes to GitHub."""
+        intake = Intake(
+            self.store(),
+            GitHubRecords(self.secrets.database_url),
+            self.registrations(),
+            run_ttl=self.run_ttl(),
+            retry=self.retry(),
+        )
+        return create_app(
+            intake,
+            webhook_secret=self.secrets.get("DATAPROOF_WEBHOOK_SECRET", minimum=16).encode(),
+            describe=False,
         )
 
     def backend(self) -> LocalDockerBackend:

@@ -15,11 +15,22 @@ MAX_WEBHOOK_BYTES = 5 * 1024 * 1024
 
 
 def create_app(
-    intake: Intake, *, webhook_secret: bytes, reviewer: Reviewer | None = None
+    intake: Intake,
+    *,
+    webhook_secret: bytes,
+    reviewer: Reviewer | None = None,
+    describe: bool = True,
 ) -> FastAPI:
+    """The control plane. Without a reviewer and with ``describe=False`` it serves
+    ``POST /github/webhook`` and nothing else: the only surface exposed to the internet."""
     if not webhook_secret:
         raise ValueError("a webhook secret is required")
-    app = FastAPI(title="DataProof control plane", docs_url=None, redoc_url=None)
+    app = FastAPI(
+        title="DataProof control plane",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url="/openapi.json" if describe else None,
+    )
 
     @app.post("/github/webhook", status_code=202)
     async def github_webhook(

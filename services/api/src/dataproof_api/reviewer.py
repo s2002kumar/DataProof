@@ -79,6 +79,7 @@ class PreviewLinks:
     grants: Grants
     domain: str
     scheme: str = "https"
+    port: int | None = None
 
 
 class ReproductionRequestBody(_Request):
@@ -314,8 +315,9 @@ class Reviewer:
             now = self.clock()
             token = self.previews.grants.issue(run.run_id, environment, session.login, now)
             host = preview_host(environment, run.run_id, self.previews.domain)
+            port = f":{self.previews.port}" if self.previews.port else ""
             return {
-                "url": f"{self.previews.scheme}://{host}/{GRANT_PATH}?token={token}",
+                "url": f"{self.previews.scheme}://{host}{port}/{GRANT_PATH}?token={token}",
                 "expires_at": (now + self.previews.grants.lifetime).isoformat(),
             }
 

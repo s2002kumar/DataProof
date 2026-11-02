@@ -92,6 +92,15 @@ class GitHubApp:
         self._tokens: dict[tuple[int, str], _Token] = {}
         self._lock = threading.Lock()
 
+    def set_webhook_url(self, url: str) -> None:
+        """Point the App's webhook at ``url`` (a new tunnel address), as the App itself."""
+        self._send(
+            "PATCH",
+            "/app/hook/config",
+            authorization=f"Bearer {app_jwt(self._app_id, self._key, self._clock())}",
+            payload={"url": url, "content_type": "json", "insecure_ssl": "0"},
+        )
+
     def repository(self, installation_id: int, repository: str) -> "Repository":
         """Calls about one repository, as the installation configured for it."""
         return Repository(self, installation_id, repository)

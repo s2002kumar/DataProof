@@ -22,6 +22,51 @@
 
 A real uncropped path or code-commit link proving DB migration ran; actual preview app; deterministic mismatches; AI tool trace; check results; GitHub commit SHA; a clean rerun and resource cleanup. Clearly annotate any prerecorded steps or accelerated playback. Do not fabricate UI or metric screenshots.
 
+## Live setup
+
+The demo runs on one machine. Everything is on the loopback except one route: GitHub's webhook reaches the webhook-only intake (`POST /github/webhook`, no other route, signatures verified) through a temporary Cloudflare quick tunnel. Reviewers sign in with GitHub, and the OAuth callback returns to the loopback dashboard. Run containers never receive a GitHub token, the App's key, or a control-plane credential.
+
+Steps marked **owner** create or use credentials and are run by the repository owner.
+
+1. **Prerequisites:** Docker, `uv`, `pnpm`, Node 24, and [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (`winget install Cloudflare.cloudflared`). Quick tunnels need no Cloudflare account.
+2. **Control database:**
+
+   ```bash
+   docker run -d --name dataproof-control -p 127.0.0.1:5433:5432 -e POSTGRES_HOST_AUTH_METHOD=trust postgres:17-alpine
+   ```
+
+   Then set `DATAPROOF_DATABASE_URL=postgresql://postgres@127.0.0.1:5433/postgres`.
+3. **Runtime image:** run `docker build --quiet --file infra/docker/runtime/Dockerfile .` and keep the printed `sha256:` image ID.
+4. **Demo repository (owner):** run `python scripts/demo/build_demo_repo.py <empty dir>`. Then push it to a new repository, for example with `gh repo create <owner>/<name> --private --source <dir> --push`, followed by `git push origin ledger-backfill ledger-backfill-direct`.
+5. **GitHub App (owner):** start a tunnel first, so the App has a webhook address:
+
+   ```bash
+   cloudflared tunnel --url http://127.0.0.1:8001
+   ```
+
+   Then run:
+
+   ```bash
+   uv run python -m dataproof_api register-app --name "<unique name>" --webhook-url https://<tunnel>/github/webhook
+   ```
+
+   Open `http://127.0.0.1:8765/` and create the App. It is private, has checks write and read-only contents, metadata and pull requests, and receives only `pull_request` events. Its key and secrets go to `~/.dataproof/github-app/` and are never printed. **Install it on the demo repository only.**
+6. **Deployment (owner):** copy [`services/api/deployment.demo.toml`](../services/api/deployment.demo.toml), fill in the App ID, client ID, installation ID, demo repository and runtime image, and set `DATAPROOF_CONFIG` to it.
+7. **Start the stack:**
+
+   ```bash
+   uv run python scripts/demo/stack.py --env ~/.dataproof/github-app/secrets.env --tunnel
+   ```
+
+   This migrates and serves the dashboard on `http://127.0.0.1:3000`, the API, the webhook intake, the gateway, a worker and the publisher. It opens a new quick tunnel to the webhook port alone and points the App's webhook at it.
+8. **The review:** open a pull request from `ledger-backfill` to `main` in the demo repository.
+   1. DataProof's check appears on the head commit, and the previews build.
+   2. The first run is `INCOMPLETE` (`action_required`): the pull request proposes new bindings.
+   3. In the dashboard, sign in, inspect the binding and approve it. The approval run is `BLOCKED` (`failure`), and C1 shows refund 1002 at 49.99 expected and 99.98 observed.
+   4. The diagnosis cites its evidence, the candidate preview shows the same refund, and the reviewer decides.
+
+Status: everything above except the owner steps is implemented and tested locally (#63). The live run, and the recording made from it, wait for the owner's App registration.
+
 ## README ordering after implementation
 
 Hero line → 30–90s demo → one screenshot for failing integrity report → short 'How it works' diagram → local quickstart → test & benchmark outcomes → tradeoffs and limitations → source credit. A first-time reader can understand it in 10 seconds and inspect engineering depth afterward.

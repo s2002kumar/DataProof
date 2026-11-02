@@ -112,7 +112,7 @@ class Stack:
             public_origin=ORIGIN,
             run_ttl=RUN_TTL,
             retry=FAST_RETRY,
-            previews=PreviewLinks(self.grants, "previews.test"),
+            previews=PreviewLinks(self.grants, "previews.test", port=8080),
             reproductions=ReproductionQueue(dsn),
             clock=self.clock,
         )
@@ -463,9 +463,10 @@ def test_a_preview_link_is_a_grant_for_one_run_role_and_reviewer(
     if status != 200:
         return
     url = urlparse(response.json()["url"])
-    assert (url.scheme, url.hostname, url.path) == (
+    assert (url.scheme, url.hostname, url.port, url.path) == (
         "https",
         f"candidate-{run_id}.previews.test",
+        8080,
         "/__dataproof/grant",
     )
     grant = stack.grants.read(parse_qs(url.query)["token"][0], stack.clock())
