@@ -69,7 +69,7 @@ The reviewer API is mounted when `create_app` is given a `Reviewer`.
 
 - `GET /api/runs` lists runs of the readable registered repositories, newest first. It can be filtered by repository and pull request.
 - `GET /api/runs/{id}` returns the run, its transition log, the pull request's author, the report, decisions, investigations, reproductions, previews (never a token or its hash) and the GitHub check run.
-- `GET /api/runs/{id}/checks` returns each check with the binding it waits on or used, and its analysis.
+- `GET /api/runs/{id}/checks` returns each check with the binding it waits on or used, that binding's digest (computed here, so clients never re-implement the canonical form) and its analysis.
 - `GET /api/runs/{id}/evidence` returns the run's evidence records.
 
 **Writes** need the session, the CSRF token in `X-CSRF-Token`, and an `Origin` equal to the dashboard's. A missing or foreign `Origin` is refused. Deciding also needs `write` permission on the run's repository. Every decision is recorded as a `HumanDecision`, built on the server from the session; none changes a check result.
@@ -106,7 +106,7 @@ Reproduction takes minutes in fresh environments, so it is not run inside a requ
 These are the remaining steps of work package 9 (#47):
 
 - a queued reproduction job and its route;
-- the dashboard.
+- a browser end-to-end test of the whole review through the [dashboard](../dashboard/README.md).
 
 No GitHub App is registered for this project. Everything here is tested against signed fixture events and a fake GitHub (`tests/github_env.py`) that verifies App JWTs against the App's public key and checks token scope and expiry. Nothing has talked to the real GitHub.
 
