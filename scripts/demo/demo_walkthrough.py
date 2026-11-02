@@ -8,6 +8,7 @@ on screen. Nothing on the page is altered or staged.
 
 import html
 import os
+import re
 import shutil
 import subprocess
 from collections.abc import Iterator
@@ -16,7 +17,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from playwright.sync_api import Browser, Page, StorageState, expect, sync_playwright
+from playwright.sync_api import Browser, Locator, Page, StorageState, expect, sync_playwright
 
 DASHBOARD = "http://127.0.0.1:3000"
 HOLD = 2500
@@ -46,6 +47,39 @@ CAPTION = """text => {
 def caption(page: Page, text: str, hold: int = HOLD) -> None:
     page.evaluate(CAPTION, text)
     page.wait_for_timeout(hold)
+
+
+def scroll_to(target: Locator) -> None:
+    """Bring an element to the middle of the view at once.
+
+    Playwright's own scrolling waits for the element to stop moving, and the dashboard
+    refreshes while a run is open, which held a step still for seconds.
+    """
+    target.evaluate("element => element.scrollIntoView({block: 'center'})")
+
+
+def card_start(ffmpeg: str, segment: Path) -> float:
+    """Seconds into a recording at which its dark card is drawn: before it, the page is blank."""
+    probe = subprocess.run(  # noqa: S603
+        [
+            ffmpeg,
+            "-i",
+            str(segment),
+            "-t",
+            "8",
+            "-an",
+            "-vf",
+            "signalstats,metadata=print:key=lavfi.signalstats.YAVG",
+            "-f",
+            "null",
+            "-",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    frames = re.findall(r"pts_time:([0-9.]+)[^\n]*\n[^\n]*YAVG=([0-9.]+)", probe.stderr)
+    return next((float(time) for time, luma in frames if float(luma) < 80), 0.0)
 
 
 def short(run_id: UUID) -> str:
@@ -83,7 +117,7 @@ class Walkthrough:
                 footer=html.escape(FOOTER),
             )
         )
-        page.wait_for_timeout(3500)
+        page.wait_for_timeout(3000)
         try:
             yield page
         finally:
@@ -97,36 +131,33 @@ class Walkthrough:
         page.goto(f"{DASHBOARD}/runs/{run_id}")
         expect(page.locator("h1")).to_contain_text(verdict)
 
-    def _preview(self, page: Page, role: str, order: int, text: str) -> None:
-        """Open a preview from the run page, show one order on it, and come back."""
-        run_page = page.url
-        with page.expect_popup() as popup:
-            page.get_by_role("button", name=f"Open {role} preview").click()
-        preview = popup.value
-        preview.wait_for_load_state()
-        scheme, _, host = preview.url.split("/", 3)[:3]
-        preview.close()
-        page.goto(f"{scheme}//{host}/orders/{order}")
-        expect(page.get_by_test_id("refunded-total")).to_be_visible()
-        caption(page, text, hold=3500)
-        page.goto(run_page)
-        expect(page.locator("h1")).to_be_visible()
+    def _preview_origins(self, page: Page) -> dict[str, str]:
+        """Open both previews from the run page; the origin each one's grant opened."""
+        origins = {}
+        for role in ("reference", "candidate"):
+            with page.expect_popup() as popup:
+                page.get_by_role("button", name=f"Open {role} preview").click()
+            preview = popup.value
+            preview.wait_for_load_state()
+            scheme, _, host = preview.url.split("/", 3)[:3]
+            origins[role] = f"{scheme}//{host}"
+            preview.close()
+        return origins
 
-    def _approve_every_binding(self, page: Page, comment: str) -> int:
+    def _show_order(self, page: Page, origin: str, order: int, text: str) -> None:
+        page.goto(f"{origin}/orders/{order}")
+        expect(page.get_by_test_id("refunded-total")).to_be_visible()
+        caption(page, text, hold=3000)
+
+    def _approve_every_binding(self, page: Page, comment: str, explain: str) -> int:
         """Approve each binding awaiting review on this run; how many there were."""
         reviews = page.locator("section.binding")
         count = reviews.count()
         for index in range(count):
             review = reviews.nth(index)
-            review.scroll_into_view_if_needed()
+            scroll_to(review)
             if index == 0:
-                caption(
-                    page,
-                    f"The pull request proposes {count} bindings: how its new ledger maps onto "
-                    "each protected contract. The reviewer reads each one's SQL and the "
-                    "relations it reads, then approves it.",
-                    hold=5000,
-                )
+                caption(page, explain.format(count=count), hold=4000)
                 review.get_by_label("Comment (optional)").fill(comment)
             review.get_by_role("button", name="Approve binding").click()
             expect(page.get_by_role("status")).to_contain_text("Approved", timeout=STARTS)
@@ -144,17 +175,23 @@ class Walkthrough:
             page.goto(f"{DASHBOARD}/")
             page.get_by_role("link", name="Sign in with GitHub").click()
             expect(page.get_by_text("Signed in as maintainer")).to_be_visible()
-            caption(page, "The reviewer signs in with GitHub (simulated here).", hold=2000)
+            caption(page, "The reviewer signs in with GitHub (simulated here).", hold=1500)
             page.get_by_role("link", name=short(run_id)).click()
             expect(page.locator("h1")).to_contain_text("INCOMPLETE")
             caption(
                 page,
                 "INCOMPLETE, so the required GitHub check is not green: nothing the pull "
                 "request brings is trusted until a reviewer approves it.",
-                hold=4000,
+                hold=3500,
             )
-            self._approve_every_binding(page, "Reads the new ledger table.")
-            caption(page, "Each approval is recorded; one new run carries all of them.", 2500)
+            self._approve_every_binding(
+                page,
+                "Reads the new ledger table.",
+                "The pull request proposes {count} bindings: how its new ledger maps onto each "
+                "protected contract. The reviewer reads each one's SQL and what it reads, then "
+                "approves it.",
+            )
+            caption(page, "Each approval is recorded; one new run carries all of them.", 2000)
 
     def blocked(self, run_id: UUID, waited: float, correction: str) -> None:
         with self._step(
@@ -164,42 +201,46 @@ class Walkthrough:
             "off camera.",
         ) as page:
             self._open_run(page, run_id, "BLOCKED")
-            caption(page, "BLOCKED: the migration ran without error, yet contracts fail.", 3000)
+            caption(page, "BLOCKED: the migration ran without error, yet contracts fail.", 2500)
             row = page.locator("article.check.fail tr", has_text="1002").first
-            row.scroll_into_view_if_needed()
+            scroll_to(row)
             caption(
                 page,
                 "Refund event 1002 is 49.99 in the reference and 99.98 in the candidate. Every "
                 "changed value is a whole multiple of the original.",
-                hold=4500,
+                hold=1500,
             )
-            self._preview(
+            origins = self._preview_origins(page)  # the caption stays up meanwhile
+            page.wait_for_timeout(1500)
+            run_page = page.url
+            self._show_order(
                 page,
-                "reference",
+                origins["reference"],
                 1,
                 "The reference preview (base commit, its own host and database): order 1 "
                 "refunded 49.99.",
             )
-            self._preview(
+            self._show_order(
                 page,
-                "candidate",
+                origins["candidate"],
                 1,
                 "The candidate preview (head commit after the migration): the same order now "
                 "shows the doubled refund.",
             )
-            page.get_by_role("heading", name="Findings").scroll_into_view_if_needed()
+            page.goto(run_page)
+            scroll_to(page.get_by_role("heading", name="Findings"))
             caption(
                 page,
                 "The diagnosis cites its evidence: here the rule-based, model-off one, since no "
                 "AI model is called in this rehearsal. Only the checks decide the verdict.",
-                hold=5000,
+                hold=4500,
             )
             page.get_by_label("Correction commit").fill(correction)
             page.get_by_role("button", name="Replay a correction").click()
             expect(page.get_by_role("status")).to_contain_text(
                 "Correction run started", timeout=STARTS
             )
-            caption(page, "The reviewer replays the corrected commit on the same baseline.", 2500)
+            caption(page, "The reviewer replays the corrected commit on the same baseline.", 2000)
 
     def correction_review(self, run_id: UUID, waited: float) -> None:
         with self._step(
@@ -209,7 +250,11 @@ class Walkthrough:
             "is bound to one commit and one binding digest, so nothing carries over silently.",
         ) as page:
             self._open_run(page, run_id, "INCOMPLETE")
-            self._approve_every_binding(page, "Same ledger mapping on the corrected commit.")
+            self._approve_every_binding(
+                page,
+                "Same ledger mapping on the corrected commit.",
+                "INCOMPLETE again: the reviewer approves the corrected commit's {count} bindings.",
+            )
 
     def checked(self, run_id: UUID, waited: float) -> None:
         with self._step(
@@ -222,34 +267,32 @@ class Walkthrough:
                 page,
                 "CHECKED: every protected contract passes on the corrected commit, and the "
                 "result is published as that commit's GitHub check.",
-                hold=4500,
+                hold=4000,
             )
-            page.get_by_role("heading", name="Coverage").scroll_into_view_if_needed()
-            caption(page, "The coverage table lists every contract and its outcome.", 3500)
 
     def join(self, out: Path) -> Path:
         """One MP4 of every step, in order: needs ffmpeg on the path, or ``FFMPEG``.
 
-        Each recording starts with a blank frame before its card is drawn; that is skipped.
+        Each recording starts blank until its card is drawn; that is skipped.
         """
         ffmpeg = os.environ.get("FFMPEG") or shutil.which("ffmpeg")
         if ffmpeg is None:
             raise SystemExit(f"no ffmpeg to join the steps; they are {self.segments}")
-        listing = out.with_suffix(".txt")
-        entries = [f"file '{p.as_posix()}'\ninpoint 0.8\n" for p in self.segments]
-        listing.write_text("".join(entries), "utf-8")
+        inputs: list[str] = []
+        for segment in self.segments:  # seeking before each input is frame-accurate
+            inputs += ["-ss", f"{card_start(ffmpeg, segment):.2f}", "-i", str(segment)]
+        streams = "".join(f"[{index}:v]" for index in range(len(self.segments)))
         subprocess.run(  # noqa: S603
             [
                 ffmpeg,
                 "-y",
                 "-loglevel",
                 "error",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                str(listing),
+                *inputs,
+                "-filter_complex",
+                f"{streams}concat=n={len(self.segments)}:v=1:a=0[video]",
+                "-map",
+                "[video]",
                 "-c:v",
                 "libx264",
                 "-crf",

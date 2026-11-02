@@ -120,6 +120,7 @@ A deployment is a trusted operator file plus secrets from the environment (`depl
 
   A missing or short secret stops the process with the variable's name.
 - **Derived, not configured:** each repository's dataset digest comes from its baseline, and the engine version from the installed runner.
+- **Where commits come from:** `[github] git_url` (default `https://github.com`). The worker fetches `<git_url>/<owner>/<name>.git` with an installation token. Only `https://` is accepted, and `file://` for the local rehearsal (`scripts/demo/rehearse.py`).
 
 Each process runs as `python -m dataproof_api <process>`:
 

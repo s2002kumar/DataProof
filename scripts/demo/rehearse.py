@@ -379,7 +379,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for run in github.runs_on(sha):
                     print(f"GitHub check run on {sha[:12]}: {run.status} {run.conclusion}")
             if args.record:
-                print("video:", walk.join(args.out / "rehearsal.webm"))
+                print("video:", walk.join(args.out / "rehearsal.mp4"))
     return 0
 
 

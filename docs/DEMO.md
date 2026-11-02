@@ -89,7 +89,7 @@ uv run python scripts/demo/rehearse.py --image <runtime image ID> --record
 
   The script then prints the check runs that GitHub received.
 - **Between steps** the script cancels, off camera, the runs the walk-through has finished with. A run in review holds its databases and previews until its review expires, and one machine's Docker address pool holds only a few runs. Their reports and decisions stand.
-- **The recording:** with `--record`, every step is recorded and the steps are joined into `.dataproof-demo/rehearsal/rehearsal.webm`. Joining needs `ffmpeg` on the path, or `FFMPEG` set. Waiting for a run happens off camera, and each step opens with a card that says how long the wait took. Captions are drawn as a subtitle bar that is clearly not part of the product. Nothing is sped up or staged.
+- **The recording:** with `--record`, every step is recorded and the steps are joined into `.dataproof-demo/rehearsal/rehearsal.mp4`. Joining needs `ffmpeg` on the path, or `FFMPEG` set. Waiting for a run happens off camera, and each step opens with a card that says how long the wait took. Captions are drawn as a subtitle bar that is clearly not part of the product. Nothing is sped up or staged.
 
 ## README ordering after implementation
 
