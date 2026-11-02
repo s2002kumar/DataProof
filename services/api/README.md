@@ -127,17 +127,31 @@ Each process runs as `python -m dataproof_api <process>`:
 | --- | --- |
 | `migrate` | Applies the control database's migrations |
 | `api` | Webhook intake and the reviewer API (default `127.0.0.1:8000`) |
+| `webhook` | Webhook intake alone (default `127.0.0.1:8001`): `POST /github/webhook` and no other route, not even the OpenAPI document. This is the only process a tunnel exposes. |
 | `gateway` | The signed preview gateway (default `127.0.0.1:8080`), behind the preview domain's wildcard certificate |
 | `worker` | Claims queued runs and reproduction requests and runs them on the local Docker backend. Each run uses its stored configuration, with the source broker fetching exact commits into `<data_dir>/mirror.git`. It times out overdue runs every 30 seconds |
 | `publisher` | Publishes check runs to GitHub every few seconds |
 
 The dashboard runs separately (`next start`) on the dashboard's origin, with `/api` and `/auth` routed to the `api` process.
 
+Two commands manage the GitHub App, and only the owner runs them:
+
+- `register-app --name … --webhook-url …` creates the App through GitHub's manifest flow, from a page served on the loopback. The App is private, with `checks: write`, read-only `contents`, `metadata` and `pull_requests`, and only `pull_request` events. Its key, webhook secret and client secret are written with owner-only permissions to `~/.dataproof/github-app/`, and none is printed.
+- `webhook-url <tunnel address>` points the App's webhook at a new quick-tunnel address, as the App itself.
+
+`[previews] port` puts a port in preview links. Locally, `previews.localhost` with port `8080` reaches the gateway. [`deployment.demo.toml`](deployment.demo.toml) is the template for the local live demo, and [`scripts/demo/stack.py`](../../scripts/demo/stack.py) starts every process; see [DEMO](../../docs/DEMO.md#live-setup).
+
 No GitHub App is registered for this project. Everything here is tested against signed fixture events and a fake GitHub (`tests/github_env.py`) that verifies App JWTs against the App's public key and checks token scope and expiry. Nothing has talked to the real GitHub.
 
 ## Tests
 
 - **`tests/unit/test_webhooks.py`:** signature verification, including altered bodies, wrong secrets, missing or `sha1=` signatures. Event parsing accepts people and apps (`dependabot[bot]`) and rejects malformed logins.
+- **`tests/unit/test_github_app_readiness.py`:**
+  - the App's manifest asks for the least DataProof needs;
+  - the webhook process serves `POST /github/webhook` and nothing else;
+  - registration accepts only its own state, stores the credentials, and never shows them;
+  - the webhook follows a new tunnel address as the App;
+  - each demo pull request changes only what DataProof executes.
 - **`tests/unit/test_deployment.py`:**
   - the example deployment loads;
   - a secret or unknown key anywhere in the file is refused, and so is a non-loopback `http://` origin;
