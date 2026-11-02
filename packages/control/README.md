@@ -74,7 +74,7 @@ Migration 0007 adds two write-once tables:
 - The decision is bound to the head SHA of the run decided on and to the binding's digest. A head that the pull request has moved past is refused (`StaleHeadError`). The current head is the one of the pull request's latest webhook or manual run, or of a correction replay requested after it.
 - The first decision on a binding at a head stands. Repeating it returns it, with the run it started; contradicting it is refused (`DecisionConflictError`).
 - An approval starts a `BINDING_APPROVAL` run, with the run decided on as its parent, under the configuration that `configure` builds from every approval and rejection at that head. The configuration, the run and the decision are written in one transaction under the pull request's lock, so concurrent approvals at one head each see the ones before them.
-- The run decided on is never resumed or changed, and the new run supersedes nothing.
+- The run decided on is never resumed or changed. The new run supersedes only approval runs at the same head that are still queued, since its configuration carries every approval theirs did. A reviewer who approves five bindings starts one run that completes the review, not five; approval runs that have started keep their results.
 
 Authorization and the approver rule belong to the caller, the reviewer API (work package 9). The store records what an authorized reviewer decided.
 

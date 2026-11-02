@@ -57,7 +57,8 @@ Effects = Callable[[Connection], None]
 
 _MAX_ERROR_TEXT = 2000
 #: Triggers whose runs start from a new pull request head and supersede older heads. Runs that a
-#: decision derives from an earlier run never supersede anything.
+#: decision derives from an earlier run supersede no other head; an approval run supersedes only
+#: approval runs at its own head that have not started (``decide_binding``).
 _SUPERSEDING_TRIGGERS = frozenset({RunTrigger.WEBHOOK, RunTrigger.MANUAL})
 
 
@@ -376,8 +377,12 @@ class RunStore:
         a head stands: repeating it returns it, contradicting it is refused. An approval starts a
         new run (``binding_approval``, parent = the run decided on) under the configuration that
         ``configure`` builds from every approval and rejection at that head. The run decided on
-        is never resumed or changed, and the new run supersedes nothing. Authorization and the
-        approver rule are the caller's: this records what an authorized reviewer decided.
+        is never resumed or changed. The new run supersedes only the approval runs at this head
+        that are still queued: its configuration carries every approval theirs did, so running
+        them would repeat the work for a strictly older configuration. A reviewer who approves
+        five bindings starts one run that completes the review, not five. Approval runs that
+        have started keep running and keep their results. Authorization and the approver rule
+        are the caller's: this records what an authorized reviewer decided.
         """
         if decision.action not in BINDING_DECISIONS:
             raise ValueError(f"{decision.action} is not a binding decision")
@@ -426,6 +431,10 @@ class RunStore:
                     retry=retry,
                     parent_run_id=run.run_id,
                 )
+                superseded = self._supersede_queued_approvals(
+                    conn, created.run.run_id, inputs, actor=f"user:{decision.actor}"
+                )
+                created = replace(created, superseded=superseded)
             self._insert_decision(
                 conn, decision, inputs.repository, created.run.run_id if created else None
             )
@@ -523,6 +532,28 @@ class RunStore:
             """,
             (inputs.repository, inputs.pull_request, inputs.head_sha),
         ).fetchall()
+        return self._retire(conn, new_run, rows, actor=actor)
+
+    def _supersede_queued_approvals(
+        self, conn: Connection, new_run: UUID, inputs: RunInputs, *, actor: str
+    ) -> tuple[UUID, ...]:
+        rows = conn.execute(
+            """
+            SELECT run_id, state FROM runs
+            WHERE repository = %s AND pull_request = %s AND head_sha = %s
+              AND trigger = 'binding_approval' AND run_id <> %s
+              AND superseded_by IS NULL AND state = 'QUEUED'
+            ORDER BY created_at, run_id
+            FOR UPDATE
+            """,
+            (inputs.repository, inputs.pull_request, inputs.head_sha, new_run),
+        ).fetchall()
+        return self._retire(conn, new_run, rows, actor=actor)
+
+    def _retire(
+        self, conn: Connection, new_run: UUID, rows: list[DictRow], *, actor: str
+    ) -> tuple[UUID, ...]:
+        """Mark runs superseded by ``new_run`` and cancel those not yet past cancellation."""
         for row in rows:
             conn.execute(
                 "UPDATE runs SET superseded_by = %s, updated_at = statement_timestamp() "

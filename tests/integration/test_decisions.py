@@ -5,7 +5,7 @@ import json
 import threading
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -125,7 +125,7 @@ def test_an_approval_starts_a_child_run_and_leaves_the_original_alone(store: Run
     started = outcome.started
     assert started is not None
     assert started.created
-    assert started.superseded == (), "a run started by a decision supersedes nothing"
+    assert started.superseded == (), "the first approval at a head supersedes nothing"
     child = started.run
     assert child.trigger is RunTrigger.BINDING_APPROVAL
     assert child.parent_run_id == original.run_id
@@ -162,6 +162,44 @@ def test_an_approval_carries_every_decision_made_at_that_head(store: RunStore) -
     assert configs.calls == [(frozenset({D1, D2}), frozenset({D3}))]
     assert second is not None
     assert second.run.parent_run_id == first.run.run_id
+
+
+def test_approving_several_bindings_leaves_one_queued_run_with_all_of_them(
+    store: RunStore,
+) -> None:
+    original = create(store).run
+    runs = []
+    for digest in (D1, D2, D3):
+        started = record(store, decide(original, APPROVE, digest)).started
+        assert started is not None
+        runs.append(started)
+    first, second, third = runs
+
+    assert first.superseded == ()
+    assert second.superseded == (first.run.run_id,)
+    assert third.superseded == (second.run.run_id,)
+    for older, newer in ((first, second), (second, third)):
+        retired = store.get_run(older.run.run_id)
+        assert retired.superseded_by == newer.run.run_id
+        assert retired.state is RunState.CANCELLED, "a queued run never starts"
+    assert store.get_run(third.run.run_id).state is RunState.QUEUED
+    assert store.get_run(original.run_id).superseded_by is None, "the webhook run stands"
+
+
+def test_an_approval_run_that_has_started_is_not_superseded(store: RunStore) -> None:
+    original = create(store).run
+    first = record(store, decide(original, APPROVE, D1)).started
+    assert first is not None
+    for _ in range(2):  # the webhook run, then the approval run
+        claim = store.claim("worker", lease=timedelta(minutes=5))
+        assert claim is not None
+        store.advance(claim, RunState.FETCHING)
+    assert store.get_run(first.run.run_id).state is RunState.FETCHING
+
+    second = record(store, decide(original, APPROVE, D2)).started
+    assert second is not None
+    assert second.superseded == ()
+    assert store.get_run(first.run.run_id).superseded_by is None, "its results will stand"
 
 
 def test_a_decision_stands_once_made(store: RunStore) -> None:
