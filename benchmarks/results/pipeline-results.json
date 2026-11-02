@@ -1,0 +1,942 @@
+{
+  "tier": "pipeline (the real worker on local Docker, with previews of both commits)",
+  "machine": "Windows AMD64, 22 CPUs",
+  "runtime_image": "sha256:acd909e04803d275e496139148e6268777c85e2826a44bd882b9dc2d8135a343",
+  "cases": [
+    {
+      "case_id": "case-101",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "legacy table retired",
+      "expected_failing": [],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "CHECKED",
+      "conclusion": "success",
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS",
+        "commerce.c6_order_totals_api": "PASS",
+        "commerce.c6_refund_events_api": "PASS",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.6,
+        "FETCHING": 0.7,
+        "ANALYZING": 0.6,
+        "PROVISIONING": 41.0,
+        "MIGRATING": 22.4,
+        "VERIFYING": 58.2,
+        "REPORTING": 23.1,
+        "READY_FOR_REVIEW": 0.9,
+        "CLEANING": 10.5
+      },
+      "seconds_to_review": 157.8,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 10.1,
+          "ready_seconds": 16.1,
+          "peak_memory_mib": 549.3,
+          "cpu_seconds": 20.8
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 13.4,
+          "ready_seconds": 20.1,
+          "peak_memory_mib": 696.7,
+          "cpu_seconds": 24.3
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "detected": false,
+      "agrees": true,
+      "also_failed": []
+    },
+    {
+      "case_id": "case-102",
+      "family": "NULL and empty confusion",
+      "kind": "fault",
+      "variant": "NULL to empty",
+      "expected_failing": [],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "CHECKED",
+      "conclusion": "success",
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS",
+        "commerce.c6_order_totals_api": "PASS",
+        "commerce.c6_refund_events_api": "PASS",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.4,
+        "FETCHING": 0.5,
+        "ANALYZING": 0.4,
+        "PROVISIONING": 37.3,
+        "MIGRATING": 22.3,
+        "VERIFYING": 58.9,
+        "REPORTING": 20.3,
+        "READY_FOR_REVIEW": 1.1,
+        "CLEANING": 8.8
+      },
+      "seconds_to_review": 150.1,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 11.3,
+          "ready_seconds": 18.2,
+          "peak_memory_mib": 631.7,
+          "cpu_seconds": 22.7
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 11.4,
+          "ready_seconds": 17.0,
+          "peak_memory_mib": 570.9,
+          "cpu_seconds": 25.0
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "detected": false,
+      "agrees": true,
+      "also_failed": []
+    },
+    {
+      "case_id": "case-103",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "extra column and index",
+      "expected_failing": [],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "CHECKED",
+      "conclusion": "success",
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS",
+        "commerce.c6_order_totals_api": "PASS",
+        "commerce.c6_refund_events_api": "PASS",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.5,
+        "FETCHING": 0.8,
+        "ANALYZING": 0.6,
+        "PROVISIONING": 44.6,
+        "MIGRATING": 30.0,
+        "VERIFYING": 71.3,
+        "REPORTING": 24.6,
+        "READY_FOR_REVIEW": 0.9,
+        "CLEANING": 11.4
+      },
+      "seconds_to_review": 184.7,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 13.8,
+          "ready_seconds": 22.5,
+          "peak_memory_mib": 644.3,
+          "cpu_seconds": 28.3
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 11.2,
+          "ready_seconds": 21.0,
+          "peak_memory_mib": 569.9,
+          "cpu_seconds": 26.6
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "detected": false,
+      "agrees": true,
+      "also_failed": []
+    },
+    {
+      "case_id": "case-104",
+      "family": "join multiplication",
+      "kind": "fault",
+      "variant": "all events",
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "BLOCKED",
+      "conclusion": "failure",
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "FAIL",
+        "commerce.c6_order_totals_api": "FAIL",
+        "commerce.c6_refund_events_api": "FAIL",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.6,
+        "FETCHING": 0.8,
+        "ANALYZING": 0.7,
+        "PROVISIONING": 48.4,
+        "MIGRATING": 26.8,
+        "VERIFYING": 64.3,
+        "INVESTIGATING": 1.0,
+        "REPORTING": 59.5,
+        "READY_FOR_REVIEW": 1.0,
+        "CLEANING": 9.5
+      },
+      "seconds_to_review": 212.6,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 10.5,
+          "ready_seconds": 16.4,
+          "peak_memory_mib": 533.8,
+          "cpu_seconds": 22.0
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 16.2,
+          "ready_seconds": 22.8,
+          "peak_memory_mib": 670.3,
+          "cpu_seconds": 33.3
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "detected": true,
+      "agrees": true,
+      "also_failed": [
+        "commerce.c6_order_totals_api",
+        "commerce.c6_refund_events_api"
+      ]
+    },
+    {
+      "case_id": "case-105",
+      "family": "retry effects",
+      "kind": "fault",
+      "variant": "refunds inserted again",
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals"
+      ],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "BLOCKED",
+      "conclusion": "failure",
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "PASS",
+        "commerce.c6_order_totals_api": "FAIL",
+        "commerce.c6_refund_events_api": "FAIL",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.5,
+        "FETCHING": 0.6,
+        "ANALYZING": 0.3,
+        "PROVISIONING": 40.8,
+        "MIGRATING": 18.4,
+        "VERIFYING": 27.5,
+        "INVESTIGATING": 0.2,
+        "REPORTING": 24.5,
+        "READY_FOR_REVIEW": 0.4,
+        "CLEANING": 12.7
+      },
+      "seconds_to_review": 125.7,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 11.5,
+          "ready_seconds": 15.6,
+          "peak_memory_mib": 610.2,
+          "cpu_seconds": 24.3
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 10.0,
+          "ready_seconds": 14.4,
+          "peak_memory_mib": 609.6,
+          "cpu_seconds": 20.8
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "detected": true,
+      "agrees": true,
+      "also_failed": [
+        "commerce.c6_order_totals_api",
+        "commerce.c6_refund_events_api"
+      ]
+    },
+    {
+      "case_id": "case-107",
+      "family": "balanced loss and duplication",
+      "kind": "fault",
+      "variant": "equal amounts",
+      "expected_failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "BLOCKED",
+      "conclusion": "failure",
+      "outcomes": {
+        "commerce.c1_event_preservation": "ERROR",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS",
+        "commerce.c6_order_totals_api": "PASS",
+        "commerce.c6_refund_events_api": "PASS",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.1,
+        "FETCHING": 0.3,
+        "ANALYZING": 0.2,
+        "PROVISIONING": 68.4,
+        "MIGRATING": 33.5,
+        "VERIFYING": 27.4,
+        "INVESTIGATING": 0.2,
+        "REPORTING": 13.4,
+        "READY_FOR_REVIEW": 0.2,
+        "CLEANING": 9.1
+      },
+      "seconds_to_review": 152.6,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 19.9,
+          "ready_seconds": 24.6,
+          "peak_memory_mib": 604.7,
+          "cpu_seconds": 39.3
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 35.3,
+          "ready_seconds": 44.5,
+          "peak_memory_mib": 689.2,
+          "cpu_seconds": 69.7
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "detected": true,
+      "agrees": true,
+      "also_failed": []
+    },
+    {
+      "case_id": "case-109",
+      "family": "wrong column mapping",
+      "kind": "fault",
+      "variant": "time from the order",
+      "expected_failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "BLOCKED",
+      "conclusion": "failure",
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS",
+        "commerce.c6_order_totals_api": "PASS",
+        "commerce.c6_refund_events_api": "FAIL",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.1,
+        "FETCHING": 0.3,
+        "ANALYZING": 0.1,
+        "PROVISIONING": 48.1,
+        "MIGRATING": 30.7,
+        "VERIFYING": 31.6,
+        "INVESTIGATING": 0.2,
+        "REPORTING": 16.6,
+        "READY_FOR_REVIEW": 0.2,
+        "CLEANING": 10.2
+      },
+      "seconds_to_review": 138.0,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 18.9,
+          "ready_seconds": 25.2,
+          "peak_memory_mib": 615.9,
+          "cpu_seconds": 40.0
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 22.8,
+          "ready_seconds": 30.0,
+          "peak_memory_mib": 557.5,
+          "cpu_seconds": 46.3
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "detected": true,
+      "agrees": true,
+      "also_failed": [
+        "commerce.c6_refund_events_api"
+      ]
+    },
+    {
+      "case_id": "case-110",
+      "family": "partial migration",
+      "kind": "fault",
+      "variant": "batch boundary skipped",
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "BLOCKED",
+      "conclusion": "failure",
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "FAIL",
+        "commerce.c6_order_totals_api": "FAIL",
+        "commerce.c6_refund_events_api": "FAIL",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.1,
+        "FETCHING": 0.2,
+        "ANALYZING": 0.1,
+        "PROVISIONING": 41.2,
+        "MIGRATING": 26.6,
+        "VERIFYING": 28.3,
+        "INVESTIGATING": 0.2,
+        "REPORTING": 15.3,
+        "READY_FOR_REVIEW": 0.2,
+        "CLEANING": 8.8
+      },
+      "seconds_to_review": 121.0,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 14.9,
+          "ready_seconds": 22.1,
+          "peak_memory_mib": 659.6,
+          "cpu_seconds": 32.0
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 18.9,
+          "ready_seconds": 24.3,
+          "peak_memory_mib": 559.0,
+          "cpu_seconds": 37.5
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "detected": true,
+      "agrees": true,
+      "also_failed": [
+        "commerce.c6_order_totals_api",
+        "commerce.c6_refund_events_api"
+      ]
+    },
+    {
+      "case_id": "case-111",
+      "family": "lossy numeric conversion",
+      "kind": "fault",
+      "variant": "one currency floored",
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "BLOCKED",
+      "conclusion": "failure",
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "FAIL",
+        "commerce.c6_order_totals_api": "FAIL",
+        "commerce.c6_refund_events_api": "FAIL",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.1,
+        "FETCHING": 0.2,
+        "ANALYZING": 0.1,
+        "PROVISIONING": 38.9,
+        "MIGRATING": 23.7,
+        "VERIFYING": 26.7,
+        "INVESTIGATING": 0.2,
+        "REPORTING": 12.7,
+        "READY_FOR_REVIEW": 0.1,
+        "CLEANING": 7.0
+      },
+      "seconds_to_review": 109.7,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 16.2,
+          "ready_seconds": 20.2,
+          "peak_memory_mib": 628.9,
+          "cpu_seconds": 31.5
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 16.2,
+          "ready_seconds": 22.6,
+          "peak_memory_mib": 663.2,
+          "cpu_seconds": 33.4
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "detected": true,
+      "agrees": true,
+      "also_failed": [
+        "commerce.c6_order_totals_api",
+        "commerce.c6_refund_events_api"
+      ]
+    },
+    {
+      "case_id": "case-112",
+      "family": "timestamp shift",
+      "kind": "fault",
+      "variant": "one currency's zone",
+      "expected_failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "BLOCKED",
+      "conclusion": "failure",
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS",
+        "commerce.c6_order_totals_api": "PASS",
+        "commerce.c6_refund_events_api": "FAIL",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.1,
+        "FETCHING": 0.2,
+        "ANALYZING": 0.1,
+        "PROVISIONING": 38.3,
+        "MIGRATING": 23.0,
+        "VERIFYING": 27.7,
+        "INVESTIGATING": 0.2,
+        "REPORTING": 14.7,
+        "READY_FOR_REVIEW": 0.1,
+        "CLEANING": 12.8
+      },
+      "seconds_to_review": 117.3,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 13.7,
+          "ready_seconds": 18.1,
+          "peak_memory_mib": 640.1,
+          "cpu_seconds": 28.3
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 17.9,
+          "ready_seconds": 21.8,
+          "peak_memory_mib": 605.5,
+          "cpu_seconds": 35.4
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "detected": true,
+      "agrees": true,
+      "also_failed": [
+        "commerce.c6_refund_events_api"
+      ]
+    },
+    {
+      "case_id": "case-124",
+      "family": "orphaned reference",
+      "kind": "fault",
+      "variant": "one capture",
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c3_capture_totals"
+      ],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "BLOCKED",
+      "conclusion": "failure",
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "FAIL",
+        "commerce.c6_order_totals_api": "FAIL",
+        "commerce.c6_refund_events_api": "PASS",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.1,
+        "FETCHING": 0.2,
+        "ANALYZING": 0.1,
+        "PROVISIONING": 78.9,
+        "MIGRATING": 97.9,
+        "VERIFYING": 33.6,
+        "INVESTIGATING": 0.2,
+        "REPORTING": 16.1,
+        "READY_FOR_REVIEW": 0.2,
+        "CLEANING": 9.1
+      },
+      "seconds_to_review": 236.6,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 41.9,
+          "ready_seconds": 60.7,
+          "peak_memory_mib": 670.6,
+          "cpu_seconds": 85.0
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 35.3,
+          "ready_seconds": 49.8,
+          "peak_memory_mib": 619.2,
+          "cpu_seconds": 71.1
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "detected": true,
+      "agrees": true,
+      "also_failed": [
+        "commerce.c6_order_totals_api"
+      ]
+    },
+    {
+      "case_id": "case-125",
+      "family": "transposition",
+      "kind": "fault",
+      "variant": "capture pair",
+      "expected_failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "BLOCKED",
+      "conclusion": "failure",
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS",
+        "commerce.c6_order_totals_api": "PASS",
+        "commerce.c6_refund_events_api": "PASS",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.1,
+        "FETCHING": 0.3,
+        "ANALYZING": 0.2,
+        "PROVISIONING": 46.8,
+        "MIGRATING": 49.8,
+        "VERIFYING": 45.2,
+        "INVESTIGATING": 0.2,
+        "REPORTING": 20.0,
+        "READY_FOR_REVIEW": 0.2,
+        "CLEANING": 10.6
+      },
+      "seconds_to_review": 173.2,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 24.6,
+          "ready_seconds": 42.3,
+          "peak_memory_mib": 615.6,
+          "cpu_seconds": 53.8
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 24.0,
+          "ready_seconds": 30.3,
+          "peak_memory_mib": 656.0,
+          "cpu_seconds": 47.3
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "detected": true,
+      "agrees": true,
+      "also_failed": []
+    },
+    {
+      "case_id": "case-201",
+      "family": "API behaviour",
+      "kind": "fault",
+      "variant": "refunded total over every entry",
+      "expected_failing": [
+        "commerce.c6_order_totals_api"
+      ],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "BLOCKED",
+      "conclusion": "failure",
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS",
+        "commerce.c6_order_totals_api": "FAIL",
+        "commerce.c6_refund_events_api": "PASS",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.1,
+        "FETCHING": 0.3,
+        "ANALYZING": 0.1,
+        "PROVISIONING": 61.2,
+        "MIGRATING": 34.1,
+        "VERIFYING": 49.3,
+        "INVESTIGATING": 0.3,
+        "REPORTING": 21.0,
+        "READY_FOR_REVIEW": 0.2,
+        "CLEANING": 12.8
+      },
+      "seconds_to_review": 179.3,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 20.7,
+          "ready_seconds": 28.2,
+          "peak_memory_mib": 672.7,
+          "cpu_seconds": 42.8
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 22.8,
+          "ready_seconds": 30.5,
+          "peak_memory_mib": 574.9,
+          "cpu_seconds": 45.1
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals",
+        "commerce.c6_order_totals_api",
+        "commerce.c6_refund_events_api"
+      ],
+      "detected": true,
+      "agrees": true,
+      "also_failed": []
+    },
+    {
+      "case_id": "case-202",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "totals from two subqueries",
+      "expected_failing": [],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "CHECKED",
+      "conclusion": "success",
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS",
+        "commerce.c6_order_totals_api": "PASS",
+        "commerce.c6_refund_events_api": "PASS",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.1,
+        "FETCHING": 0.2,
+        "ANALYZING": 0.1,
+        "PROVISIONING": 60.3,
+        "MIGRATING": 67.4,
+        "VERIFYING": 39.2,
+        "REPORTING": 16.7,
+        "READY_FOR_REVIEW": 0.2,
+        "CLEANING": 10.7
+      },
+      "seconds_to_review": 195.0,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 49.6,
+          "ready_seconds": 56.1,
+          "peak_memory_mib": 577.6,
+          "cpu_seconds": 86.2
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 24.8,
+          "ready_seconds": 32.3,
+          "peak_memory_mib": 673.8,
+          "cpu_seconds": 49.4
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals",
+        "commerce.c6_order_totals_api",
+        "commerce.c6_refund_events_api"
+      ],
+      "detected": false,
+      "agrees": true,
+      "also_failed": []
+    },
+    {
+      "case_id": "case-203",
+      "family": "API behaviour",
+      "kind": "fault",
+      "variant": "transaction amounts rounded",
+      "expected_failing": [
+        "commerce.c6_refund_events_api"
+      ],
+      "state_at_review": "READY_FOR_REVIEW",
+      "final_state": "COMPLETE",
+      "error_code": null,
+      "verdict": "BLOCKED",
+      "conclusion": "failure",
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS",
+        "commerce.c6_order_totals_api": "PASS",
+        "commerce.c6_refund_events_api": "FAIL",
+        "migration.execute": "PASS",
+        "preview.candidate": "PASS"
+      },
+      "stage_seconds": {
+        "QUEUED": 0.1,
+        "FETCHING": 0.2,
+        "ANALYZING": 0.1,
+        "PROVISIONING": 104.8,
+        "MIGRATING": 68.3,
+        "VERIFYING": 57.2,
+        "INVESTIGATING": 0.3,
+        "REPORTING": 52.8,
+        "READY_FOR_REVIEW": 0.2,
+        "CLEANING": 48.8
+      },
+      "seconds_to_review": 332.8,
+      "previews": {
+        "CANDIDATE": {
+          "ready": true,
+          "build_seconds": 43.3,
+          "ready_seconds": 52.8,
+          "peak_memory_mib": 611.8,
+          "cpu_seconds": 83.2
+        },
+        "REFERENCE": {
+          "ready": true,
+          "build_seconds": 62.8,
+          "ready_seconds": 72.2,
+          "peak_memory_mib": 487.5,
+          "cpu_seconds": 87.0
+        }
+      },
+      "left_behind": 0,
+      "labelled_contracts": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals",
+        "commerce.c6_order_totals_api",
+        "commerce.c6_refund_events_api"
+      ],
+      "detected": true,
+      "agrees": true,
+      "also_failed": []
+    }
+  ]
+}

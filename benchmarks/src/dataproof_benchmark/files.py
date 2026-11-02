@@ -11,7 +11,13 @@ from dataclasses import asdict
 from pathlib import Path
 
 import commerce_scenario
-from dataproof_benchmark.corpus import CORPUS_SEED, CORPUS_VERSION, Case, build_corpus
+from dataproof_benchmark.corpus import (
+    CORPUS_SEED,
+    CORPUS_VERSION,
+    Case,
+    build_api_cases,
+    build_corpus,
+)
 
 #: The ledger bindings every case proposes (the safe ledger change set's).
 BINDINGS = (
@@ -24,42 +30,51 @@ PROVENANCE = (
 )
 
 
-def rendered(cases: list[Case]) -> dict[str, str]:
-    """Every file of the corpus, by path relative to the corpus directory."""
+def _label(case: Case) -> dict[str, object]:
+    return {
+        "case_id": case.case_id,
+        "change": case.change,
+        "revision": case.revision,
+        "holdout": case.holdout,
+        **asdict(case.label),
+    }
+
+
+def rendered(cases: list[Case], api_cases: list[Case]) -> dict[str, str]:
+    """Every file of the corpus, by path relative to the corpus directory.
+
+    Data cases live in ``changes/`` (the database tier runs them all); API behaviour cases live
+    in ``api/`` with the payments API their pull request carries (the pipeline tier).
+    """
     files: dict[str, str] = {}
-    for case in cases:
-        directory = f"changes/{case.change}"
-        files[f"{directory}/{case.revision}_ledger_backfill.py"] = case.source()
-        for binding in sorted(BINDINGS.glob("*.toml")):
-            files[f"{directory}/bindings/{binding.name}"] = binding.read_text("utf-8")
+    for kind, group in (("changes", cases), ("api", api_cases)):
+        for case in group:
+            directory = f"{kind}/{case.change}"
+            files[f"{directory}/{case.revision}_ledger_backfill.py"] = case.source()
+            if case.api_source is not None:
+                files[f"{directory}/payments.py"] = case.api_source
+            for binding in sorted(BINDINGS.glob("*.toml")):
+                files[f"{directory}/bindings/{binding.name}"] = binding.read_text("utf-8")
     labels = {
         "corpus_version": CORPUS_VERSION,
         "seed": CORPUS_SEED,
         "provenance": PROVENANCE,
-        "cases": [
-            {
-                "case_id": case.case_id,
-                "change": case.change,
-                "revision": case.revision,
-                "holdout": case.holdout,
-                **asdict(case.label),
-            }
-            for case in cases
-        ],
+        "cases": [_label(case) for case in cases],
+        "api_cases": [_label(case) for case in api_cases],
     }
     files["labels.json"] = json.dumps(labels, indent=2) + "\n"
     return files
 
 
 def write(root: Path) -> None:
-    for relative, text in rendered(build_corpus()).items():
+    for relative, text in rendered(build_corpus(), build_api_cases()).items():
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, "utf-8", newline="\n")
 
 
 def stale(root: Path) -> list[str]:
-    expected = rendered(build_corpus())
+    expected = rendered(build_corpus(), build_api_cases())
     present = (
         {
             p.relative_to(root).as_posix()
