@@ -1,6 +1,7 @@
 """The control store on real PostgreSQL: schema, idempotency, claims, fencing, supersession."""
 
 import threading
+import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -10,8 +11,10 @@ import pytest
 from psycopg import sql
 
 from control_env import (
+    FAST_RETRY,
     LEASE,
     NEW_HEAD_SHA,
+    RUN_TTL,
     create,
     execute,
     expire_lease,
@@ -25,6 +28,7 @@ from dataproof_control import (
     IllegalTransitionError,
     LeaseLostError,
     MigrationDriftError,
+    RunNotFoundError,
     RunStore,
     migrate,
     migrations,
@@ -410,3 +414,77 @@ def test_run_results_are_write_once(control_dsn: str, table: str) -> None:
         pytest.raises(psycopg.errors.RaiseException, match="write-once"),
     ):
         conn.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(table)))
+
+
+# Correction replay -----------------------------------------------------------------------------
+
+
+def test_a_correction_is_a_new_child_run_and_the_original_is_untouched(store: RunStore) -> None:
+    original = create(store).run
+    claim = store.advance(_claim(store), S.FETCHING)
+    before = store.get_run(original.run_id)
+    log_before = store.transitions(original.run_id)
+
+    corrected = store.start_correction_replay(
+        original.run_id,
+        head_sha=NEW_HEAD_SHA,
+        config_digest="c" * 64,
+        actor="user:alice",
+        run_ttl=RUN_TTL,
+        retry=FAST_RETRY,
+    )
+
+    assert corrected.created
+    assert corrected.superseded == (), "a correction supersedes nothing"
+    run = corrected.run
+    assert run.trigger is RunTrigger.CORRECTION_REPLAY
+    assert run.parent_run_id == original.run_id
+    assert run.inputs.head_sha == NEW_HEAD_SHA
+    assert run.inputs.base_sha == original.inputs.base_sha
+    assert run.inputs.dataset_digest == original.inputs.dataset_digest
+    assert store.transitions(run.run_id)[0].actor == "user:alice"
+    assert store.get_run(original.run_id) == before
+    assert store.transitions(original.run_id) == log_before
+    store.advance(claim, S.ANALYZING)  # the original's worker is unaffected
+
+
+def test_a_correction_of_the_same_commit_is_refused(store: RunStore) -> None:
+    original = create(store).run
+    with pytest.raises(ValueError, match="different commit"):
+        store.start_correction_replay(
+            original.run_id,
+            head_sha=original.inputs.head_sha,
+            config_digest="c" * 64,
+            actor="user:alice",
+            run_ttl=RUN_TTL,
+            retry=FAST_RETRY,
+        )
+
+
+def test_requesting_the_same_correction_twice_returns_the_same_run(store: RunStore) -> None:
+    original = create(store).run
+    first, again = (
+        store.start_correction_replay(
+            original.run_id,
+            head_sha=NEW_HEAD_SHA,
+            config_digest="c" * 64,
+            actor="user:alice",
+            run_ttl=RUN_TTL,
+            retry=FAST_RETRY,
+        )
+        for _ in range(2)
+    )
+    assert (first.created, again.created) == (True, False)
+    assert again.run.run_id == first.run.run_id
+
+
+def test_a_correction_needs_an_existing_run(store: RunStore) -> None:
+    with pytest.raises(RunNotFoundError):
+        store.start_correction_replay(
+            uuid.uuid4(),
+            head_sha=NEW_HEAD_SHA,
+            config_digest="c" * 64,
+            actor="user:alice",
+            run_ttl=RUN_TTL,
+            retry=FAST_RETRY,
+        )

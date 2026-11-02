@@ -53,6 +53,15 @@ Every working state, from `QUEUED` to `REPORTING`, may also go to `ERROR`, `CANC
 
 All times come from the database clock, so workers' clocks cannot disagree about leases. Rows are locked in the order `runs`, then `run_jobs`; a claim locks only a job and skips locked rows.
 
+## Correction replay
+
+`RunStore.start_correction_replay(original, head_sha=..., config_digest=..., actor=...)` evaluates a developer-supplied correction commit as a **new** run:
+
+- Its trigger is `CORRECTION_REPLAY`, its `parent_run_id` is the original run, and the actor is recorded on its first transition.
+- It keeps the original's repository, pull request, base SHA, dataset and engine version. It is pinned to the correction's own head SHA and config digest, because binding approvals are bound to a head SHA.
+- A correction of the commit it corrects is refused, and requesting the same correction twice returns the same run.
+- The original run, its transitions and its results are never changed, and the correction supersedes nothing.
+
 ## Run results
 
 Migration 0002 adds write-once tables for a run's results: `run_sources` (staged archives and their digests), `run_steps` (each step's exit code, timeout, duration and redacted output), `run_checks` (`CheckResult` documents with any binding analysis), `run_evidence` (query and step evidence) and `run_reports` (verdict, GitHub conclusion and coverage). Workers write them with the `record_*` functions in `results.py` inside a transition's `effects`; `RunResults` reads them. Migration 0003 adds `run_snapshots` (each sealed `pg_dump`, the digests of the live and the restored database, and whether they match) and `run_manifests` (the run's `EvidenceManifest`). Migration 0006 adds `run_reproductions`, each a `Reproduction` document. Migration 0005 adds `run_investigations`: each advisory investigation, rule-based or by a model, as an `Investigation` document. Migration 0004 adds `run_previews`: each preview's commit, URL, readiness or failure and measured cost, with the SHA-256 of its token, never the token. `UPDATE` and `DELETE` are refused on all of them: a correction or a new decision is a new run.

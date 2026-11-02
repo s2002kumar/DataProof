@@ -77,7 +77,7 @@ Implemented in [`packages/contracts`](../packages/contracts/README.md) as Pydant
 - `POST /github/webhook` → validated signed event, idempotent webhook intake.
 - `POST /runs/{id}/cancel` → authorized cancellation and cleanup.
 
-The listed endpoints specify desired behavior, not implemented routes. OpenAPI schemas are generated and contract-tested once coding begins.
+The listed endpoints specify desired behavior, not implemented routes. The operations behind two of them exist without a route or its authorization: correction replay as `RunStore.start_correction_replay` ([control](../packages/control/README.md#correction-replay)) and reproduction as `Pipeline.reproduce` ([runner](../services/runner/README.md#reproduction)). OpenAPI schemas are generated and contract-tested once coding begins.
 
 ## Shadow preview and behavior comparison
 
