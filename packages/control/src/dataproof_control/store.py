@@ -210,12 +210,14 @@ class RunStore:
                 parent_run_id=parent_run_id,
             )
 
-    def _lock_pull_request(self, conn: Connection, inputs: RunInputs) -> None:
-        """Serialize run creation and decisions per pull request (released at commit)."""
-        if inputs.pull_request is not None:
+    def _lock_pull_request(
+        self, conn: Connection, repository: str, pull_request: int | None
+    ) -> None:
+        """Serialize run creation, decisions and closing per pull request (until commit)."""
+        if pull_request is not None:
             conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-                (f"{inputs.repository}#{inputs.pull_request}",),
+                (f"{repository}#{pull_request}",),
             )
 
     def _create(
@@ -230,7 +232,7 @@ class RunStore:
         parent_run_id: UUID | None,
     ) -> CreatedRun:
         # Serialized per pull request so that the later head always wins.
-        self._lock_pull_request(conn, inputs)
+        self._lock_pull_request(conn, inputs.repository, inputs.pull_request)
         run_id = uuid4()
         inserted = conn.execute(
             """
@@ -366,7 +368,7 @@ class RunStore:
         with self._transaction() as conn:
             run = self._load(conn, decision.run_id)
             inputs = run.inputs
-            self._lock_pull_request(conn, inputs)
+            self._lock_pull_request(conn, inputs.repository, inputs.pull_request)
             if decision.head_sha != inputs.head_sha:
                 raise ValueError("a binding decision is bound to the head of the run it decides on")
             self._ensure_current_head(conn, inputs)
@@ -524,6 +526,32 @@ class RunStore:
                 conn, run_id, state, RunState.CANCELLED, actor=actor, detail={"reason": reason}
             )
             return True
+
+    def close_pull_request(
+        self, repository: str, pull_request: int, *, actor: str
+    ) -> tuple[UUID, ...]:
+        """Cancel every working or reviewable run of a closed pull request; return them."""
+        with self._transaction() as conn:
+            self._lock_pull_request(conn, repository, pull_request)
+            rows = conn.execute(
+                """
+                SELECT run_id, state FROM runs
+                WHERE repository = %s AND pull_request = %s AND state = ANY(%s)
+                ORDER BY created_at, run_id
+                FOR UPDATE
+                """,
+                (repository, pull_request, [state.value for state in CANCELLABLE_STATES]),
+            ).fetchall()
+            for row in rows:
+                self._revoke(
+                    conn,
+                    row["run_id"],
+                    RunState(row["state"]),
+                    RunState.CANCELLED,
+                    actor=actor,
+                    detail={"reason": "pull request closed"},
+                )
+            return tuple(row["run_id"] for row in rows)
 
     def expire_overdue(self, *, actor: str) -> list[UUID]:
         """Time out every working run whose deadline has passed."""
