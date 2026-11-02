@@ -1,0 +1,1682 @@
+{
+  "corpus": {
+    "corpus_version": 1,
+    "seed": 20261102,
+    "provenance": "Generated from parametrized templates (dataproof_benchmark.corpus) with a seed frozen before any evaluation, by the same author as the system under test: not independently authored."
+  },
+  "tier": "database (each case migrated into a fresh PostgreSQL database; no previews)",
+  "cases": [
+    {
+      "case_id": "case-101",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "legacy table retired",
+      "holdout": true,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": false
+      },
+      "failing": [],
+      "expected_failing": [],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-102",
+      "family": "NULL and empty confusion",
+      "kind": "fault",
+      "variant": "NULL to empty",
+      "holdout": true,
+      "covered": false,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": false
+      },
+      "failing": [],
+      "expected_failing": [],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-103",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "extra column and index",
+      "holdout": true,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": false
+      },
+      "failing": [],
+      "expected_failing": [],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-104",
+      "family": "join multiplication",
+      "kind": "fault",
+      "variant": "all events",
+      "holdout": true,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "FAIL"
+      },
+      "error_codes": {},
+      "b1_signals": [
+        "refund sums",
+        "capture sums"
+      ],
+      "detected_by": {
+        "B0": false,
+        "B1": true,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "contracts_agree": true,
+      "localization": {
+        "example_key_precision": 1.0,
+        "example_columns_match": true,
+        "mismatch_count": 300,
+        "expected_count": 300
+      }
+    },
+    {
+      "case_id": "case-105",
+      "family": "retry effects",
+      "kind": "fault",
+      "variant": "refunds inserted again",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [
+        "row count",
+        "key hash",
+        "refund sums"
+      ],
+      "detected_by": {
+        "B0": false,
+        "B1": true,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals"
+      ],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-106",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "staged copy",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": false
+      },
+      "failing": [],
+      "expected_failing": [],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-107",
+      "family": "balanced loss and duplication",
+      "kind": "fault",
+      "variant": "equal amounts",
+      "holdout": true,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "ERROR",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {
+        "commerce.c1_event_preservation": "DUPLICATE_KEY"
+      },
+      "b1_signals": [
+        "key hash"
+      ],
+      "detected_by": {
+        "B0": false,
+        "B1": true,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-108",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "wider precision",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": false
+      },
+      "failing": [],
+      "expected_failing": [],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-109",
+      "family": "wrong column mapping",
+      "kind": "fault",
+      "variant": "time from the order",
+      "holdout": true,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "contracts_agree": true,
+      "localization": {
+        "example_key_precision": 1.0,
+        "example_columns_match": true,
+        "mismatch_count": 435,
+        "expected_count": 435
+      }
+    },
+    {
+      "case_id": "case-110",
+      "family": "partial migration",
+      "kind": "fault",
+      "variant": "batch boundary skipped",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "FAIL"
+      },
+      "error_codes": {},
+      "b1_signals": [
+        "row count",
+        "key hash",
+        "refund sums",
+        "capture sums"
+      ],
+      "detected_by": {
+        "B0": false,
+        "B1": true,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-111",
+      "family": "lossy numeric conversion",
+      "kind": "fault",
+      "variant": "one currency floored",
+      "holdout": true,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "FAIL"
+      },
+      "error_codes": {},
+      "b1_signals": [
+        "refund sums",
+        "capture sums"
+      ],
+      "detected_by": {
+        "B0": false,
+        "B1": true,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "contracts_agree": true,
+      "localization": {
+        "example_key_precision": 1.0,
+        "example_columns_match": true,
+        "mismatch_count": 199,
+        "expected_count": 199
+      }
+    },
+    {
+      "case_id": "case-112",
+      "family": "timestamp shift",
+      "kind": "fault",
+      "variant": "one currency's zone",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "contracts_agree": true,
+      "localization": {
+        "example_key_precision": 1.0,
+        "example_columns_match": true,
+        "mismatch_count": 218,
+        "expected_count": 218
+      }
+    },
+    {
+      "case_id": "case-113",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "memo copied faithfully",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": false
+      },
+      "failing": [],
+      "expected_failing": [],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-114",
+      "family": "timestamp shift",
+      "kind": "fault",
+      "variant": "local time read as UTC",
+      "holdout": true,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "contracts_agree": true,
+      "localization": {
+        "example_key_precision": 1.0,
+        "example_columns_match": true,
+        "mismatch_count": 435,
+        "expected_count": 435
+      }
+    },
+    {
+      "case_id": "case-115",
+      "family": "NULL and empty confusion",
+      "kind": "fault",
+      "variant": "empty to NULL",
+      "holdout": false,
+      "covered": false,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": false
+      },
+      "failing": [],
+      "expected_failing": [],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-116",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "timestamps through UTC",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": false
+      },
+      "failing": [],
+      "expected_failing": [],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-117",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "sequenced by reference",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": false
+      },
+      "failing": [],
+      "expected_failing": [],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-118",
+      "family": "wrong column mapping",
+      "kind": "fault",
+      "variant": "kind of one capture",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "FAIL"
+      },
+      "error_codes": {},
+      "b1_signals": [
+        "refund sums",
+        "capture sums"
+      ],
+      "detected_by": {
+        "B0": false,
+        "B1": true,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "contracts_agree": true,
+      "localization": {
+        "example_key_precision": 1.0,
+        "example_columns_match": true,
+        "mismatch_count": 1,
+        "expected_count": 1
+      }
+    },
+    {
+      "case_id": "case-119",
+      "family": "partial migration",
+      "kind": "fault",
+      "variant": "stops at a date",
+      "holdout": true,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "FAIL"
+      },
+      "error_codes": {},
+      "b1_signals": [
+        "row count",
+        "key hash",
+        "refund sums",
+        "capture sums"
+      ],
+      "detected_by": {
+        "B0": false,
+        "B1": true,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-120",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "distinct events",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": false
+      },
+      "failing": [],
+      "expected_failing": [],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-121",
+      "family": "lossy numeric conversion",
+      "kind": "fault",
+      "variant": "one decimal place",
+      "holdout": true,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "FAIL"
+      },
+      "error_codes": {},
+      "b1_signals": [
+        "refund sums",
+        "capture sums"
+      ],
+      "detected_by": {
+        "B0": false,
+        "B1": true,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "contracts_agree": true,
+      "localization": {
+        "example_key_precision": 1.0,
+        "example_columns_match": true,
+        "mismatch_count": 384,
+        "expected_count": 384
+      }
+    },
+    {
+      "case_id": "case-122",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "orders with and without items",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": false
+      },
+      "failing": [],
+      "expected_failing": [],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-123",
+      "family": "join multiplication",
+      "kind": "fault",
+      "variant": "refunds only",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [
+        "refund sums"
+      ],
+      "detected_by": {
+        "B0": false,
+        "B1": true,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals"
+      ],
+      "contracts_agree": true,
+      "localization": {
+        "example_key_precision": 1.0,
+        "example_columns_match": true,
+        "mismatch_count": 110,
+        "expected_count": 110
+      }
+    },
+    {
+      "case_id": "case-124",
+      "family": "orphaned reference",
+      "kind": "fault",
+      "variant": "one capture",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "FAIL"
+      },
+      "error_codes": {},
+      "b1_signals": [
+        "capture sums"
+      ],
+      "detected_by": {
+        "B0": false,
+        "B1": true,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c3_capture_totals"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c3_capture_totals"
+      ],
+      "contracts_agree": true,
+      "localization": {
+        "example_key_precision": 1.0,
+        "example_columns_match": true,
+        "mismatch_count": 1,
+        "expected_count": 1
+      }
+    },
+    {
+      "case_id": "case-125",
+      "family": "transposition",
+      "kind": "fault",
+      "variant": "capture pair",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "contracts_agree": true,
+      "localization": {
+        "example_key_precision": 1.0,
+        "example_columns_match": true,
+        "mismatch_count": 2,
+        "expected_count": 2
+      }
+    },
+    {
+      "case_id": "case-126",
+      "family": "balanced loss and duplication",
+      "kind": "fault",
+      "variant": "different amounts",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "ERROR",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {
+        "commerce.c1_event_preservation": "DUPLICATE_KEY"
+      },
+      "b1_signals": [
+        "key hash",
+        "refund sums"
+      ],
+      "detected_by": {
+        "B0": false,
+        "B1": true,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals"
+      ],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-127",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "batched by order range",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": false
+      },
+      "failing": [],
+      "expected_failing": [],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-128",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "direct copy",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "PASS",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": false
+      },
+      "failing": [],
+      "expected_failing": [],
+      "contracts_agree": true,
+      "localization": null
+    },
+    {
+      "case_id": "case-129",
+      "family": "orphaned reference",
+      "kind": "fault",
+      "variant": "one refund",
+      "holdout": true,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [
+        "refund sums"
+      ],
+      "detected_by": {
+        "B0": false,
+        "B1": true,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals"
+      ],
+      "contracts_agree": true,
+      "localization": {
+        "example_key_precision": 1.0,
+        "example_columns_match": true,
+        "mismatch_count": 1,
+        "expected_count": 1
+      }
+    },
+    {
+      "case_id": "case-130",
+      "family": "transposition",
+      "kind": "fault",
+      "variant": "refund pair",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "PASS",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [],
+      "detected_by": {
+        "B0": false,
+        "B1": false,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation"
+      ],
+      "contracts_agree": true,
+      "localization": {
+        "example_key_precision": 1.0,
+        "example_columns_match": true,
+        "mismatch_count": 2,
+        "expected_count": 2
+      }
+    },
+    {
+      "case_id": "case-131",
+      "family": "retry effects",
+      "kind": "fault",
+      "variant": "fix-up applied twice",
+      "holdout": false,
+      "covered": true,
+      "migrated": true,
+      "migration_error": null,
+      "outcomes": {
+        "commerce.c1_event_preservation": "FAIL",
+        "commerce.c2_refund_totals": "FAIL",
+        "commerce.c3_capture_totals": "PASS"
+      },
+      "error_codes": {},
+      "b1_signals": [
+        "refund sums"
+      ],
+      "detected_by": {
+        "B0": false,
+        "B1": true,
+        "B2": true
+      },
+      "failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals"
+      ],
+      "expected_failing": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals"
+      ],
+      "contracts_agree": true,
+      "localization": {
+        "example_key_precision": 1.0,
+        "example_columns_match": true,
+        "mismatch_count": 1,
+        "expected_count": 1
+      }
+    }
+  ],
+  "summary": {
+    "all": {
+      "cases": 31,
+      "faults": 20,
+      "clean": 11,
+      "B0": {
+        "recall_all_faults": {
+          "hits": 0,
+          "total": 20,
+          "rate": 0.0
+        },
+        "recall_covered_faults": {
+          "hits": 0,
+          "total": 18,
+          "rate": 0.0
+        },
+        "false_positives_on_clean": {
+          "hits": 0,
+          "total": 11,
+          "rate": 0.0
+        },
+        "by_family": {
+          "NULL and empty confusion": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "balanced loss and duplication": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "join multiplication": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "lossy numeric conversion": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "orphaned reference": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "partial migration": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "retry effects": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "timestamp shift": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "transposition": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "wrong column mapping": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          }
+        }
+      },
+      "B1": {
+        "recall_all_faults": {
+          "hits": 13,
+          "total": 20,
+          "rate": 0.65
+        },
+        "recall_covered_faults": {
+          "hits": 13,
+          "total": 18,
+          "rate": 0.722
+        },
+        "false_positives_on_clean": {
+          "hits": 0,
+          "total": 11,
+          "rate": 0.0
+        },
+        "by_family": {
+          "NULL and empty confusion": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "balanced loss and duplication": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "join multiplication": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "lossy numeric conversion": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "orphaned reference": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "partial migration": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "retry effects": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "timestamp shift": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "transposition": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "wrong column mapping": {
+            "hits": 1,
+            "total": 2,
+            "rate": 0.5
+          }
+        }
+      },
+      "B2": {
+        "recall_all_faults": {
+          "hits": 18,
+          "total": 20,
+          "rate": 0.9
+        },
+        "recall_covered_faults": {
+          "hits": 18,
+          "total": 18,
+          "rate": 1.0
+        },
+        "false_positives_on_clean": {
+          "hits": 0,
+          "total": 11,
+          "rate": 0.0
+        },
+        "by_family": {
+          "NULL and empty confusion": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "balanced loss and duplication": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "join multiplication": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "lossy numeric conversion": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "orphaned reference": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "partial migration": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "retry effects": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "timestamp shift": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "transposition": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "wrong column mapping": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          }
+        }
+      },
+      "B2_contracts_agree": {
+        "hits": 31,
+        "total": 31,
+        "rate": 1.0
+      },
+      "B2_localization": {
+        "cases": 13,
+        "example_columns_match": {
+          "hits": 13,
+          "total": 13,
+          "rate": 1.0
+        },
+        "exact_mismatch_count": {
+          "hits": 13,
+          "total": 13,
+          "rate": 1.0
+        },
+        "mean_example_key_precision": 1.0
+      }
+    },
+    "development": {
+      "cases": 20,
+      "faults": 11,
+      "clean": 9,
+      "B0": {
+        "recall_all_faults": {
+          "hits": 0,
+          "total": 11,
+          "rate": 0.0
+        },
+        "recall_covered_faults": {
+          "hits": 0,
+          "total": 10,
+          "rate": 0.0
+        },
+        "false_positives_on_clean": {
+          "hits": 0,
+          "total": 9,
+          "rate": 0.0
+        },
+        "by_family": {
+          "NULL and empty confusion": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "balanced loss and duplication": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "join multiplication": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "orphaned reference": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "partial migration": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "retry effects": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "timestamp shift": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "transposition": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "wrong column mapping": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          }
+        }
+      },
+      "B1": {
+        "recall_all_faults": {
+          "hits": 7,
+          "total": 11,
+          "rate": 0.636
+        },
+        "recall_covered_faults": {
+          "hits": 7,
+          "total": 10,
+          "rate": 0.7
+        },
+        "false_positives_on_clean": {
+          "hits": 0,
+          "total": 9,
+          "rate": 0.0
+        },
+        "by_family": {
+          "NULL and empty confusion": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "balanced loss and duplication": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "join multiplication": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "orphaned reference": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "partial migration": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "retry effects": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "timestamp shift": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "transposition": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "wrong column mapping": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          }
+        }
+      },
+      "B2": {
+        "recall_all_faults": {
+          "hits": 10,
+          "total": 11,
+          "rate": 0.909
+        },
+        "recall_covered_faults": {
+          "hits": 10,
+          "total": 10,
+          "rate": 1.0
+        },
+        "false_positives_on_clean": {
+          "hits": 0,
+          "total": 9,
+          "rate": 0.0
+        },
+        "by_family": {
+          "NULL and empty confusion": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "balanced loss and duplication": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "join multiplication": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "orphaned reference": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "partial migration": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "retry effects": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "timestamp shift": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "transposition": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "wrong column mapping": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          }
+        }
+      },
+      "B2_contracts_agree": {
+        "hits": 20,
+        "total": 20,
+        "rate": 1.0
+      },
+      "B2_localization": {
+        "cases": 7,
+        "example_columns_match": {
+          "hits": 7,
+          "total": 7,
+          "rate": 1.0
+        },
+        "exact_mismatch_count": {
+          "hits": 7,
+          "total": 7,
+          "rate": 1.0
+        },
+        "mean_example_key_precision": 1.0
+      }
+    },
+    "holdout": {
+      "cases": 11,
+      "faults": 9,
+      "clean": 2,
+      "B0": {
+        "recall_all_faults": {
+          "hits": 0,
+          "total": 9,
+          "rate": 0.0
+        },
+        "recall_covered_faults": {
+          "hits": 0,
+          "total": 8,
+          "rate": 0.0
+        },
+        "false_positives_on_clean": {
+          "hits": 0,
+          "total": 2,
+          "rate": 0.0
+        },
+        "by_family": {
+          "NULL and empty confusion": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "balanced loss and duplication": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "join multiplication": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "lossy numeric conversion": {
+            "hits": 0,
+            "total": 2,
+            "rate": 0.0
+          },
+          "orphaned reference": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "partial migration": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "timestamp shift": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "wrong column mapping": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          }
+        }
+      },
+      "B1": {
+        "recall_all_faults": {
+          "hits": 6,
+          "total": 9,
+          "rate": 0.667
+        },
+        "recall_covered_faults": {
+          "hits": 6,
+          "total": 8,
+          "rate": 0.75
+        },
+        "false_positives_on_clean": {
+          "hits": 0,
+          "total": 2,
+          "rate": 0.0
+        },
+        "by_family": {
+          "NULL and empty confusion": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "balanced loss and duplication": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "join multiplication": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "lossy numeric conversion": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "orphaned reference": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "partial migration": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "timestamp shift": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "wrong column mapping": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          }
+        }
+      },
+      "B2": {
+        "recall_all_faults": {
+          "hits": 8,
+          "total": 9,
+          "rate": 0.889
+        },
+        "recall_covered_faults": {
+          "hits": 8,
+          "total": 8,
+          "rate": 1.0
+        },
+        "false_positives_on_clean": {
+          "hits": 0,
+          "total": 2,
+          "rate": 0.0
+        },
+        "by_family": {
+          "NULL and empty confusion": {
+            "hits": 0,
+            "total": 1,
+            "rate": 0.0
+          },
+          "balanced loss and duplication": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "join multiplication": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "lossy numeric conversion": {
+            "hits": 2,
+            "total": 2,
+            "rate": 1.0
+          },
+          "orphaned reference": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "partial migration": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "timestamp shift": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          },
+          "wrong column mapping": {
+            "hits": 1,
+            "total": 1,
+            "rate": 1.0
+          }
+        }
+      },
+      "B2_contracts_agree": {
+        "hits": 11,
+        "total": 11,
+        "rate": 1.0
+      },
+      "B2_localization": {
+        "cases": 6,
+        "example_columns_match": {
+          "hits": 6,
+          "total": 6,
+          "rate": 1.0
+        },
+        "exact_mismatch_count": {
+          "hits": 6,
+          "total": 6,
+          "rate": 1.0
+        },
+        "mean_example_key_precision": 1.0
+      }
+    }
+  }
+}
