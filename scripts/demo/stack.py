@@ -33,6 +33,7 @@ PROCESSES = {
     "gateway": ["gateway", "--port", "8080"],
     "worker": ["worker"],
     "publisher": ["publisher"],
+    "reaper": ["reaper", "--interval", "30"],
 }
 TUNNEL_URL = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 
