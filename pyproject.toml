@@ -38,7 +38,8 @@ package = false
 members = ["packages/*", "scenarios/*", "services/*"]
 # The sample app is the application under review: its own project and lockfile, never
 # DataProof's (ADR-0004 builds its runtime image from that lockfile).
-exclude = ["sample-app"]
+# The dashboard is a Next.js app in the pnpm workspace, not a Python package.
+exclude = ["sample-app", "services/dashboard"]
 
 [tool.uv.sources]
 dataproof-api = { workspace = true }

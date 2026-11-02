@@ -80,6 +80,11 @@ updates:
       # comes with a deliberate runtime upgrade.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # The dashboard is a Next.js app, which type-checks through the TypeScript compiler API
+      # that the native TypeScript 7 does not provide; it stays on TypeScript 5 until Next.js
+      # supports 7 (the contracts package is already on 7).
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       node:
         patterns: ["*"]

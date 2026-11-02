@@ -76,8 +76,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
-      - name: JSON Schema conformance (Ajv strict)
+      - name: JSON Schema conformance (Ajv strict) and dashboard tests
         run: pnpm run test
+      - name: Dashboard production build
+        run: pnpm --filter @dataproof/dashboard build
 
   secret-scan:
     name: secret-scan
