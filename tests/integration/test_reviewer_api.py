@@ -19,8 +19,9 @@ from control_env import (
     run_inputs,
 )
 from dataproof_api import Intake, Registration, create_app
+from dataproof_api.gateway import Grants
 from dataproof_api.github_app import GitHubApp, load_private_key
-from dataproof_api.reviewer import Reviewer
+from dataproof_api.reviewer import PreviewLinks, Reviewer
 from dataproof_api.reviewers import GitHubSignIn, Permissions
 from dataproof_api.sessions import CSRF_HEADER, SESSION_COOKIE, Sessions
 from dataproof_contracts import (
@@ -73,6 +74,7 @@ class Stack:
         )
         app = GitHubApp(APP_ID, load_private_key(PRIVATE_KEY_PEM), client=self.github.client())
         self.records = GitHubRecords(dsn)
+        self.grants = Grants(b"preview-grant-secret-for-tests-0123456789")
         project = ProjectConfig(
             repository=REPOSITORY, runtime_image="sha256:" + "a" * 64, baseline="commerce-v1"
         )
@@ -100,6 +102,7 @@ class Stack:
             public_origin=ORIGIN,
             run_ttl=RUN_TTL,
             retry=FAST_RETRY,
+            previews=PreviewLinks(self.grants, "previews.test"),
             clock=self.clock,
         )
         self.app = create_app(self.intake, webhook_secret=b"webhook-secret", reviewer=reviewer)
@@ -435,3 +438,25 @@ def test_a_correction_is_requested_as_a_new_run_of_an_existing_commit(stack: Sta
     (decision,) = stack.store.decisions(run_id)
     assert (decision.action.value, decision.head_sha) == ("REQUEST_CORRECTION_REPLAY", correction)
     assert stack.store.get_run(run_id).state is RunState.QUEUED, "the original is untouched"
+
+
+@pytest.mark.parametrize(("login", "status"), [("viewer", 200), ("stranger", 404)])
+def test_a_preview_link_is_a_grant_for_one_run_role_and_reviewer(
+    stack: Stack, login: str, status: int
+) -> None:
+    run_id = stack.webhook_run()
+    client, csrf = stack.signed_in(login)
+    response = post(client, csrf, f"/api/runs/{run_id}/previews/candidate", {})
+    assert response.status_code == status
+    if status != 200:
+        return
+    url = urlparse(response.json()["url"])
+    assert (url.scheme, url.hostname, url.path) == (
+        "https",
+        f"candidate-{run_id}.previews.test",
+        "/__dataproof/grant",
+    )
+    grant = stack.grants.read(parse_qs(url.query)["token"][0], stack.clock())
+    assert grant is not None
+    assert (grant.run_id, grant.role.value, grant.login) == (run_id, "CANDIDATE", "viewer")
+    assert client.post(f"/api/runs/{run_id}/previews/candidate").status_code == 403, "needs CSRF"

@@ -1,6 +1,6 @@
 # DataProof control plane API
 
-The control plane's HTTP surface and its GitHub connector (ARCHITECTURE, GitHub connector and API surface). It is being built in work package 9 (#47). Implemented so far: GitHub webhook intake, GitHub App authentication, commit-bound check runs, the GitHub remote for the source broker, and the reviewer API (sign-in, reads and decisions).
+The control plane's HTTP surface and its GitHub connector (ARCHITECTURE, GitHub connector and API surface). It is being built in work package 9 (#47). Implemented so far: GitHub webhook intake, GitHub App authentication, commit-bound check runs, the GitHub remote for the source broker, the reviewer API (sign-in, reads and decisions) and the signed preview gateway.
 
 ## Webhook intake
 
@@ -87,6 +87,16 @@ The reviewer API is mounted when `create_app` is given a `Reviewer`.
 
 Reproduction takes minutes in fresh environments, so it is not run inside a request. Its route waits for a queued job.
 
+## Signed preview gateway
+
+`Gateway` (`gateway.py`) is how remote reviewers reach a run's live previews (THREAT_MODEL; #4). It is a separate ASGI app.
+
+- **A separate origin per preview.** A preview runs the pull request's own frontend code. It is served from its own host, `<role>-<run_id>.<preview domain>`, never from the dashboard's origin, where that code could read the reviewer's CSRF token and act for them. Use a separate registrable domain for previews, with a wildcard certificate.
+- **The host selects, it never targets.** The host names a run and a role. The upstream is always the edge that the supervisor registered for that run and role (`backend_resolver`, the backend's `preview_access`). No host, port or URL from the client is ever contacted.
+- **Signed, expiring, bound grants.** `POST /api/runs/{id}/previews/{role}` (reviewer API: session, CSRF, `read` permission) returns a link to `/__dataproof/grant?token=…` on the preview host. The grant is HMAC-signed and binds the run, the role and the reviewer, for one hour. The gateway turns it into a host-only, `HttpOnly`, `Secure`, `SameSite=Lax` cookie. Every request re-verifies the grant, checks that it is for this host's run and role, re-checks the reviewer's permission on the repository, and resolves the registered upstream again.
+- **A narrow proxy.** `GET` and `HEAD` only; other methods get `405`. Only an allowlist of request headers is forwarded, plus the edge's own run token; cookies, `Authorization` and forwarding headers are dropped. No `Set-Cookie` from a preview reaches the browser. A redirect to the edge becomes a relative one, and a redirect elsewhere is dropped.
+- **Errors.** An unknown host is `404`; a missing, expired or tampered grant `401`; a grant for another run or role, or lost permission, `403`; a preview that is not running `503`.
+
 ## OpenAPI
 
 `services/api/openapi.json` is the API's OpenAPI document, which the dashboard is written against. Regenerate it with `uv run python -m dataproof_api.openapi services/api/openapi.json`. A pre-commit hook and `tests/unit/test_openapi.py` fail if it is stale; the test also pins the list of routes.
@@ -96,7 +106,6 @@ Reproduction takes minutes in fresh environments, so it is not run inside a requ
 These are the remaining steps of work package 9 (#47):
 
 - a queued reproduction job and its route;
-- the signed preview gateway;
 - the dashboard.
 
 No GitHub App is registered for this project. Everything here is tested against signed fixture events and a fake GitHub (`tests/github_env.py`) that verifies App JWTs against the App's public key and checks token scope and expiry. Nothing has talked to the real GitHub.
@@ -136,7 +145,18 @@ No GitHub App is registered for this project. Everything here is tested against 
   - read-only and unrelated logins cannot decide (`403`, `404`);
   - an unknown binding gets `422`, and a decision on a head the pull request has left gets `409`;
   - cancellation is recorded with the reviewer's decision and refused a second time;
-  - a correction must be an existing, different commit, and starts a child run while the original stays queued.
+  - a correction must be an existing, different commit, and starts a child run while the original stays queued;
+  - a preview link is a grant for exactly that run, role and reviewer, refused to non-readers and without CSRF.
+- **`tests/integration/test_preview_gateway.py`** (PostgreSQL, fake edge; the negative tests #4 requires):
+  - a grant opens the preview with a host-only cookie;
+  - requests reach only the registered edge, with its token and without the reviewer's headers;
+  - no cookie from the preview reaches the browser;
+  - a missing, expired, tampered, other-run or other-role grant is denied with nothing sent upstream;
+  - paths naming another host (`//evil.example`, `/http://169.254.169.254/…`, encoded `..`) never reach anything but the registered edge;
+  - unknown runs and foreign domains are not previews, and a stopped preview gets `503`;
+  - writes get `405`;
+  - lost permission closes the preview;
+  - redirects never leave it.
 - **`tests/integration/test_check_runs.py`** (PostgreSQL):
   - `queued`, then `in_progress`, then `completed: failure` on the head commit, with the coverage table, and nothing re-sent once complete;
   - cancelled, superseded, errored and timed-out runs completed as `cancelled`, `cancelled`, `failure` and `timed_out`;
@@ -147,4 +167,5 @@ No GitHub App is registered for this project. Everything here is tested against 
   - `NOT_EXECUTED` is `neutral`.
 - **`tests/integration/test_pipeline.py`** (Docker):
   - a fork's run is `NOT_EXECUTED` (neutral) and nothing is provisioned;
-  - a signed F1 `pull_request` event goes through intake, a worker under the stored configuration and the publisher, and ends as a `failure` check run on F1's head commit (`queued`, then `completed`) with C1 failing in its table, and nothing on the base commit.
+  - a signed F1 `pull_request` event goes through intake, a worker under the stored configuration and the publisher, and ends as a `failure` check run on F1's head commit (`queued`, then `completed`) with C1 failing in its table, and nothing on the base commit;
+  - the real candidate preview, through the gateway with a grant, serves its API (stamped with the head commit) and its frontend page, and is `401` without one.
