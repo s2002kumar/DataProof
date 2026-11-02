@@ -54,14 +54,20 @@ class RegisteredApp:
 
 
 def save_credentials(conversion: dict[str, Any], directory: Path) -> RegisteredApp:
-    """Write the App's secrets with owner-only permissions; return what is safe to show."""
+    """Write the App's secrets with owner-only permissions; return what is safe to show.
+
+    The deployment's own session and preview-grant secrets are generated here too, so the one
+    file holds every secret the stack needs besides the control database's address.
+    """
     directory.mkdir(parents=True, exist_ok=True)
     key = directory / "github-app.pem"
     key.write_text(conversion["pem"], "utf-8")
     environment = directory / "secrets.env"
     environment.write_text(
         f"DATAPROOF_WEBHOOK_SECRET={conversion['webhook_secret']}\n"
-        f"DATAPROOF_GITHUB_CLIENT_SECRET={conversion['client_secret']}\n",
+        f"DATAPROOF_GITHUB_CLIENT_SECRET={conversion['client_secret']}\n"
+        f"DATAPROOF_SESSION_SECRET={secrets.token_urlsafe(48)}\n"
+        f"DATAPROOF_PREVIEW_SECRET={secrets.token_urlsafe(48)}\n",
         "utf-8",
     )
     for path in (key, environment):

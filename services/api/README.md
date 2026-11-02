@@ -138,7 +138,7 @@ The dashboard runs separately (`next start`) on the dashboard's origin, with `/a
 
 Two commands manage the GitHub App, and only the owner runs them:
 
-- `register-app --name … --webhook-url …` creates the App through GitHub's manifest flow, from a page served on the loopback. The App is private, with `checks: write`, read-only `contents`, `metadata` and `pull_requests`, and only `pull_request` events. Its key, webhook secret and client secret are written with owner-only permissions to `~/.dataproof/github-app/`, and none is printed.
+- `register-app --name … --webhook-url …` creates the App through GitHub's manifest flow, from a page served on the loopback. The App is private, with `checks: write`, read-only `contents`, `metadata` and `pull_requests`, and only `pull_request` events. Its key, webhook secret and client secret are written with owner-only permissions to `~/.dataproof/github-app/`, and none is printed. The same `secrets.env` also gets freshly generated session and preview-grant secrets, so with `DATAPROOF_DATABASE_URL` it holds every secret the stack needs.
 - `webhook-url <tunnel address>` points the App's webhook at a new quick-tunnel address, as the App itself.
 
 `[previews] port` puts a port in preview links. Locally, `previews.localhost` with port `8080` reaches the gateway. [`deployment.demo.toml`](deployment.demo.toml) is the template for the local live demo, and [`scripts/demo/stack.py`](../../scripts/demo/stack.py) starts every process; see [DEMO](../../docs/DEMO.md#live-setup).

@@ -80,9 +80,30 @@ def test_registration_stores_the_credentials_and_never_shows_them(tmp_path: Path
     assert (saved / "github-app.pem").read_text("utf-8") == CONVERSION["pem"]
     environment = (saved / "secrets.env").read_text("utf-8")
     assert f"DATAPROOF_WEBHOOK_SECRET={CONVERSION['webhook_secret']}" in environment
+    generated = dict(line.split("=", 1) for line in environment.splitlines())
+    for name in ("DATAPROOF_SESSION_SECRET", "DATAPROOF_PREVIEW_SECRET"):
+        assert len(generated[name]) >= 32, name
+        assert generated[name] not in done.text
     assert json.loads((saved / "github-app.json").read_text("utf-8"))["app_id"] == 4242
     if os.name == "posix":
         assert (saved / "github-app.pem").stat().st_mode & 0o077 == 0
+
+
+def test_the_registered_secrets_are_all_the_stack_needs(tmp_path: Path) -> None:
+    """Besides the control database's address: the live setup sets nothing else by hand."""
+    github = FakeGitHub({}, conversions={"code-1": dict(CONVERSION)})
+    registration = Registration(MANIFEST, tmp_path / "secrets", owner=None, api=github.client())
+    TestClient(registration.app()).get(
+        "/callback", params={"code": "code-1", "state": registration.state}
+    )
+    written = (tmp_path / "secrets" / "secrets.env").read_text("utf-8").splitlines()
+    environ = dict(line.split("=", 1) for line in written)
+    environ["DATAPROOF_DATABASE_URL"] = SECRETS["DATAPROOF_DATABASE_URL"]
+    environ["DATAPROOF_CONFIG"] = str(_deployment(tmp_path))
+    stack = Stack.from_environment(environ)
+    stack.api()
+    stack.webhook()
+    stack.gateway()
 
 
 def test_the_webhook_follows_a_new_tunnel_address_as_the_app() -> None:

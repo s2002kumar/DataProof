@@ -50,7 +50,7 @@ Steps marked **owner** create or use credentials and are run by the repository o
    uv run python -m dataproof_api register-app --name "<unique name>" --webhook-url https://<tunnel>/github/webhook
    ```
 
-   Open `http://127.0.0.1:8765/` and create the App. It is private, has checks write and read-only contents, metadata and pull requests, and receives only `pull_request` events. Its key and secrets go to `~/.dataproof/github-app/` and are never printed. **Install it on the demo repository only.**
+   Open `http://127.0.0.1:8765/` and create the App. It is private, has checks write and read-only contents, metadata and pull requests, and receives only `pull_request` events. Its key and secrets go to `~/.dataproof/github-app/` and are never printed. `secrets.env` there also holds freshly generated session and preview-grant secrets, so it and `DATAPROOF_DATABASE_URL` are every secret the stack needs. **Install it on the demo repository only.**
 6. **Deployment (owner):** copy [`services/api/deployment.demo.toml`](../services/api/deployment.demo.toml), fill in the App ID, client ID, installation ID, demo repository and runtime image, and set `DATAPROOF_CONFIG` to it.
 7. **Start the stack:**
 
