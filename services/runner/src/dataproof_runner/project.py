@@ -66,6 +66,14 @@ class ProjectConfig(BaseModel):
     """Read from the base commit only: a pull request cannot change the oracles it is held to."""
     binding_dir: RelativeDir = "dataproof/bindings/"
     """Read from the head commit: bindings are proposed by the pull request (ADR-0005)."""
+    investigator_source_roots: tuple[RelativeDir, ...] = (
+        "sample-app/app/",
+        "sample-app/migrations/",
+        "sample-app/web/app/",
+        "sample-app/web/lib/",
+    )
+    """What an investigation may read of the head commit: application and migration source
+    only, never contracts, bindings, documentation or benchmark labels."""
     approved_binding_digests: frozenset[Sha256Hex] = frozenset()
     rejected_binding_digests: frozenset[Sha256Hex] = frozenset()
     step_timeout_seconds: PositiveInt = 600

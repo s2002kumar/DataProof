@@ -9,6 +9,8 @@ MIGRATING     run the head's migrations in the candidate, from the head source, 
               then build and serve the candidate preview from the head source
 VERIFYING     the migration and preview checks, then every protected oracle against its proposed
               binding
+INVESTIGATING when a required check failed or errored: the model-off diagnosis and, if a model
+              is configured, a bounded investigation of the live environments; advisory only
 REPORTING     seal pg_dump snapshots of both databases, verify that each restores to the same
               rows in a fresh environment, write the evidence manifest, then derive the
               verdict and its GitHub conclusion with the coverage table
@@ -64,6 +66,7 @@ from dataproof_control.results import (
     StepRecord,
     record_check,
     record_evidence,
+    record_investigation,
     record_manifest,
     record_preview,
     record_report,
@@ -71,6 +74,7 @@ from dataproof_control.results import (
     record_source,
     record_step,
 )
+from dataproof_investigator import Investigator, ToolContext, diagnose
 from dataproof_runner.artifacts import ArtifactIntegrityError, LocalArtifactStore
 from dataproof_runner.backend import (
     FRONTEND_BUILD_LIMITS,
@@ -250,6 +254,7 @@ class Pipeline:
         results: RunResults,
         baseline: Baseline,
         settings: PipelineSettings | None = None,
+        investigator: Investigator | None = None,
     ) -> None:
         if baseline.name != project.baseline:
             raise ValueError(f"project expects baseline {project.baseline}, got {baseline.name}")
@@ -260,6 +265,8 @@ class Pipeline:
         self.results = results
         self.baseline = baseline
         self.settings = settings or PipelineSettings()
+        self.investigator = investigator
+        """Optional: without a model, failures are explained by the model-off diagnosis only."""
 
     def handlers(self) -> dict[RunState, StageHandler]:
         return {
@@ -268,6 +275,7 @@ class Pipeline:
             RunState.PROVISIONING: self.provision,
             RunState.MIGRATING: self.migrate,
             RunState.VERIFYING: self.verify,
+            RunState.INVESTIGATING: self.investigate,
             RunState.REPORTING: self.report,
         }
 
@@ -560,8 +568,12 @@ class Pipeline:
                 for spec in self._oracle_specs(run)
             ]
         summary = {c.result.check_id: c.result.outcome.value for c in checks}
+        failed = any(
+            c.result.required and c.result.outcome in (CheckOutcome.FAIL, CheckOutcome.ERROR)
+            for c in checks
+        )
         return StageOutcome(
-            RunState.REPORTING,
+            RunState.INVESTIGATING if failed else RunState.REPORTING,
             detail={"outcomes": summary},
             effects=_all(
                 *(self._recorder(record_check, run.run_id, check) for check in checks),
@@ -753,6 +765,44 @@ class Pipeline:
             clients.append(PreviewApi(access))
         return clients[0], clients[1]
 
+    # INVESTIGATING -----------------------------------------------------------------------------
+
+    def investigate(self, context: StageContext) -> StageOutcome:
+        """Explain the failures; advisory only (ADR-0002).
+
+        The model-off diagnosis always runs. A configured model investigates the live
+        environments through the read-only role and the head commit's allowlisted source. Both
+        results are recorded beside the checks; neither can change them, and a model that fails
+        or declines leaves the deterministic report as it is.
+        """
+        run = context.run
+        checks = {c.result.check_id: c.result for c in self.results.checks(run.run_id)}
+        investigations = [diagnose(run.run_id, checks)]
+        if self.investigator is not None:
+            context.ensure_lease()
+            reference = self._attached(run.run_id, Environment.REFERENCE)
+            candidate = self._attached(run.run_id, Environment.CANDIDATE)
+            tools = ToolContext(
+                checks=checks,
+                evidence=self.results.evidence(run.run_id),
+                source_archive=self._source(run.run_id, Environment.CANDIDATE).data,
+                source_roots=self.project.investigator_source_roots,
+                databases={
+                    handle.role: handle.database.conninfo(handle.database.reader)
+                    for handle in (reference, candidate)
+                },
+            )
+            investigations.append(self.investigator.investigate(run.run_id, tools))
+        return StageOutcome(
+            RunState.REPORTING,
+            detail={
+                "investigations": [
+                    {"model": i.model, "status": i.status.value} for i in investigations
+                ]
+            },
+            effects=_all(*(self._recorder(record_investigation, i) for i in investigations)),
+        )
+
     # Replay ------------------------------------------------------------------------------------
 
     def replay(self, run: ReviewRun) -> "ReplayReport":
@@ -816,6 +866,25 @@ class Pipeline:
                         "mismatch_count": c.mismatch_count,
                     }
                     for c in results
+                ],
+                "investigations": [
+                    {
+                        "advisory": True,
+                        "model": i.model,
+                        "status": i.status.value,
+                        "hypotheses": [
+                            {
+                                "statement": h.statement,
+                                "cited_evidence_ids": list(h.cited_evidence_ids),
+                                "confidence": h.confidence.value,
+                            }
+                            for h in i.hypotheses
+                        ],
+                        "suggested_action": i.suggested_action,
+                        "caveat": i.caveat,
+                        "failure": i.failure,
+                    }
+                    for i in self.results.investigations(run.run_id)
                 ],
                 "previews": {
                     p.environment.value: {

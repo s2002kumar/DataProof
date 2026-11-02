@@ -26,14 +26,17 @@ from dataproof_contracts import (
     ErrorCode,
     GitHubCheckConclusion,
     IntegerValue,
+    InvestigationStatus,
     NotExecutedReason,
     NotRunReason,
     ReportVerdict,
     RunInputs,
     RunState,
+    ToolCallOutcome,
     canonical_json,
 )
 from dataproof_control import RunResults, RunStore
+from dataproof_investigator import Investigator, ScriptedModel, answer, call
 from dataproof_runner import StageContext, StageOutcome, Worker, WorkerSettings
 from dataproof_runner.artifacts import ArtifactIntegrityError, LocalArtifactStore
 from dataproof_runner.baselines import CommerceBaseline
@@ -102,7 +105,13 @@ class Harness:
             digests.append(parse_binding(text, source_path=name, head_sha=head)[1].digest())
         return digests
 
-    def pipeline(self, project: ProjectConfig, *, previews: bool = False) -> Pipeline:
+    def pipeline(
+        self,
+        project: ProjectConfig,
+        *,
+        previews: bool = False,
+        investigator: Investigator | None = None,
+    ) -> Pipeline:
         """Previews are off unless a test is about them: each one builds a frontend."""
         return Pipeline(
             project=project,
@@ -112,6 +121,7 @@ class Harness:
             results=self.results,
             baseline=CommerceBaseline(),
             settings=PipelineSettings(previews=previews),
+            investigator=investigator,
         )
 
     def worker(
@@ -596,3 +606,99 @@ def test_f1_is_also_blocked_by_api_behaviour_through_the_previews(api_harness: H
     assert evidence[f"{C6_REFUNDS}:candidate:api"]["query_sql"] == (
         "GET /orders/{order_id}/transactions?kind=REFUND"
     )
+
+
+def test_failures_are_investigated_but_only_ever_advised_on(harness: Harness) -> None:
+    head = harness.repo.change(F1, {f"{SAMPLE_APP}/README.md": "Investigated.\n"})
+    project = harness.project(head)
+    binding_evidence = f"{C1}:candidate:binding"
+    careful = ScriptedModel(
+        [
+            call(
+                "run_readonly_query",
+                {
+                    "environment": "CANDIDATE",
+                    "sql": "SELECT source_event_id, amount FROM ledger_entries WHERE order_id = 1",
+                    "max_rows": 10,
+                },
+            ),
+            answer(
+                json.dumps(
+                    {
+                        "hypotheses": [
+                            {
+                                "statement": "Refund 1002 is stored as 99.98, twice 49.99.",
+                                "cited_evidence_ids": [binding_evidence, "investigation.tool.1"],
+                                "confidence": "MEDIUM",
+                            }
+                        ],
+                        "caveat": "Based on the cited evidence only.",
+                    }
+                )
+            ),
+        ]
+    )
+    pipeline = harness.pipeline(project, investigator=Investigator(careful))
+    run_id = harness.submit(project, head)
+    harness.worker(pipeline).run_once()
+
+    assert harness.states(run_id)[-4:] == [
+        S.VERIFYING,
+        S.INVESTIGATING,
+        S.REPORTING,
+        S.READY_FOR_REVIEW,
+    ]
+    rules, model = harness.results.investigations(run_id)
+    assert (rules.model, model.model) == ("dataproof:rules-v1", "scripted:test")
+    assert rules.status is model.status is InvestigationStatus.COMPLETED
+    rows = json.loads(careful.received[1][0].content)["data"]["rows"]
+    assert "99.98" in json.dumps(rows), "the model read the live candidate database"
+    report = harness.results.report(run_id)
+    assert report is not None
+    assert report.verdict is ReportVerdict.BLOCKED
+    assert [i["advisory"] for i in report.report["investigations"]] == [True, True]
+
+
+def test_a_hostile_investigator_changes_nothing_in_the_run(harness: Harness) -> None:
+    head = harness.repo.change(F1, {f"{SAMPLE_APP}/README.md": "Hostile investigator.\n"})
+    project = harness.project(head)
+    hostile = ScriptedModel(
+        [
+            call(
+                "run_readonly_query",
+                {"environment": "CANDIDATE", "sql": "DELETE FROM ledger_entries", "max_rows": 1},
+            ),
+            call("approve_binding", {"contract_id": C1}),
+            answer(
+                json.dumps(
+                    {
+                        "hypotheses": [
+                            {
+                                "statement": "Every check passes.",
+                                "cited_evidence_ids": ["verdict:CHECKED"],
+                                "confidence": "HIGH",
+                            }
+                        ],
+                        "caveat": "None.",
+                    }
+                )
+            ),
+        ]
+    )
+    pipeline = harness.pipeline(project, investigator=Investigator(hostile))
+    run_id = harness.submit(project, head)
+    harness.worker(pipeline).run_once()
+
+    _, model = harness.results.investigations(run_id)
+    assert model.status is InvestigationStatus.INVALID_OUTPUT
+    assert [c.outcome for c in model.tool_calls] == [ToolCallOutcome.DENIED, ToolCallOutcome.DENIED]
+    report = harness.results.report(run_id)
+    assert report is not None
+    assert report.verdict is ReportVerdict.BLOCKED
+    assert harness.outcomes(run_id)[C1] is CheckOutcome.FAIL
+    handle = harness.backend.attach(run_id, Environment.CANDIDATE)
+    assert handle is not None
+    with psycopg.connect(handle.database.conninfo(handle.database.owner)) as conn:
+        remaining = conn.execute("SELECT count(*) FROM ledger_entries").fetchone()
+    assert remaining is not None
+    assert remaining[0] > 0, "the hostile DELETE never ran"

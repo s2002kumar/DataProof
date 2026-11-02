@@ -29,6 +29,10 @@ The bounded AI investigator (ADR-0002). It explains why deterministic checks fai
 3. It runs as the read-only role, with a 5-second timeout.
 4. Results are capped at 50 rows and 64 KiB.
 
+## In a run
+
+The runner moves a run from `VERIFYING` to `INVESTIGATING` only when a required check failed or errored. The model-off diagnosis always runs there. When the pipeline is given an `Investigator`, the model also investigates the **live** environments through the read-only role, and the head commit's source under `ProjectConfig.investigator_source_roots`. Both investigations are written to `run_investigations` and listed in the report as `advisory`. The report's verdict and checks are computed from the checks alone.
+
 ## Models
 
 - `InvestigatorModel` / `ModelSession` is the provider interface. An adapter keeps its own conversation state.

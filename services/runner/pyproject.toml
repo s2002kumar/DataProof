@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "dataproof-contracts",
     "dataproof-control",
+    "dataproof-investigator",
     "dataproof-scenario-commerce",
     "dataproof-verifier",
     "docker>=7.1",
@@ -16,6 +17,7 @@ dependencies = [
 [tool.uv.sources]
 dataproof-contracts = { workspace = true }
 dataproof-control = { workspace = true }
+dataproof-investigator = { workspace = true }
 dataproof-scenario-commerce = { workspace = true }
 dataproof-verifier = { workspace = true }
 
