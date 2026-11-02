@@ -400,6 +400,8 @@ def test_concurrent_heads_on_one_pull_request_leave_exactly_one_open_run(
         "run_reports",
         "run_snapshots",
         "run_manifests",
+        "run_previews",
+        "run_investigations",
     ],
 )
 def test_run_results_are_write_once(control_dsn: str, table: str) -> None:

@@ -21,6 +21,7 @@ from dataproof_contracts import (
     Environment,
     EvidenceManifest,
     GitHubCheckConclusion,
+    Investigation,
     ReportVerdict,
 )
 
@@ -225,6 +226,20 @@ def record_manifest(conn: psycopg.Connection[Any], run_id: UUID, manifest: Manif
     )
 
 
+def record_investigation(conn: psycopg.Connection[Any], investigation: Investigation) -> None:
+    conn.execute(
+        "INSERT INTO run_investigations (investigation_id, run_id, model, status, investigation) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        (
+            investigation.investigation_id,
+            investigation.run_id,
+            investigation.model,
+            investigation.status.value,
+            Jsonb(investigation.model_dump(mode="json")),
+        ),
+    )
+
+
 def record_report(conn: psycopg.Connection[Any], run_id: UUID, report: ReportRecord) -> None:
     conn.execute(
         "INSERT INTO run_reports (run_id, verdict, conclusion, report) VALUES (%s, %s, %s, %s)",
@@ -360,6 +375,14 @@ class RunResults:
             sha256=row["sha256"],
             manifest=EvidenceManifest.model_validate(row["manifest"]),
         )
+
+    def investigations(self, run_id: UUID) -> list[Investigation]:
+        rows = self._rows(
+            "SELECT investigation FROM run_investigations WHERE run_id = %s "
+            "ORDER BY recorded_at, investigation_id",
+            run_id,
+        )
+        return [Investigation.model_validate(row["investigation"]) for row in rows]
 
     def report(self, run_id: UUID) -> ReportRecord | None:
         rows = self._rows(
