@@ -208,6 +208,40 @@ class RunStore:
                 superseded = self._supersede(conn, run_id, inputs, actor=actor)
             return CreatedRun(self._load(conn, run_id), created=True, superseded=superseded)
 
+    def start_correction_replay(
+        self,
+        original_run_id: UUID,
+        *,
+        head_sha: str,
+        config_digest: str,
+        actor: str,
+        run_ttl: timedelta,
+        retry: RetryPolicy,
+    ) -> CreatedRun:
+        """Evaluate a developer's correction as a new run (ARCHITECTURE, correction replay).
+
+        The new run keeps the original's repository, pull request, base commit, dataset and
+        engine version; its head is the correction commit and its configuration digest the one
+        that approves the correction's bindings (approvals are bound to the head commit). It
+        records the original as its parent, supersedes nothing, and leaves the original run, its
+        report and its evidence exactly as they are.
+        """
+        original = self.get_run(original_run_id)
+        if head_sha == original.inputs.head_sha:
+            raise ValueError("a correction must be a different commit from the one it corrects")
+        inputs = original.inputs.model_copy(
+            update={"head_sha": head_sha, "config_digest": config_digest}
+        )
+        RunInputs.model_validate(inputs.model_dump())
+        return self.create_run(
+            inputs,
+            RunTrigger.CORRECTION_REPLAY,
+            actor=actor,
+            run_ttl=run_ttl,
+            retry=retry,
+            parent_run_id=original_run_id,
+        )
+
     def _supersede(
         self, conn: Connection, new_run: UUID, inputs: RunInputs, *, actor: str
     ) -> tuple[UUID, ...]:
