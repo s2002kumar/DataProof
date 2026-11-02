@@ -66,6 +66,16 @@ class GitHubSettings(_Settings):
     client_id: Annotated[str, Field(min_length=1)]
     api_url: str = "https://api.github.com"
     web_url: str = "https://github.com"
+    git_url: str = "https://github.com"
+    """Where the worker fetches commits: ``<git_url>/<owner>/<name>.git`` with an installation
+    token. A ``file://`` directory of bare repositories serves the local rehearsal."""
+
+    @field_validator("git_url")
+    @classmethod
+    def _git_url(cls, value: str) -> str:
+        if not value.startswith(("https://", "file://")):
+            raise ValueError("git_url is https://, or file:// for a local rehearsal")
+        return value.rstrip("/")
 
 
 def _origin(value: str) -> str:
@@ -331,7 +341,10 @@ class Stack:
                 ["git", "init", "--quiet", "--bare", str(mirror)],  # noqa: S607
                 check=True,
             )
-        fetcher = GitFetcher(mirror, github_remotes(self.github_app(), settings.installations))
+        remotes = github_remotes(
+            self.github_app(), settings.installations, host=settings.github.git_url
+        )
+        fetcher = GitFetcher(mirror, remotes)
         results = RunResults(self.secrets.database_url)
         artifacts = LocalArtifactStore(data / "artifacts")
         store = self.store()

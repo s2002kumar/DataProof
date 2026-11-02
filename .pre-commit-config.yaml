@@ -5,6 +5,7 @@ repos:
     rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
     hooks:
       - id: check-added-large-files
+        exclude: ^docs/media/rehearsal\.mp4$  # the recorded demo, about 1.3 MB
       - id: check-case-conflict
       - id: check-json
       - id: check-merge-conflict

@@ -2,10 +2,46 @@
 
 **Catch dangerous database changes before they reach production.**
 
-DataProof is a pull-request review system for PostgreSQL application migrations. For each pull request it runs the proposed migration in a disposable copy of the application, checks data integrity and selected API behavior against protected contracts, investigates failures with evidence-grounded AI, and reports exactly which checks ran, which failed and why, as a GitHub check bound to the commit. Merge and deployment decisions stay with people.
+DataProof is a pull-request review system for PostgreSQL application migrations. For each pull request it does the following:
 
-> [!IMPORTANT]
-> **Status: early implementation.** The engineering specification is complete. Implemented and tested so far: the typed result contracts ([`packages/contracts`](packages/contracts/README.md)) and the commerce scenario baseline (reference schema, deterministic fixture and candidate migrations), including an integration test in which a migration keeps every row and key while corrupting refund values ([`scenarios/commerce`](scenarios/commerce/README.md)), and the deterministic verifier that evaluates protected oracles against reviewed bindings and shows reviewers exactly what a binding reads ([`packages/verifier`](packages/verifier/README.md)). Across seven commerce change sets, the three clean controls pass with no false positives and the four faults are blocked for the right reasons, including two that aggregate reconciliation cannot see. The durable run lifecycle is also implemented: a database-enforced state machine and a PostgreSQL job queue with leases, fencing, retries, cancellation, timeouts and supersession ([`packages/control`](packages/control/README.md)), driven by workers ([`services/runner`](services/runner/README.md)), and a local Docker execution backend whose isolation is tested from inside a sandbox by a hostile migration. The runner executes a commerce pull request's migration end to end on local Docker. It provisions real reference and candidate databases, seals restore-verified `pg_dump` snapshots and an evidence manifest, reports a verdict with its GitHub conclusion and coverage table, and cleans up. Each run also serves live reference and candidate previews (API and frontend, the candidate's frontend compiled offline from its own source) behind token-checking edge proxies on the local machine. When a required check fails, a bounded, advisory investigator diagnoses it with five read-only tools and must cite the evidence it uses ([`packages/investigator`](packages/investigator/README.md)); it is tested with scripted models and a model-off baseline, and a live model is opt-in and has not been called. A failed data check can then be reproduced on a small foreign-key-closure subset of the sealed baseline, or reported as not reproduced with the reason, and a developer's correction commit is evaluated as a new run that leaves the original run and its results untouched. A binding approval is recorded write-once, bound to the head commit and the binding's digest, and likewise starts a new run, under a configuration stored by its digest; the reviewer sign-in and authorization that will guard it are not built yet. Signed GitHub pull request webhooks are verified and turned into runs pinned to their exact commits ([`services/api`](services/api/README.md)), tested with signed fixture events; each run is reported as a commit-bound GitHub check run, tested against a fake GitHub that verifies the App's credentials. Reviewers sign in with GitHub, read the runs of repositories they can read there, and, with write permission, approve or reject bindings (with the approver rule), cancel runs and request correction replays. Remote reviewers open previews through a signed, expiring gateway that serves each preview from its own host and can reach nothing but that run's registered preview. A Next.js review dashboard shows runs, coverage, checks with their mismatches, a binding inspector with approve and reject, advisory findings with their citations, decisions and preview links ([`services/dashboard`](services/dashboard/README.md)); a browser test signs a reviewer in through a fake GitHub and approves a binding end to end. `python -m dataproof_api` runs each process of a deployment from a trusted file and environment secrets. A seeded benchmark corpus (20 faults in ten families, 11 clean controls, generated from templates and not independently authored) is evaluated at the database tier against fair baselines; a rerun reproduces the committed [report](benchmarks/results/REPORT.md) exactly, while reproduction rates are measured too, while the pipeline tier and the AI ablation are still to come. No GitHub App is registered yet. Any capability or control below that is not named here is still a design commitment until the code and tests for it land. See [How the build proceeds](#how-the-build-proceeds).
+- runs the proposed migration in a disposable copy of the application;
+- checks data integrity and selected API behavior against protected contracts;
+- explains failures from cited evidence;
+- reports exactly which checks ran, which failed and why, as a GitHub check bound to the commit.
+
+Merge and deployment decisions stay with people.
+
+## Demo
+
+[![An excerpt of the walk-through: a BLOCKED run whose mismatch table shows refund 1002 at 49.99 in the reference and 99.98 in the candidate, then the same order in the reference and candidate previews](docs/media/rehearsal.gif)](docs/media/rehearsal.mp4)
+
+The animation above is a 21-second excerpt from step 2, at real speed. **[Watch the full walk-through (MP4, 1 min 33 s)](docs/media/rehearsal.mp4).** It is recorded by [`scripts/demo/rehearse.py`](scripts/demo/rehearse.py) on one machine:
+
+1. A signed `pull_request` webhook starts a run that migrates isolated copies of the database and builds previews of both commits. The run is `INCOMPLETE`: the pull request proposes five bindings. The reviewer approves them, which starts a new run.
+2. The approved run is `BLOCKED`: the migration succeeded, but refund event 1002 went from 49.99 to 99.98. Both previews show the order, and the diagnosis cites its evidence.
+3. The reviewer replays the corrected commit and approves its bindings.
+4. The corrected run is `CHECKED`.
+
+**What is real and what is not:**
+
+- **Real:** everything DataProof does — the control database, webhook intake, Docker isolation, previews behind the signed gateway, contracts, check-run publishing and the dashboard.
+- **Simulated: GitHub only.** It is played by the test double used in the integration tests. The commits come from a local repository.
+- **The diagnosis** shown is the rule-based, model-off one. The AI investigator is built and tested with scripted models, but no paid model has been called.
+- **Timing:** waits for runs happen off camera, each labelled with how long it took. Nothing is sped up. Between steps the script cancels, off camera, the runs it has finished with, so that one machine can hold the live ones.
+
+The live demo against a real GitHub pull request waits for the project's GitHub App to be registered ([Live setup](docs/DEMO.md#live-setup)).
+
+## Status
+
+| Capability | Implemented and tested | Demonstrated |
+| --- | --- | --- |
+| GitHub pull request to run | Webhook signatures, pinned runs, App authentication, commit-bound check runs, App registration tooling | In the rehearsal, against simulated GitHub. Real GitHub waits for App registration. |
+| Isolated environments and previews | Local Docker backend with tested isolation, and previews of both commits behind a signed, per-preview gateway | In the rehearsal. 15 pipeline-tier runs ([report](benchmarks/results/PIPELINE.md)) |
+| Verified migration outcome | Data contracts C1 to C3 and API contracts C6, with reviewed bindings and the approver rule | Benchmark: 18 of 20 faults at the database tier, all 18 the contracts can observe, with 0 of 11 false positives ([report](benchmarks/results/REPORT.md)). Pipeline tier: 11 of 12 faults and 0 of 3 false positives, end to end. |
+| Evidence-grounded diagnosis | Rule-based diagnosis on every failing run. A bounded AI investigator with five read-only tools, citation checks and a per-investigation cost cap (a hard limit when the model is pinned) | Rule-based diagnosis in the rehearsal. The AI ablation's harness is tested with scripted models; its live run waits for an approved model budget. |
+| Reviewer decisions | GitHub sign-in, binding approval and rejection, correction replay, cancellation, and reproduction on a subset | In the rehearsal (approval and correction replay) |
+| Cleanup | Per-run cleanup, plus an independent reaper that works without the control plane | 15 of 15 pipeline-tier runs left nothing behind. Reaper test |
+| Hosted deployment | Not built: a cloud deployment needs an approved cost and security review | — |
 
 ## The problem
 
@@ -91,7 +127,7 @@ To build and test the code, see [CONTRIBUTING.md](CONTRIBUTING.md). Instructions
 
 ## How the build proceeds
 
-DataProof is one complete product built in small, reviewed pull requests, each gated by evidence rather than by dates. The work packages, hard gates (G0–G5) and pull-request sequence are in [Implementation](docs/IMPLEMENTATION.md). This README changes only as capabilities are verified: no badges, screenshots, benchmark numbers, live URLs or install commands appear here until they are real.
+DataProof is one complete product built in small, reviewed pull requests, each gated by evidence rather than by dates. The work packages, hard gates (G0–G5) and pull-request sequence are in [Implementation](docs/IMPLEMENTATION.md). This README changes only as capabilities are verified. The demo recording and the benchmark numbers above come from real runs, and no hosted deployment or live URL exists.
 
 ## Acknowledgements
 
