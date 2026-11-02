@@ -67,7 +67,7 @@ These are suggested **future** commits, not actions already taken.
 ## Release checklist
 
 - [ ] Every `PRODUCT.md` requirement has linkable code+test/demo evidence.
-- [ ] No GitHub check marks `NOT_EXECUTED` or `INCOMPLETE` as success; `BLOCKED` -> failure, `INCOMPLETE` -> action_required, `NOT_EXECUTED` -> neutral, `CHECKED`/`CHECKED_WITH_WARNINGS` -> success only when all required checks passed, with explicit coverage table.
+- [ ] No GitHub check marks `NOT_EXECUTED` or `INCOMPLETE` as success; `BLOCKED` -> failure, `INCOMPLETE` -> action_required, `NOT_EXECUTED` -> action_required, `CHECKED`/`CHECKED_WITH_WARNINGS` -> success only when all required checks passed, with explicit coverage table.
 - [ ] Both isolated shadow apps and DBs are usable; correct base/head SHA and identical baseline digest pinned; changed frontend built offline inside restricted task.
 - [ ] Corruption case found despite successful migration, with independent evidence.
 - [ ] AI diagnosis tested vs deterministic diagnosis; unsupported claims never cited as facts.

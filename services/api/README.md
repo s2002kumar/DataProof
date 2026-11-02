@@ -32,7 +32,7 @@ The pull request's author and head repository are recorded per head in `github_p
 | timed out | `completed`, `timed_out` |
 | cancelled or superseded | `completed`, `cancelled` |
 
-An interrupted run is never green. `NOT_EXECUTED` is `neutral`, which GitHub branch protection counts as passing; see #51.
+An interrupted run is never green, and a `NOT_EXECUTED` run is `action_required`: it blocks a required check (#51).
 
 Rules:
 
@@ -217,8 +217,8 @@ No GitHub App is registered for this project. Everything here is tested against 
   - an outage is retried;
   - other repositories and runs without a pull request are not published;
   - four concurrent publishers create one check run;
-  - `NOT_EXECUTED` is `neutral`.
+  - `NOT_EXECUTED` is `action_required`.
 - **`tests/integration/test_pipeline.py`** (Docker):
-  - a fork's run is `NOT_EXECUTED` (neutral) and nothing is provisioned;
+  - a fork's run is `NOT_EXECUTED` (`action_required`) and nothing is provisioned;
   - a signed F1 `pull_request` event goes through intake, a worker under the stored configuration and the publisher, and ends as a `failure` check run on F1's head commit (`queued`, then `completed`) with C1 failing in its table, and nothing on the base commit;
   - the real candidate preview, through the gateway with a grant, serves its API (stamped with the head commit) and its frontend page, and is `401` without one.

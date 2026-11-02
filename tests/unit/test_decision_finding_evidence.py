@@ -118,7 +118,7 @@ def test_manifest_retention_ends_after_sealing(example: ExampleLoader) -> None:
     [
         (ReportVerdict.BLOCKED, "failure"),
         (ReportVerdict.INCOMPLETE, "action_required"),
-        (ReportVerdict.NOT_EXECUTED, "neutral"),
+        (ReportVerdict.NOT_EXECUTED, "action_required"),
         (ReportVerdict.CHECKED, "success"),
         (ReportVerdict.CHECKED_WITH_WARNINGS, "success"),
     ],
