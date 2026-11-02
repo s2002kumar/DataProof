@@ -87,6 +87,13 @@ Migration 0008 adds two write-once tables for [webhook intake](../../services/ap
 
 `RunStore.close_pull_request` cancels every working or reviewable run of a closed pull request, under the pull request's lock.
 
+Migration 0010 adds the reproduction queue (`ReproductionQueue`). It has two tables:
+
+- `reproduction_requests`: write-once, one request per check of a run; asking again returns the existing request.
+- `reproduction_jobs`: the leased queue state, claimed with `FOR UPDATE SKIP LOCKED`.
+
+A crashed worker's job is claimed again when its lease expires. A job ends with the `Reproduction` it recorded, or with the reason it failed once its attempts are spent. A worker whose lease was lost cannot end the job.
+
 Migration 0009 adds the check-run outbox: `github_check_runs` (the check run that reports each run, on its head commit) and `github_check_publications` (each status published to it, recorded after GitHub accepted it). Both are write-once.
 
 ## Run results
