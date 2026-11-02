@@ -27,7 +27,7 @@ The fault benchmark from [BENCHMARK](../docs/BENCHMARK.md) (work package 10, #58
 | `B0` | The migration ran. Its API smoke checks need live previews, which this tier does not run. |
 | `B1` | Reconciliation over the reviewed binding view: row counts, a hash of the key set, and refund and capture sums per order and currency. It is configured fairly, credited wherever it catches a fault (F1 included), and never marked not run to widen the difference (#12). |
 | `B2` | DataProof's deterministic contracts C1 to C3, with the case's bindings approved. |
-| `B3` | `B2` plus AI investigation on the same evidence. **Not run:** live model calls are a paid service that has not been approved (#7). |
+| `B3` | `B2` plus AI investigation on the same evidence (see [AI ablation](#ai-ablation-b3)). **Not run live:** model calls are a paid service whose budget has not been approved (#7). |
 
 When C1 fails, the failure is also **reproduced** on a foreign-key-closure subset of the reference (#8). It is loaded into fresh base-schema databases, the case's migration runs on the candidate, and C1 is verified again under the pipeline's own rules (`dataproof_runner.signature`): `REPRODUCED` only if every seed key fails again on the same columns.
 
@@ -63,6 +63,29 @@ Labels are read only after every case has run. The results hold nothing that var
 - **Results (one local run):** 11 of 12 faults were detected; the miss is the one fault the declared contracts cannot observe. No clean control was flagged (0 of 3), every failing set matched its label, and 7 of the 10 data faults also failed through the API previews. Every run left nothing behind. See [`results/PIPELINE.md`](results/PIPELINE.md) for timings.
 - **Variation:** timings vary between machines and runs, but outcomes must not. `tests/integration/test_benchmark_pipeline.py` reruns the first API case in CI and requires the committed outcomes, a complete cleanup, and C6 failing while the data contracts pass.
 
+## AI ablation (B3)
+
+`python -m dataproof_benchmark ablation --database <admin DSN>` diagnoses every database-tier case whose contracts fail, twice, on the same evidence:
+
+- **Model-off:** the rule-based diagnosis every run gets.
+- **Model:** the bounded Failure Investigator, exactly as a run's `INVESTIGATING` stage runs it. It has the five read-only tools over the case's live databases (through a role that cannot write) and the head commit's allowlisted source.
+
+**Live runs and cost:**
+
+- **Guard:** a live run needs `--live --budget-usd <approved>` (at most 10 USD) and `ANTHROPIC_API_KEY`. Without them, a scripted model runs every path at no cost. That dry run is written under `.work/` and is never reported as a result.
+- **Pinned model:** `claude-opus-5-5` at effort high, at most 8,000 output tokens a turn, with no fallbacks, so every turn has a known cost ceiling.
+- **Per-case cap (0.50 USD, hard):** the investigator never sends a turn that could take the case past 0.50 USD. It also stops at 12 tool calls or 16 turns.
+- **Budget gate:** a case starts only while the cap still fits in what is left of the budget. With 18 failing cases, the worst case is 9 USD.
+- **Accounting:** every investigation records input and output tokens, cost, tool calls by outcome, latency and the model that served it.
+
+**Scoring** is frozen in `ablation.py` before any live run:
+
+- the status (completed with every citation valid, budget exhausted, invalid output or unavailable);
+- how many labelled affected event IDs the hypotheses name;
+- whether the hypotheses or suggested action use the family's root-cause rubric terms.
+
+The rubric is a keyword proxy, so every hypothesis is kept verbatim in the report for reading. `ablation-report` writes `results/ABLATION.md`.
+
 ## Findings worth knowing
 
 - **Failures made of extra rows are not reproduced.** When a migration adds rows under new keys, as when refunds are inserted a second time, the failing keys exist only in the candidate. A subset seeded from the reference cannot contain them, so the replay passes and the result is honestly `NOT_REPRODUCED` (#8).
@@ -71,7 +94,8 @@ Labels are read only after every case has run. The results hold nothing that var
 
 ## Not covered yet
 
-- **`B3`**, the AI ablation, and the Change Analyst evaluation (#7).
+- **A live `B3` run** (#7). The harness is built and tested with scripted models; the run waits for an approved model budget.
+- **The Change Analyst** has no implementation, so it has no evaluation.
 
 ## Tests
 
@@ -83,3 +107,5 @@ Labels are read only after every case has run. The results hold nothing that var
   - the committed report is generated from the committed results.
 - **`tests/integration/test_benchmark_run.py`** (PostgreSQL): a fresh run reproduces the committed results exactly.
 - **`tests/integration/test_benchmark_pipeline.py`** (Docker): the first API behaviour case, run end to end, gives the committed outcomes and leaves nothing behind.
+- **`tests/integration/test_benchmark_ablation.py`** (PostgreSQL, scripted models): both arms diagnose a failing case; clean cases are skipped. The per-case cap stops before a turn that could pass it, and a case does not start once the budget left cannot cover the cap. The investigator's role cannot write.
+- **`tests/unit/test_ablation_scoring.py`:** the frozen rubric and event matching, the live-run guard (an approved budget of at most 10 USD and an API key), and the worst case fits the largest budget.
