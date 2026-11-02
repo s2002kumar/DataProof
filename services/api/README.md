@@ -1,6 +1,6 @@
 # DataProof control plane API
 
-The control plane's HTTP surface and its GitHub connector (ARCHITECTURE, GitHub connector and API surface). It is being built in work package 9 (#47). Implemented so far: GitHub webhook intake, GitHub App authentication, commit-bound check runs, the GitHub remote for the source broker, and the reviewer API's sign-in and read access.
+The control plane's HTTP surface and its GitHub connector (ARCHITECTURE, GitHub connector and API surface). It is being built in work package 9 (#47). Implemented so far: GitHub webhook intake, GitHub App authentication, commit-bound check runs, the GitHub remote for the source broker, and the reviewer API (sign-in, reads and decisions).
 
 ## Webhook intake
 
@@ -45,7 +45,7 @@ Rules:
 
 `github_remotes(app, installations)` tells the runner's source broker where a registered repository lives on GitHub. Each fetch gets a fresh installation token for that repository alone, which the broker passes to git through one command's environment ([runner](../runner/README.md#source-broker)).
 
-## Reviewer API: sign-in and read access
+## Reviewer API
 
 The reviewer API is mounted when `create_app` is given a `Reviewer`.
 
@@ -72,13 +72,30 @@ The reviewer API is mounted when `create_app` is given a `Reviewer`.
 - `GET /api/runs/{id}/checks` returns each check with the binding it waits on or used, and its analysis.
 - `GET /api/runs/{id}/evidence` returns the run's evidence records.
 
-**Writes** need the session, the CSRF token in `X-CSRF-Token`, and an `Origin` equal to the dashboard's. A missing or foreign `Origin` is refused. So far the only write is `POST /auth/logout`; binding decisions, cancellation and correction replay are the next step.
+**Writes** need the session, the CSRF token in `X-CSRF-Token`, and an `Origin` equal to the dashboard's. A missing or foreign `Origin` is refused. Deciding also needs `write` permission on the run's repository. Every decision is recorded as a `HumanDecision`, built on the server from the session; none changes a check result.
+
+- `POST /api/runs/{id}/binding-decisions` with `APPROVE_BINDING` or `REJECT_BINDING` and a binding digest (ADR-0005):
+  - The decision is bound to the run's head commit and to the pull request's author as GitHub reported it.
+  - **Approver rule:** the author may approve only while the repository has no other maintainer (collaborators who can push, read at decision time). Such an approval is recorded as `PROCEDURAL` separation; anyone else's approval is `ORGANIZATIONAL`.
+  - The binding must be one a check of the run waits on (`422` otherwise). A head the pull request has left, or a decision contradicting an earlier one, gets `409`. A repeated decision returns the earlier one.
+  - An approval starts a `binding_approval` run.
+- `POST /api/runs/{id}/cancel` cancels a working or reviewable run and records `CANCEL_RUN` in the same transaction. A run already ending gets `409`.
+- `POST /api/runs/{id}/correction-replay` with a commit SHA:
+  - The commit must exist in the repository, checked on GitHub, and differ from the run's head.
+  - It starts a `correction_replay` run under the repository's registered configuration, recorded as `REQUEST_CORRECTION_REPLAY` in the same transaction. The original run is untouched.
+- `POST /auth/logout` clears the session cookie.
+
+Reproduction takes minutes in fresh environments, so it is not run inside a request. Its route waits for a queued job.
+
+## OpenAPI
+
+`services/api/openapi.json` is the API's OpenAPI document, which the dashboard is written against. Regenerate it with `uv run python -m dataproof_api.openapi services/api/openapi.json`. A pre-commit hook and `tests/unit/test_openapi.py` fail if it is stale; the test also pins the list of routes.
 
 ## Not built yet
 
 These are the remaining steps of work package 9 (#47):
 
-- the reviewer API's writes: binding decisions with the approver rule, cancellation and correction replay;
+- a queued reproduction job and its route;
 - the signed preview gateway;
 - the dashboard.
 
@@ -113,7 +130,13 @@ No GitHub App is registered for this project. Everything here is tested against 
   - run detail shows the author, transitions and check run;
   - checks show the binding a reviewer decides on;
   - losing access takes effect after the 60-second cache;
-  - writes without the CSRF token or the dashboard's `Origin` get `403`.
+  - writes without the CSRF token or the dashboard's `Origin` get `403`;
+  - a maintainer's approval starts a `binding_approval` run (`ORGANIZATIONAL`), is returned when repeated and blocks a contradicting rejection;
+  - the author may approve only without another maintainer (`PROCEDURAL`), and otherwise gets `403` with nothing recorded;
+  - read-only and unrelated logins cannot decide (`403`, `404`);
+  - an unknown binding gets `422`, and a decision on a head the pull request has left gets `409`;
+  - cancellation is recorded with the reviewer's decision and refused a second time;
+  - a correction must be an existing, different commit, and starts a child run while the original stays queued.
 - **`tests/integration/test_check_runs.py`** (PostgreSQL):
   - `queued`, then `in_progress`, then `completed: failure` on the head commit, with the coverage table, and nothing re-sent once complete;
   - cancelled, superseded, errored and timed-out runs completed as `cancelled`, `cancelled`, `failure` and `timed_out`;
