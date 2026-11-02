@@ -15,14 +15,18 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+import httpx2
 import psycopg
 import pytest
+from fastapi.testclient import TestClient
 
 from commerce_scenario import PUBLISHED_DIGEST
 from control_env import FAST_RETRY, create, make_due
 from dataproof_api import Intake, Registration
 from dataproof_api.checks import CheckPublisher
+from dataproof_api.gateway import GRANT_PATH, Gateway, Grants, backend_resolver
 from dataproof_api.github_app import GitHubApp, load_private_key
+from dataproof_api.reviewers import Permissions
 from dataproof_contracts import (
     ApproverSeparation,
     CheckOutcome,
@@ -597,6 +601,33 @@ def test_previews_serve_each_commit_until_the_run_is_cleaned_up(api_harness: Har
         assert status == 200
         assert b"49.99" in page
         assert http_get(f"{access.url}/orders/1")[0] == 401
+
+    # A remote reviewer sees the same previews through the signed gateway, on their own hosts.
+    github = FakeGitHub({INSTALLATION: {REPOSITORY}}, permissions={REPOSITORY: {"viewer": "read"}})
+    grants = Grants(b"preview-grant-secret-for-tests-0123456789")
+    gateway = Gateway(
+        harness.store,
+        grants,
+        Permissions(
+            GitHubApp(APP_ID, load_private_key(PRIVATE_KEY_PEM), client=github.client()),
+            {REPOSITORY: INSTALLATION},
+        ),
+        backend_resolver(harness.backend),
+        domain="previews.test",
+        upstream=httpx2.Client(timeout=30),
+    )
+    browser = TestClient(gateway.app(), base_url=f"https://candidate-{run_id}.previews.test")
+    assert browser.get("/orders/1").status_code == 401
+    token = grants.issue(run_id, Environment.CANDIDATE, "viewer", datetime.now(UTC))
+    browser.get(f"/{GRANT_PATH}", params={"token": token})
+    through = browser.get("/api/orders/1/transactions", params={"kind": "REFUND"})
+    assert through.status_code == 200
+    assert through.headers["x-dataproof-commit"] == head
+    assert [(t["source_event_id"], t["amount"]) for t in through.json()] == [(1002, "49.99")]
+    served = browser.get("/orders/1")
+    assert served.status_code == 200
+    assert b"49.99" in served.content
+    assert "set-cookie" not in served.headers
 
     make_due(harness.dsn, run_id)
     worker.run_once()

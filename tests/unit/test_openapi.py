@@ -28,4 +28,5 @@ def test_the_documented_routes() -> None:
         "/api/runs/{run_id}/binding-decisions": ["post"],
         "/api/runs/{run_id}/cancel": ["post"],
         "/api/runs/{run_id}/correction-replay": ["post"],
+        "/api/runs/{run_id}/previews/{role}": ["post"],
     }

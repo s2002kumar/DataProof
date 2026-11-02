@@ -11,10 +11,13 @@
   to the dashboard's own, and ``write`` permission on the run's repository:
   ``…/binding-decisions`` (ADR-0005, with the approver rule), ``…/cancel`` and
   ``…/correction-replay``. Each is recorded as a ``HumanDecision``; none changes a check result.
+* ``POST /api/runs/{id}/previews/{role}``: a one-hour link to that preview through the signed
+  gateway, bound to the run, the role and the reviewer (``gateway``).
 """
 
 import hmac
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
@@ -24,9 +27,16 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_core import to_jsonable_python
 
+from dataproof_api.gateway import GRANT_PATH, Grants, preview_host
 from dataproof_api.reviewers import GitHubSignIn, Permissions, SignInError
 from dataproof_api.sessions import CSRF_HEADER, SESSION_COOKIE, STATE_COOKIE, Session, Sessions
-from dataproof_contracts import ApproverSeparation, HumanDecision, HumanDecisionAction, ReviewRun
+from dataproof_contracts import (
+    ApproverSeparation,
+    Environment,
+    HumanDecision,
+    HumanDecisionAction,
+    ReviewRun,
+)
 from dataproof_contracts._base import GitSha, Sha256Hex
 from dataproof_control import (
     DecisionConflictError,
@@ -57,6 +67,15 @@ class CancelRequest(_Request):
     comment: Comment = None
 
 
+@dataclass(frozen=True)
+class PreviewLinks:
+    """Where the signed preview gateway serves previews, and the key its grants are signed with."""
+
+    grants: Grants
+    domain: str
+    scheme: str = "https"
+
+
 class CorrectionRequest(_Request):
     head_sha: GitSha
     """The correction commit, in the run's repository."""
@@ -77,6 +96,7 @@ class Reviewer:
         public_origin: str,
         run_ttl: timedelta,
         retry: RetryPolicy,
+        previews: PreviewLinks | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.store = store
@@ -92,6 +112,7 @@ class Reviewer:
         """Each registered repository's trusted configuration, for runs a reviewer starts."""
         self.run_ttl = run_ttl
         self.retry = retry
+        self.previews = previews
         self.clock = clock
 
     # Dependencies ------------------------------------------------------------------------------
@@ -256,6 +277,22 @@ class Reviewer:
             if not cancelled:
                 raise HTTPException(409, "the run is already ending or has ended")
             return {"decision": decision.model_dump(mode="json")}
+
+        @router.post("/api/runs/{run_id}/previews/{role}")
+        def preview_link(
+            run_id: UUID, role: Literal["reference", "candidate"], session: writer
+        ) -> dict[str, Any]:
+            run = self.readable_run(run_id, session.login)
+            if self.previews is None:
+                raise HTTPException(404, "previews are not served remotely")
+            environment = Environment(role.upper())
+            now = self.clock()
+            token = self.previews.grants.issue(run.run_id, environment, session.login, now)
+            host = preview_host(environment, run.run_id, self.previews.domain)
+            return {
+                "url": f"{self.previews.scheme}://{host}/{GRANT_PATH}?token={token}",
+                "expires_at": (now + self.previews.grants.lifetime).isoformat(),
+            }
 
         @router.post("/api/runs/{run_id}/correction-replay", status_code=201)
         def correction_replay(
