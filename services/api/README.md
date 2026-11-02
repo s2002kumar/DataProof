@@ -1,6 +1,6 @@
 # DataProof control plane API
 
-The control plane's HTTP surface and its GitHub connector (ARCHITECTURE, GitHub connector and API surface). It is being built in work package 9 (#47). Implemented so far: GitHub webhook intake, GitHub App authentication, commit-bound check runs and the GitHub remote for the source broker.
+The control plane's HTTP surface and its GitHub connector (ARCHITECTURE, GitHub connector and API surface). It is being built in work package 9 (#47). Implemented so far: GitHub webhook intake, GitHub App authentication, commit-bound check runs, the GitHub remote for the source broker, and the reviewer API's sign-in and read access.
 
 ## Webhook intake
 
@@ -45,11 +45,40 @@ Rules:
 
 `github_remotes(app, installations)` tells the runner's source broker where a registered repository lives on GitHub. Each fetch gets a fresh installation token for that repository alone, which the broker passes to git through one command's environment ([runner](../runner/README.md#source-broker)).
 
+## Reviewer API: sign-in and read access
+
+The reviewer API is mounted when `create_app` is given a `Reviewer`.
+
+**Sign-in.**
+
+- `GET /auth/login` starts GitHub's OAuth web flow for the App. A random state is remembered in a signed, ten-minute cookie (`HttpOnly`, `SameSite=Lax`, path `/auth`).
+- `GET /auth/callback` accepts only that state. It exchanges the one-time code for the user's token, reads the login from `GET /user`, and discards the token: DataProof never acts as the user.
+
+**Sessions.**
+
+- A session is a signed cookie: the login, a random CSRF token and an expiry, signed with HMAC-SHA256 and compared in constant time. Attributes: `HttpOnly`, `Secure` on HTTPS, `SameSite=Lax`, eight hours. There is no server-side session table.
+- `GET /api/session` returns the login, the CSRF token and the repositories the login can read.
+
+**Authorization comes from GitHub, on every request.**
+
+- The login's permission on the run's repository is read with the App's installation token: `read` or better to see runs, and `write` or `admin` to decide on them.
+- Answers are cached for 60 seconds, so a collaborator who loses access loses it within a minute, not at the end of the session.
+- A run the reviewer cannot read gets exactly the same `404` as a run that does not exist.
+
+**Reads.**
+
+- `GET /api/runs` lists runs of the readable registered repositories, newest first. It can be filtered by repository and pull request.
+- `GET /api/runs/{id}` returns the run, its transition log, the pull request's author, the report, decisions, investigations, reproductions, previews (never a token or its hash) and the GitHub check run.
+- `GET /api/runs/{id}/checks` returns each check with the binding it waits on or used, and its analysis.
+- `GET /api/runs/{id}/evidence` returns the run's evidence records.
+
+**Writes** need the session, the CSRF token in `X-CSRF-Token`, and an `Origin` equal to the dashboard's. A missing or foreign `Origin` is refused. So far the only write is `POST /auth/logout`; binding decisions, cancellation and correction replay are the next step.
+
 ## Not built yet
 
 These are the remaining steps of work package 9 (#47):
 
-- the reviewer API with sign-in and authorization;
+- the reviewer API's writes: binding decisions with the approver rule, cancellation and correction replay;
 - the signed preview gateway;
 - the dashboard.
 
@@ -75,6 +104,16 @@ No GitHub App is registered for this project. Everything here is tested against 
   - a missing commit is an error that does not carry the credential;
   - only full SHAs are accepted;
   - the GitHub remote uses a token scoped to that repository alone.
+- **`tests/integration/test_reviewer_api.py`** (PostgreSQL, fake GitHub):
+  - sign-in sets a signed `HttpOnly`, `Secure`, `SameSite=Lax` session and keeps no GitHub token;
+  - a sign-in whose state came from elsewhere, or that has no state cookie, gets `400`, and a bad code gets `401`;
+  - a missing, tampered or expired session gets `401`;
+  - runs are listed only from readable repositories;
+  - an unreadable run's `404` is identical to a missing run's;
+  - run detail shows the author, transitions and check run;
+  - checks show the binding a reviewer decides on;
+  - losing access takes effect after the 60-second cache;
+  - writes without the CSRF token or the dashboard's `Origin` get `403`.
 - **`tests/integration/test_check_runs.py`** (PostgreSQL):
   - `queued`, then `in_progress`, then `completed: failure` on the head commit, with the coverage table, and nothing re-sent once complete;
   - cancelled, superseded, errored and timed-out runs completed as `cancelled`, `cancelled`, `failure` and `timed_out`;
