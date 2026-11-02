@@ -71,8 +71,10 @@ class Budget:
     max_tool_calls: int = 12
     max_turns: int = 16
     max_cost_usd: Decimal | None = None
-    """Stop once the model has cost more than this. The turn that crosses it has already
-    been paid for, so a caller holding a hard budget reserves one turn more."""
+    """The most an investigation may cost. A turn is not sent if the most it could cost would
+    take the investigation past this, so with a model that bounds its turns
+    (``ModelSession.ceiling_usd``) this is a hard limit. With one that does not, the
+    investigation stops after the turn that crosses it."""
 
 
 class _BudgetExhausted(Exception):  # noqa: N818 - an outcome, not a program error
@@ -137,6 +139,14 @@ class Investigator:
         results: list[ToolResult] = []
         try:
             for _ in range(self.budget.max_turns):
+                limit = self.budget.max_cost_usd
+                ceiling = session.ceiling_usd(results) if limit is not None else None
+                if limit is not None and ceiling is not None and cost + ceiling > limit:
+                    return finish(
+                        InvestigationStatus.BUDGET_EXHAUSTED,
+                        failure=f"the next turn could cost up to {ceiling} USD; "
+                        f"{cost} of the {limit} allowed is spent",
+                    )
                 turn: ModelTurn = session.send(results)
                 tokens["input"] += turn.input_tokens
                 tokens["output"] += turn.output_tokens

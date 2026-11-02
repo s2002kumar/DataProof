@@ -15,6 +15,7 @@ Request shape (Claude Opus 5.5, the default):
 * server-side refusal fallbacks are on by default, and the turn records which model served it.
 """
 
+import json
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import Any
@@ -91,9 +92,19 @@ def strict_schema(schema: Any) -> Any:
     return reduced
 
 
+#: Tokens the API may add to a request beyond its text (tool-use instructions, message framing).
+REQUEST_OVERHEAD_TOKENS = 4000
+#: The same for each tool result block.
+RESULT_OVERHEAD_TOKENS = 100
+
+
 def _cost(model: str, input_tokens: int, output_tokens: int) -> Decimal:
     input_price, output_price = PRICES.get(model, PRICES[DEFAULT_MODEL])
     return (input_price * input_tokens + output_price * output_tokens) / Decimal(1_000_000)
+
+
+def _bytes(value: Any) -> int:
+    return len(json.dumps(value, default=str).encode())
 
 
 class AnthropicModel:
@@ -143,14 +154,43 @@ class AnthropicModel:
         if self._fallbacks:
             request["betas"] = [FALLBACK_BETA]
             request["fallbacks"] = "default"
-        return _AnthropicSession(self._client, request, task)
+        return _AnthropicSession(self._client, request, task, fallbacks=self._fallbacks)
 
 
 class _AnthropicSession:
-    def __init__(self, client: anthropic.Anthropic, request: dict[str, Any], task: str) -> None:
+    def __init__(
+        self,
+        client: anthropic.Anthropic,
+        request: dict[str, Any],
+        task: str,
+        *,
+        fallbacks: bool,
+    ) -> None:
         self._client = client
         self._request = request
         self._messages: list[BetaMessageParam] = [{"role": "user", "content": task}]
+        self._fallbacks = fallbacks
+        self._context_tokens: int | None = None
+        """The last turn's input plus output tokens: an upper bound on the conversation so far."""
+
+    def ceiling_usd(self, tool_results: Sequence[ToolResult]) -> Decimal | None:
+        """An upper bound on the next turn's cost, from the fact that a token is at least a byte.
+
+        The input is the conversation so far (the last turn's input and output, as counted by
+        the API) plus the new tool results; the output is at most ``max_tokens``. With
+        fallbacks on, another model may serve the turn at another price, so there is no bound.
+        """
+        if self._fallbacks:
+            return None
+        if self._context_tokens is None:
+            prompt = _bytes(self._request["system"]) + _bytes(self._request["tools"])
+            prompt += _bytes(self._request["output_config"]) + _bytes(self._messages)
+            context = prompt + REQUEST_OVERHEAD_TOKENS
+        else:
+            context = self._context_tokens + sum(
+                len(result.content.encode()) + RESULT_OVERHEAD_TOKENS for result in tool_results
+            )
+        return _cost(self._request["model"], context, self._request["max_tokens"])
 
     def send(self, tool_results: Sequence[ToolResult]) -> ModelTurn:
         if tool_results:
@@ -171,6 +211,7 @@ class _AnthropicSession:
         if stop is None:
             raise RuntimeError(f"unexpected stop reason {response.stop_reason!r}")
         usage = response.usage
+        self._context_tokens = usage.input_tokens + usage.output_tokens
         return ModelTurn(
             stop=stop,
             tool_uses=tuple(
