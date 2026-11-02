@@ -16,6 +16,7 @@ from dataproof_contracts import (
     HumanDecision,
     HumanDecisionAction,
     ReviewRun,
+    RunState,
     RunTrigger,
 )
 from dataproof_control import (
@@ -245,3 +246,24 @@ def test_concurrent_approvals_at_one_head_are_serialized(store: RunStore) -> Non
     assert sorted(len(approved) for approved, _ in configs.calls) == [1, 2], (
         "the later approval sees the earlier one"
     )
+
+
+def test_a_cancellation_or_correction_records_only_its_own_decision(store: RunStore) -> None:
+    run = create(store).run
+    other = create(store, run_inputs(pull_request=8)).run
+    cancel = decide(other, HumanDecisionAction.CANCEL_RUN, None)
+    with pytest.raises(ValueError, match="does not cancel this run"):
+        store.cancel(run.run_id, actor="user:maintainer", decision=cancel)
+    request = decide(run, HumanDecisionAction.REQUEST_CORRECTION_REPLAY, None)
+    with pytest.raises(ValueError, match="does not request this correction"):
+        store.start_correction_replay(
+            run.run_id,
+            head_sha=CORRECTION_SHA,
+            config_digest="c" * 64,
+            actor="user:developer",
+            run_ttl=RUN_TTL,
+            retry=FAST_RETRY,
+            decision=request,
+        )
+    assert store.decisions(run.run_id) == []
+    assert store.get_run(run.run_id).state is RunState.QUEUED

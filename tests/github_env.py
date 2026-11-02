@@ -23,6 +23,8 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from control_env import BASE_SHA, HEAD_SHA
 
 APP_ID = "123456"
+CLIENT_ID = "Iv1.testclient"
+CLIENT_SECRET = "test-only-client-secret"  # noqa: S105 - a placeholder, not a credential
 INSTALLATION = 4242
 REPOSITORY = "example-org/commerce-demo"
 PRIVATE_KEY: RSAPrivateKey = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -61,6 +63,12 @@ class FakeGitHub:
     check_runs: dict[int, FakeCheckRun] = field(default_factory=dict)
     requests: list[httpx2.Request] = field(default_factory=list)
     fail_next: list[int] = field(default_factory=list)
+    permissions: dict[str, dict[str, str]] = field(default_factory=dict)
+    """Repository to login to ``admin``, ``write`` or ``read``; others are not collaborators."""
+    oauth_codes: dict[str, str] = field(default_factory=dict)
+    """One-time sign-in code to the login it signs in."""
+    user_tokens: dict[str, str] = field(default_factory=dict)
+    commits: set[str] = field(default_factory=set)
     """Status codes to answer the next requests with, in order (simulated outages)."""
     _ids: Iterator[int] = field(default_factory=lambda: itertools.count(1001))
 
@@ -79,6 +87,15 @@ class FakeGitHub:
         if self.fail_next:
             return httpx2.Response(self.fail_next.pop(0), json={"message": "unavailable"})
         path = request.url.path
+        if path == "/login/oauth/access_token" and request.method == "POST":
+            return self._exchange_code(request)
+        if path == "/user":
+            login = self.user_tokens.get(
+                request.headers.get("Authorization", "").removeprefix("Bearer ")
+            )
+            if login is None:
+                return httpx2.Response(401, json={"message": "Bad credentials"})
+            return httpx2.Response(200, json={"login": login, "id": 1})
         if match := re.fullmatch(r"/app/installations/(\d+)/access_tokens", path):
             return self._access_token(request, int(match.group(1)))
         if match := re.fullmatch(r"/repos/([^/]+/[^/]+)/(.+)", path):
@@ -104,6 +121,17 @@ class FakeGitHub:
         return httpx2.Response(
             201, json={"token": token, "expires_at": expires.isoformat().replace("+00:00", "Z")}
         )
+
+    def _exchange_code(self, request: httpx2.Request) -> httpx2.Response:
+        form = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
+        if (form.get("client_id"), form.get("client_secret")) != (CLIENT_ID, CLIENT_SECRET):
+            return httpx2.Response(200, json={"error": "incorrect_client_credentials"})
+        login = self.oauth_codes.pop(form.get("code", ""), None)
+        if login is None:
+            return httpx2.Response(200, json={"error": "bad_verification_code"})
+        token = f"gho_fake{next(self._ids)}"
+        self.user_tokens[token] = login
+        return httpx2.Response(200, json={"access_token": token, "token_type": "bearer"})
 
     def verify_app_jwt(self, authorization: str) -> bool:
         if not authorization.startswith("Bearer "):
@@ -168,6 +196,21 @@ class FakeGitHub:
             existing.output = body.get("output", existing.output)
             existing.history.append((existing.status, existing.conclusion))
             return httpx2.Response(200, json={"id": existing.id})
+        if match := re.fullmatch(r"collaborators/([^/]+)/permission", route):
+            level = self.permissions.get(repository, {}).get(match.group(1))
+            if level is None:
+                return httpx2.Response(404, json={"message": "Not Found"})
+            return httpx2.Response(200, json={"permission": level})
+        if route == "collaborators":
+            pushers = [
+                {"login": login}
+                for login, level in self.permissions.get(repository, {}).items()
+                if level in ("admin", "write")
+            ]
+            return httpx2.Response(200, json=pushers)
+        if match := re.fullmatch(r"commits/([0-9a-f]{40})", route):
+            known = match.group(1) in self.commits
+            return httpx2.Response(200 if known else 404, json={"sha": match.group(1)})
         if match := re.fullmatch(r"commits/([0-9a-f]{40})/check-runs", route):
             name = parse_qs(request.url.query.decode()).get("check_name", [None])[0]
             found = [

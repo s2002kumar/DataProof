@@ -1,4 +1,4 @@
-"""The control plane's HTTP surface. So far: ``POST /github/webhook``."""
+"""The control plane's HTTP surface: GitHub webhook intake and, if configured, the reviewer API."""
 
 import json
 from typing import Annotated, Any
@@ -7,13 +7,16 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 
 from dataproof_api.intake import Intake
+from dataproof_api.reviewer import Reviewer
 from dataproof_api.webhooks import verify_signature
 
 #: GitHub caps webhook payloads at 25 MB; pull request events are far smaller.
 MAX_WEBHOOK_BYTES = 5 * 1024 * 1024
 
 
-def create_app(intake: Intake, *, webhook_secret: bytes) -> FastAPI:
+def create_app(
+    intake: Intake, *, webhook_secret: bytes, reviewer: Reviewer | None = None
+) -> FastAPI:
     if not webhook_secret:
         raise ValueError("a webhook secret is required")
     app = FastAPI(title="DataProof control plane", docs_url=None, redoc_url=None)
@@ -47,4 +50,6 @@ def create_app(intake: Intake, *, webhook_secret: bytes) -> FastAPI:
             "detail": dict(result.detail),
         }
 
+    if reviewer is not None:
+        app.include_router(reviewer.router())
     return app

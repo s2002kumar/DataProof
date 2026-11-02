@@ -171,3 +171,28 @@ class Repository:
 
     def update_check_run(self, check_run_id: int, payload: Mapping[str, Any]) -> None:
         self._send("PATCH", f"/check-runs/{check_run_id}", payload)
+
+    def permission(self, login: str) -> str:
+        """The login's permission on this repository: ``admin``, ``write``, ``read`` or ``none``."""
+        try:
+            body = self._send("GET", f"/collaborators/{login}/permission")
+        except GitHubError as error:
+            if error.status == 404:
+                return "none"
+            raise
+        level = body.get("permission") if isinstance(body, dict) else None
+        return level if level in ("admin", "write", "read") else "none"
+
+    def maintainers(self) -> list[str]:
+        """Collaborators who can push: the maintainers the approver rule counts (ADR-0005)."""
+        body = self._send("GET", "/collaborators?permission=push&per_page=100")
+        return sorted(str(collaborator["login"]) for collaborator in body)
+
+    def has_commit(self, sha: str) -> bool:
+        try:
+            self._send("GET", f"/commits/{sha}")
+        except GitHubError as error:
+            if error.status in (404, 422):
+                return False
+            raise
+        return True
