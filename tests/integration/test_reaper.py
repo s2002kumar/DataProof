@@ -56,22 +56,24 @@ def test_the_reaper_removes_expired_environments_without_the_control_plane(
     environment["DATAPROOF_CONFIG"] = str(_deployment(tmp_path, backend.scope))
     journal = tmp_path / "data" / "reaper.jsonl"
 
-    process = subprocess.Popen(
-        [sys.executable, "-m", "dataproof_api", "reaper", "--interval", "0.5"],
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    try:
-        deadline = time.monotonic() + 60
-        while not journal.exists() and time.monotonic() < deadline:
-            assert process.poll() is None, process.communicate()[0].decode()
-            time.sleep(0.5)
-        time.sleep(1.5)  # a few more sweeps: nothing else may be removed
-        assert process.poll() is None, "the reaper keeps running without a database"
-    finally:
-        process.terminate()
-        process.wait(timeout=10)
+    log = tmp_path / "reaper.log"
+    with log.open("wb") as output:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "dataproof_api", "reaper", "--interval", "0.5"],
+            env=environment,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+        )
+        try:
+            deadline = time.monotonic() + 60
+            while not journal.exists() and time.monotonic() < deadline:
+                assert process.poll() is None, log.read_text("utf-8", errors="replace")
+                time.sleep(0.5)
+            time.sleep(1.5)  # a few more sweeps: nothing else may be removed
+            assert process.poll() is None, "the reaper keeps running without a database"
+        finally:
+            process.terminate()
+            process.wait(timeout=10)
 
     entries = [json.loads(line) for line in journal.read_text("utf-8").splitlines()]
     assert [entry["run_id"] for entry in entries] == [str(expired.run_id)], "reaped exactly once"
