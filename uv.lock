@@ -343,6 +343,7 @@ source = { editable = "services/runner" }
 dependencies = [
     { name = "dataproof-contracts" },
     { name = "dataproof-control" },
+    { name = "dataproof-investigator" },
     { name = "dataproof-scenario-commerce" },
     { name = "dataproof-verifier" },
     { name = "docker" },
@@ -353,6 +354,7 @@ dependencies = [
 requires-dist = [
     { name = "dataproof-contracts", editable = "packages/contracts" },
     { name = "dataproof-control", editable = "packages/control" },
+    { name = "dataproof-investigator", editable = "packages/investigator" },
     { name = "dataproof-scenario-commerce", editable = "scenarios/commerce" },
     { name = "dataproof-verifier", editable = "packages/verifier" },
     { name = "docker", specifier = ">=7.1" },
