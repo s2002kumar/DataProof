@@ -22,7 +22,8 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -56,11 +57,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--logs", type=Path, default=REPO / ".dataproof-demo" / "logs")
     args = parser.parse_args(argv)
-    env = environment(args.env)
+    try:
+        with running(environment(args.env), args.logs, tunnel=args.tunnel) as processes:
+            while all(process.poll() is None for process in processes.values()):
+                time.sleep(1)
+            stopped = [name for name, process in processes.items() if process.poll() is not None]
+            print("stopped unexpectedly:", ", ".join(stopped), "- see the logs")
+            return 1
+    except KeyboardInterrupt:
+        return 0
+
+
+@contextmanager
+def running(
+    env: dict[str, str], logs: Path, *, tunnel: bool = False
+) -> Iterator[dict[str, subprocess.Popen[bytes]]]:
+    """Migrate, build the dashboard and run every process until the block exits."""
     for required in ("DATAPROOF_CONFIG", "DATAPROOF_DATABASE_URL"):
         if not env.get(required):
             raise SystemExit(f"set {required}")
-    args.logs.mkdir(parents=True, exist_ok=True)
+    logs.mkdir(parents=True, exist_ok=True)
     python = [sys.executable, "-m", "dataproof_api"]
 
     subprocess.run([*python, "migrate"], env=env, check=True)  # noqa: S603
@@ -73,35 +89,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         [pnpm, "--filter", "@dataproof/dashboard", "build"], cwd=REPO, env=dashboard_env, check=True
     )
 
-    running: dict[str, subprocess.Popen[bytes]] = {}
+    processes: dict[str, subprocess.Popen[bytes]] = {}
     try:
         for name, arguments in PROCESSES.items():
-            log = (args.logs / f"{name}.log").open("wb")
-            running[name] = subprocess.Popen(  # noqa: S603
+            log = (logs / f"{name}.log").open("wb")
+            processes[name] = subprocess.Popen(  # noqa: S603
                 [*python, *arguments], env=env, stdout=log, stderr=subprocess.STDOUT
             )
-        log = (args.logs / "dashboard.log").open("wb")
-        running["dashboard"] = subprocess.Popen(  # noqa: S603
+        log = (logs / "dashboard.log").open("wb")
+        processes["dashboard"] = subprocess.Popen(  # noqa: S603
             [node, "node_modules/next/dist/bin/next", "start", "-H", "127.0.0.1", "-p", "3000"],
             cwd=DASHBOARD,
             env=dashboard_env,
             stdout=log,
             stderr=subprocess.STDOUT,
         )
-        print("dashboard: http://127.0.0.1:3000  (logs in", args.logs, ")")
-        if args.tunnel:
-            print("tunnel:", start_tunnel(running, args.logs, env, python))
-        while all(process.poll() is None for process in running.values()):
-            time.sleep(1)
-        stopped = [name for name, process in running.items() if process.poll() is not None]
-        print("stopped unexpectedly:", ", ".join(stopped), "- see the logs")
-        return 1
-    except KeyboardInterrupt:
-        return 0
+        print("dashboard: http://127.0.0.1:3000  (logs in", logs, ")")
+        if tunnel:
+            print("tunnel:", start_tunnel(processes, logs, env, python))
+        yield processes
     finally:
-        for process in running.values():
+        for process in processes.values():
             process.terminate()
-        for process in running.values():
+        for process in processes.values():
             try:
                 process.wait(timeout=20)
             except subprocess.TimeoutExpired:

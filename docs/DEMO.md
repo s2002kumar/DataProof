@@ -67,6 +67,28 @@ Steps marked **owner** create or use credentials and are run by the repository o
 
 Status: everything above except the owner steps is implemented and tested locally (#63). The live run, and the recording made from it, wait for the owner's App registration.
 
+## Local rehearsal
+
+`scripts/demo/rehearse.py` runs the same review on one machine, with no credentials:
+
+```bash
+uv run python scripts/demo/rehearse.py --image <runtime image ID> --record
+```
+
+- **Real:** everything DataProof does. That covers:
+  - a control database, and webhook intake that verifies signatures;
+  - a worker that migrates isolated Docker copies and builds both previews behind the signed gateway;
+  - the contracts, the diagnosis and the check-run publisher;
+  - the dashboard, driven in Chromium by Playwright.
+- **Simulated: GitHub only.** The test double from `tests/github_env.py` issues App tokens, signs the reviewer in as `maintainer` and records check runs. The pull request's commits come from a local bare repository built by `build_demo_repo.py`, through the deployment's `git_url` (`file://`).
+- **The walk-through:**
+  1. The first run is `INCOMPLETE`. The reviewer opens the candidate preview and approves the binding.
+  2. The approval run is `BLOCKED`, with refund 1002 at 49.99 expected and 99.98 observed. The reviewer opens both previews, reads the diagnosis, and replays the corrected commit (`ledger-backfill-direct`).
+  3. The correction run is `CHECKED`.
+
+  The script then prints the check runs that GitHub received.
+- **The recording:** with `--record`, every step is recorded and the steps are joined into `.dataproof-demo/rehearsal/rehearsal.webm`. Joining needs `ffmpeg` on the path, or `FFMPEG` set. Waiting for a run happens off camera, and each step opens with a card that says how long the wait took. Captions are drawn as a subtitle bar that is clearly not part of the product. Nothing is sped up or staged.
+
 ## README ordering after implementation
 
 Hero line → 30–90s demo → one screenshot for failing integrity report → short 'How it works' diagram → local quickstart → test & benchmark outcomes → tradeoffs and limitations → source credit. A first-time reader can understand it in 10 seconds and inspect engineering depth afterward.

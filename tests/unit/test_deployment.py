@@ -69,6 +69,30 @@ def test_a_loopback_dashboard_may_use_plain_http(tmp_path: Path) -> None:
     )
 
 
+CLIENT_LINE = 'client_id = "Iv1.0000000000000000"'
+
+
+@pytest.mark.parametrize(
+    ("git_url", "loads"),
+    [
+        ("https://github.example/", "https://github.example"),
+        ("file:///srv/rehearsal/git", "file:///srv/rehearsal/git"),
+        ("http://github.example", None),
+        ("ssh://git@github.com", None),
+    ],
+)
+def test_commits_are_fetched_over_https_or_from_a_local_directory(
+    tmp_path: Path, git_url: str, loads: str | None
+) -> None:
+    path = _deployment(tmp_path, {CLIENT_LINE: f'{CLIENT_LINE}\ngit_url = "{git_url}"'})
+    if loads is None:
+        with pytest.raises(ValidationError, match="git_url"):
+            Deployment.load(path)
+    else:
+        assert Deployment.load(path).github.git_url == loads
+    assert Deployment.load(_deployment(tmp_path)).github.git_url == "https://github.com"
+
+
 def test_the_api_composes_from_the_file_and_the_environment(tmp_path: Path) -> None:
     stack = Stack.from_environment({**SECRETS, "DATAPROOF_CONFIG": str(_deployment(tmp_path))})
     paths = stack.api().openapi()["paths"]
