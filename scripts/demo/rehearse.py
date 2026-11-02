@@ -287,6 +287,19 @@ def expect(dsn: str, run_id: UUID, verdict: str, name: str) -> float:
     return waited
 
 
+def release(dsn: str, keep: UUID) -> None:
+    """Cancel, off camera, every other run the walk-through has finished with.
+
+    A run in review keeps its databases and previews (about six Docker networks) until its
+    review expires, and one machine's Docker address pool holds only a few runs. Cancelling
+    releases them; their reports and decisions stand.
+    """
+    store = RunStore(dsn)
+    for run in store.runs([REPOSITORY]):
+        if run.run_id != keep and store.cancel(run.run_id, actor="rehearsal", reason="released"):
+            print(f"released run {run.run_id} ({run.state.value})")
+
+
 def child(dsn: str, parent: UUID, timeout: float = 60) -> UUID:
     store, started = RunStore(dsn), time.monotonic()
     while time.monotonic() - started < timeout:
@@ -340,7 +353,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             + "\n",
             "utf-8",
         )
-        with running(environment(env_file), args.out / "logs"), removing_environments():
+        # The stack stops first, then what its runs still hold is removed.
+        with removing_environments(), running(environment(env_file), args.out / "logs"):
             wait_for(f"{DASHBOARD}/", seconds=120)
             wait_for("http://127.0.0.1:8000/openapi.json")
             walk = Walkthrough(args.out / "video" if args.record else None, SIZE)
@@ -348,12 +362,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 first = deliver(secret, commits["main"], commits["ledger-backfill"], "rehearsal-1")
                 walk.binding_review(first, expect(dsn, first, "INCOMPLETE", "run"))
                 approval = child(dsn, first)
+                release(dsn, keep=approval)
                 waited = expect(dsn, approval, "BLOCKED", "approval run")
                 walk.blocked(approval, waited, commits["ledger-backfill-direct"])
                 correction = child(dsn, approval)
+                release(dsn, keep=correction)
                 waited = expect(dsn, correction, "INCOMPLETE", "correction run")
                 walk.correction_review(correction, waited)
                 corrected = child(dsn, correction)
+                release(dsn, keep=corrected)
                 walk.checked(corrected, expect(dsn, corrected, "CHECKED", "corrected run"))
             finally:
                 walk.close()

@@ -20,6 +20,8 @@ from playwright.sync_api import Browser, Page, StorageState, expect, sync_playwr
 
 DASHBOARD = "http://127.0.0.1:3000"
 HOLD = 2500
+STARTS = 30_000
+"""Milliseconds to allow a decision that starts a run, which can take longer than a page."""
 """Milliseconds to hold on each thing worth reading."""
 FOOTER = "Local rehearsal · GitHub is simulated · DataProof is real · nothing is sped up"
 CARD = """<!doctype html><html><body style="margin:0;height:100vh;display:flex;
@@ -127,7 +129,7 @@ class Walkthrough:
                 )
                 review.get_by_label("Comment (optional)").fill(comment)
             review.get_by_role("button", name="Approve binding").click()
-            expect(page.get_by_role("status")).to_contain_text("Approved")
+            expect(page.get_by_role("status")).to_contain_text("Approved", timeout=STARTS)
             reviews = page.locator("section.binding")
         return count
 
@@ -194,7 +196,9 @@ class Walkthrough:
             )
             page.get_by_label("Correction commit").fill(correction)
             page.get_by_role("button", name="Replay a correction").click()
-            expect(page.get_by_role("status")).to_contain_text("Correction run started")
+            expect(page.get_by_role("status")).to_contain_text(
+                "Correction run started", timeout=STARTS
+            )
             caption(page, "The reviewer replays the corrected commit on the same baseline.", 2500)
 
     def correction_review(self, run_id: UUID, waited: float) -> None:
