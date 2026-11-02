@@ -57,3 +57,9 @@ repos:
         language: system
         files: ^packages/contracts/
         pass_filenames: false
+      - id: api-openapi
+        name: control plane OpenAPI document is current
+        entry: uv run --frozen python -m dataproof_api.openapi services/api/openapi.json --check
+        language: system
+        files: ^(services/api/|packages/(contracts|control)/src/)
+        pass_filenames: false
