@@ -1,6 +1,8 @@
 """The reviewer API: GitHub sign-in, sessions, CSRF and per-repository read access."""
 
+import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
@@ -28,12 +30,20 @@ from dataproof_contracts import (
     CandidateBinding,
     CheckOutcome,
     CheckResult,
+    EvidenceManifest,
     NotRunReason,
     RunState,
     RunTrigger,
 )
-from dataproof_control import CheckRecord, GitHubRecords, RunResults, RunStore
-from dataproof_control.results import record_check
+from dataproof_control import (
+    CheckRecord,
+    GitHubRecords,
+    ManifestRecord,
+    ReproductionQueue,
+    RunResults,
+    RunStore,
+)
+from dataproof_control.results import record_check, record_manifest
 from dataproof_runner.project import ProjectConfig
 from github_env import (
     APP_ID,
@@ -103,6 +113,7 @@ class Stack:
             run_ttl=RUN_TTL,
             retry=FAST_RETRY,
             previews=PreviewLinks(self.grants, "previews.test"),
+            reproductions=ReproductionQueue(dsn),
             clock=self.clock,
         )
         self.app = create_app(self.intake, webhook_secret=b"webhook-secret", reviewer=reviewer)
@@ -461,3 +472,57 @@ def test_a_preview_link_is_a_grant_for_one_run_role_and_reviewer(
     assert grant is not None
     assert (grant.run_id, grant.role.value, grant.login) == (run_id, "CANDIDATE", "viewer")
     assert client.post(f"/api/runs/{run_id}/previews/candidate").status_code == 403, "needs CSRF"
+
+
+EXAMPLES = Path(__file__).parents[2] / "packages" / "contracts" / "examples"
+
+
+def failed_and_sealed(stack: Stack, run_id: UUID, *, sealed: bool = True) -> str:
+    """Record F1's failed C1 check and, if ``sealed``, the run's evidence manifest."""
+    failed = CheckResult.model_validate_json(
+        (EXAMPLES / "CheckResult.f1-detected.json").read_text()
+    )
+    manifest = EvidenceManifest.model_validate(
+        {
+            **json.loads((EXAMPLES / "EvidenceManifest.sealed.json").read_text()),
+            "run_id": str(run_id),
+        }
+    )
+    with psycopg.connect(stack.dsn) as conn:
+        record_check(conn, run_id, CheckRecord(failed))
+        if sealed:
+            record_manifest(conn, run_id, ManifestRecord("runs/manifest.json", "a" * 64, manifest))
+    return failed.check_id
+
+
+def test_a_reproduction_is_queued_for_a_failed_check_of_a_sealed_run(stack: Stack) -> None:
+    run_id = stack.webhook_run()
+    check_id = failed_and_sealed(stack, run_id)
+    awaiting_binding(stack, run_id)
+    client, csrf = stack.signed_in("maintainer")
+    path = f"/api/runs/{run_id}/reproductions"
+
+    not_failed = post(client, csrf, path, {"check_id": "commerce.c1_event_preservation"})
+    assert not_failed.status_code == 422
+    queued = post(client, csrf, path, {"check_id": check_id})
+    assert queued.status_code == 202, queued.text
+    assert queued.json()["created"] is True
+    again = post(client, csrf, path, {"check_id": check_id})
+    assert again.json()["created"] is False
+    assert again.json()["request"]["request_id"] == queued.json()["request"]["request_id"]
+    (request,) = client.get(f"/api/runs/{run_id}").json()["reproduction_requests"]
+    assert (request["check_id"], request["state"], request["requested_by"]) == (
+        check_id,
+        "queued",
+        "maintainer",
+    )
+    viewer, viewer_csrf = stack.signed_in("viewer")
+    assert post(viewer, viewer_csrf, path, {"check_id": check_id}).status_code == 403
+
+
+def test_a_run_that_has_not_sealed_its_evidence_cannot_be_reproduced_yet(stack: Stack) -> None:
+    run_id = stack.webhook_run()
+    check_id = failed_and_sealed(stack, run_id, sealed=False)
+    client, csrf = stack.signed_in("maintainer")
+    response = post(client, csrf, f"/api/runs/{run_id}/reproductions", {"check_id": check_id})
+    assert response.status_code == 409

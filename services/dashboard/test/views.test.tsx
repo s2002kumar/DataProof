@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 
 import checkExample from "../../../packages/contracts/examples/CheckResult.f1-detected.json";
@@ -55,4 +55,45 @@ it("runs link to their page and show their verdict", () => {
   expect(screen.getByText("BLOCKED")).toBeTruthy();
   expect(screen.getByText("manual")).toBeTruthy();
   expect(screen.getByText("not reported")).toBeTruthy();
+});
+
+it("a failed data check offers a reproduction; other checks do not", () => {
+  const failed = checkExample as unknown as CheckResult;
+  const passed = { ...failed, check_id: "c2.total", outcome: "PASS" as const, mismatch_count: 0, mismatch_examples: [] };
+  const onReproduce = vi.fn();
+  render(
+    <Checks
+      checks={[
+        { result: failed, binding: null, binding_digest: null, binding_analysis: null, binding_problem: null },
+        { result: passed, binding: null, binding_digest: null, binding_analysis: null, binding_problem: null },
+      ]}
+      onDecide={vi.fn()}
+      onReproduce={onReproduce}
+    />,
+  );
+  const buttons = screen.getAllByRole("button", { name: "Reproduce on a small subset" });
+  expect(buttons).toHaveLength(1);
+  fireEvent.click(buttons[0]);
+  expect(onReproduce).toHaveBeenCalledWith("c1.amount");
+});
+
+it("a queued or failed reproduction request is shown with its state", () => {
+  render(
+    <Reproductions
+      reproductions={[]}
+      requests={[
+        {
+          request_id: "r1",
+          check_id: "c1.amount",
+          requested_by: "maintainer",
+          requested_at: "2026-11-02T10:00:00Z",
+          state: "failed",
+          reproduction_id: null,
+          failure: "c1.amount did not fail",
+        },
+      ]}
+    />,
+  );
+  expect(screen.getByText(/failed, requested by maintainer/)).toBeTruthy();
+  expect(screen.getByText(/did not fail/)).toBeTruthy();
 });

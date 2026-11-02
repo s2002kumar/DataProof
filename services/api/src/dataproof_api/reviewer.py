@@ -12,6 +12,8 @@
   to the dashboard's own, and ``write`` permission on the run's repository:
   ``…/binding-decisions`` (ADR-0005, with the approver rule), ``…/cancel`` and
   ``…/correction-replay``. Each is recorded as a ``HumanDecision``; none changes a check result.
+* ``POST /api/runs/{id}/reproductions``: queue a reproduction of a failed data check; a worker
+  runs it (``dataproof_runner.reproducer``). Needs ``write`` permission.
 * ``POST /api/runs/{id}/previews/{role}``: a one-hour link to that preview through the signed
   gateway, bound to the run, the role and the reviewer (``gateway``).
 """
@@ -33,6 +35,7 @@ from dataproof_api.reviewers import GitHubSignIn, Permissions, SignInError
 from dataproof_api.sessions import CSRF_HEADER, SESSION_COOKIE, STATE_COOKIE, Session, Sessions
 from dataproof_contracts import (
     ApproverSeparation,
+    CheckOutcome,
     Environment,
     HumanDecision,
     HumanDecisionAction,
@@ -42,6 +45,7 @@ from dataproof_contracts._base import GitSha, Sha256Hex
 from dataproof_control import (
     DecisionConflictError,
     GitHubRecords,
+    ReproductionQueue,
     RetryPolicy,
     RunNotFoundError,
     RunResults,
@@ -77,6 +81,10 @@ class PreviewLinks:
     scheme: str = "https"
 
 
+class ReproductionRequestBody(_Request):
+    check_id: Annotated[str, Field(min_length=1, max_length=200)]
+
+
 class CorrectionRequest(_Request):
     head_sha: GitSha
     """The correction commit, in the run's repository."""
@@ -98,6 +106,7 @@ class Reviewer:
         run_ttl: timedelta,
         retry: RetryPolicy,
         previews: PreviewLinks | None = None,
+        reproductions: ReproductionQueue | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.store = store
@@ -114,6 +123,7 @@ class Reviewer:
         self.run_ttl = run_ttl
         self.retry = retry
         self.previews = previews
+        self.reproductions = reproductions
         self.clock = clock
 
     # Dependencies ------------------------------------------------------------------------------
@@ -287,6 +297,12 @@ class Reviewer:
                 raise HTTPException(409, "the run is already ending or has ended")
             return {"decision": decision.model_dump(mode="json")}
 
+        @router.post("/api/runs/{run_id}/reproductions", status_code=202)
+        def reproduce(
+            run_id: UUID, request: ReproductionRequestBody, session: writer
+        ) -> dict[str, Any]:
+            return self._reproduce(run_id, request.check_id, session.login)
+
         @router.post("/api/runs/{run_id}/previews/{role}")
         def preview_link(
             run_id: UUID, role: Literal["reference", "candidate"], session: writer
@@ -360,6 +376,22 @@ class Reviewer:
             "recorded": outcome.recorded,
             "started_run_id": str(outcome.started.run.run_id) if outcome.started else None,
         }
+
+    def _reproduce(self, run_id: UUID, check_id: str, login: str) -> dict[str, Any]:
+        run = self.decidable_run(run_id, login)
+        if self.reproductions is None:
+            raise HTTPException(404, "reproduction is not available here")
+        if self.results.manifest(run.run_id) is None:
+            raise HTTPException(409, "the run has not sealed its evidence yet")
+        record = next(
+            (c for c in self.results.checks(run.run_id) if c.result.check_id == check_id), None
+        )
+        if record is None or record.result.outcome is not CheckOutcome.FAIL:
+            raise HTTPException(422, "only a check that failed can be reproduced")
+        if record.binding is not None and record.binding.api_route is not None:
+            raise HTTPException(422, "API behaviour checks need live previews to reproduce")
+        request, created = self.reproductions.request(run.run_id, check_id, requested_by=login)
+        return {"request": to_jsonable_python(request), "created": created}
 
     def _correction(self, run_id: UUID, request: CorrectionRequest, login: str) -> dict[str, Any]:
         run = self.decidable_run(run_id, login)
@@ -440,6 +472,11 @@ class Reviewer:
             "reproductions": [
                 r.model_dump(mode="json") for r in self.results.reproductions(run_id)
             ],
+            "reproduction_requests": (
+                to_jsonable_python(self.reproductions.requests(run_id))
+                if self.reproductions is not None
+                else []
+            ),
             "previews": previews,
             "check_run": (
                 {

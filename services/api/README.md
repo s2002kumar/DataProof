@@ -83,9 +83,11 @@ The reviewer API is mounted when `create_app` is given a `Reviewer`.
 - `POST /api/runs/{id}/correction-replay` with a commit SHA:
   - The commit must exist in the repository, checked on GitHub, and differ from the run's head.
   - It starts a `correction_replay` run under the repository's registered configuration, recorded as `REQUEST_CORRECTION_REPLAY` in the same transaction. The original run is untouched.
+- `POST /api/runs/{id}/reproductions` with a check ID queues a reproduction (`202`).
+  - The check must have failed and be a data contract, and the run must have sealed its evidence; otherwise `422` or `409`.
+  - Asking again returns the existing request.
+  - Reproduction takes minutes in fresh environments, so a worker runs it, not the request. The run's detail lists each request's state: `queued`, `running`, `reproduced` or `failed`, with the reason.
 - `POST /auth/logout` clears the session cookie.
-
-Reproduction takes minutes in fresh environments, so it is not run inside a request. Its route waits for a queued job.
 
 ## Signed preview gateway
 
@@ -126,14 +128,10 @@ Each process runs as `python -m dataproof_api <process>`:
 | `migrate` | Applies the control database's migrations |
 | `api` | Webhook intake and the reviewer API (default `127.0.0.1:8000`) |
 | `gateway` | The signed preview gateway (default `127.0.0.1:8080`), behind the preview domain's wildcard certificate |
-| `worker` | Claims queued runs and runs them on the local Docker backend. Each run uses its stored configuration, with the source broker fetching exact commits into `<data_dir>/mirror.git`. It times out overdue runs every 30 seconds |
+| `worker` | Claims queued runs and reproduction requests and runs them on the local Docker backend. Each run uses its stored configuration, with the source broker fetching exact commits into `<data_dir>/mirror.git`. It times out overdue runs every 30 seconds |
 | `publisher` | Publishes check runs to GitHub every few seconds |
 
 The dashboard runs separately (`next start`) on the dashboard's origin, with `/api` and `/auth` routed to the `api` process.
-
-## Not built yet
-
-- A queued reproduction job and its route (#47).
 
 No GitHub App is registered for this project. Everything here is tested against signed fixture events and a fake GitHub (`tests/github_env.py`) that verifies App JWTs against the App's public key and checks token scope and expiry. Nothing has talked to the real GitHub.
 
@@ -179,7 +177,15 @@ No GitHub App is registered for this project. Everything here is tested against 
   - an unknown binding gets `422`, and a decision on a head the pull request has left gets `409`;
   - cancellation is recorded with the reviewer's decision and refused a second time;
   - a correction must be an existing, different commit, and starts a child run while the original stays queued;
-  - a preview link is a grant for exactly that run, role and reviewer, refused to non-readers and without CSRF.
+  - a preview link is a grant for exactly that run, role and reviewer, refused to non-readers and without CSRF;
+  - a reproduction is queued only for a failed check of a sealed run, once per check, and only by writers.
+- **`tests/integration/test_reproduction_queue.py`** (PostgreSQL):
+  - one request per check;
+  - leased claims, with a crashed worker's attempt counted;
+  - retries until the attempts are spent, and an immediate end when a request cannot succeed;
+  - stale workers cannot end a job;
+  - six concurrent workers claim three jobs exactly once;
+  - requests are write-once.
 - **`tests/integration/test_preview_gateway.py`** (PostgreSQL, fake edge; the negative tests #4 requires):
   - a grant opens the preview with a host-only cookie;
   - requests reach only the registered edge, with its token and without the reviewer's headers;

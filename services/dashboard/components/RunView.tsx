@@ -164,6 +164,12 @@ export function RunView({ id }: { id: string }) {
         <h2>Checks</h2>
         <Checks
           checks={checks}
+          onReproduce={(checkId) =>
+            void act(async () => {
+              const queued = await api.reproduce(id, csrf, checkId);
+              return queued.created ? "Reproduction queued; a worker will run it." : `Already requested (${queued.request.state}).`;
+            })
+          }
           onDecide={async (digest, action, comment) => {
             const result = await api.decideBinding(id, csrf, {
               action,
@@ -184,7 +190,7 @@ export function RunView({ id }: { id: string }) {
         <h2>Findings</h2>
         <Findings investigations={run.investigations} />
         <h3>Reproduction</h3>
-        <Reproductions reproductions={run.reproductions} />
+        <Reproductions reproductions={run.reproductions} requests={run.reproduction_requests} />
       </section>
 
       <section>

@@ -65,6 +65,10 @@ export const api = {
       head_sha: headSha,
       comment,
     }),
+  reproduce: (id: string, csrf: string, checkId: string) =>
+    post<{ request: { request_id: string; state: string }; created: boolean }>(`${run(id)}/reproductions`, csrf, {
+      check_id: checkId,
+    }),
   previewLink: (id: string, csrf: string, role: Role) =>
     post<{ url: string; expires_at: string }>(`${run(id)}/previews/${role}`, csrf, {}),
   logout: (csrf: string) => post<void>("/auth/logout", csrf, {}),

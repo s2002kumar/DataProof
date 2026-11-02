@@ -5,9 +5,12 @@ import { BindingReview, type BindingReviewProps } from "./BindingReview";
 export function Checks({
   checks,
   onDecide,
+  onReproduce,
 }: {
   checks: CheckRecord[];
   onDecide: (digest: string, ...decision: Parameters<BindingReviewProps["onDecide"]>) => Promise<void>;
+  /** Offered for failed data checks; API behaviour checks need live previews. */
+  onReproduce?: (checkId: string) => void;
 }) {
   return (
     <div className="checks">
@@ -50,6 +53,11 @@ export function Checks({
                 ))}
               </tbody>
             </table>
+          )}
+          {onReproduce !== undefined && result.outcome === "FAIL" && binding?.api_route == null && (
+            <button type="button" className="secondary" onClick={() => onReproduce(result.check_id)}>
+              Reproduce on a small subset
+            </button>
           )}
           {result.evidence_ids.length > 0 && (
             <p className="muted">
