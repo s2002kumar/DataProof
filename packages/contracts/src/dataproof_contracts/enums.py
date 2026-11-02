@@ -117,12 +117,18 @@ class ReportVerdict(StrEnum):
 
 
 class GitHubCheckConclusion(StrEnum):
-    """GitHub Checks API conclusions that DataProof uses."""
+    """GitHub Checks API conclusions that DataProof uses.
+
+    A report's verdict maps to the first four. ``CANCELLED`` and ``TIMED_OUT`` are only for a
+    run interrupted before it reported, which is never green.
+    """
 
     FAILURE = "failure"
     ACTION_REQUIRED = "action_required"
     NEUTRAL = "neutral"
     SUCCESS = "success"
+    CANCELLED = "cancelled"
+    TIMED_OUT = "timed_out"
 
 
 class Severity(StrEnum):

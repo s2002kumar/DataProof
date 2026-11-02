@@ -1,6 +1,12 @@
 """DataProof control-plane store: run lifecycle, transition log and durable job queue."""
 
-from dataproof_control.github import Delivery, DeliveryOutcome, GitHubRecords, PullRequestHead
+from dataproof_control.github import (
+    CheckRun,
+    Delivery,
+    DeliveryOutcome,
+    GitHubRecords,
+    PullRequestHead,
+)
 from dataproof_control.lifecycle import (
     CANCELLABLE_STATES,
     INTERRUPTED_STATES,
@@ -44,6 +50,7 @@ __all__ = [
     "TRANSITIONS",
     "WORKING_STATES",
     "CheckRecord",
+    "CheckRun",
     "Claim",
     "ConfigConflictError",
     "Configure",
