@@ -9,6 +9,7 @@ resolution-markers = [
 [manifest]
 members = [
     "dataproof-api",
+    "dataproof-benchmark",
     "dataproof-contracts",
     "dataproof-control",
     "dataproof-investigator",
@@ -500,6 +501,31 @@ requires-dist = [
 ]
 
 [[package]]
+name = "dataproof-benchmark"
+version = "0.1.0"
+source = { editable = "benchmarks" }
+dependencies = [
+    { name = "alembic" },
+    { name = "dataproof-contracts" },
+    { name = "dataproof-runner" },
+    { name = "dataproof-scenario-commerce" },
+    { name = "dataproof-verifier" },
+    { name = "psycopg" },
+    { name = "sqlalchemy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "alembic", specifier = ">=1.16" },
+    { name = "dataproof-contracts", editable = "packages/contracts" },
+    { name = "dataproof-runner", editable = "services/runner" },
+    { name = "dataproof-scenario-commerce", editable = "scenarios/commerce" },
+    { name = "dataproof-verifier", editable = "packages/verifier" },
+    { name = "psycopg", specifier = ">=3.2" },
+    { name = "sqlalchemy", specifier = ">=2.0" },
+]
+
+[[package]]
 name = "dataproof-contracts"
 version = "0.1.0"
 source = { editable = "packages/contracts" }
@@ -610,6 +636,7 @@ dev = [
     { name = "alembic" },
     { name = "anthropic" },
     { name = "dataproof-api" },
+    { name = "dataproof-benchmark" },
     { name = "dataproof-contracts" },
     { name = "dataproof-control" },
     { name = "dataproof-investigator" },
@@ -639,6 +666,7 @@ dev = [
     { name = "alembic", specifier = ">=1.16" },
     { name = "anthropic", specifier = ">=2.3,<3" },
     { name = "dataproof-api", editable = "services/api" },
+    { name = "dataproof-benchmark", editable = "benchmarks" },
     { name = "dataproof-contracts", editable = "packages/contracts" },
     { name = "dataproof-control", editable = "packages/control" },
     { name = "dataproof-investigator", editable = "packages/investigator" },

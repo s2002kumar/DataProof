@@ -1,0 +1,13 @@
+# Proposed by the pull request; untrusted until a digest-bound APPROVE_BINDING.
+contract_id = "commerce.c1_event_preservation"
+query_sql = """
+SELECT source_event_id, order_id, entry_kind::text AS entry_kind, amount, occurred_at
+FROM ledger_entries
+"""
+
+[column_mapping]
+event_id = "source_event_id"
+order_id = "order_id"
+event_kind = "entry_kind"
+amount = "amount"
+occurred_at = "occurred_at"
