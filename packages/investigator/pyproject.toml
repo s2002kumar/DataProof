@@ -10,6 +10,10 @@ dependencies = [
     "psycopg>=3.2",
 ]
 
+[project.optional-dependencies]
+# The Anthropic adapter is opt-in: nothing calls a paid model unless an operator configures it.
+anthropic = ["anthropic>=2.3,<3"]
+
 [tool.uv.sources]
 dataproof-contracts = { workspace = true }
 dataproof-verifier = { workspace = true }

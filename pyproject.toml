@@ -14,6 +14,7 @@ dev = [
     "dataproof-runner",
     "dataproof-scenario-commerce",
     "dataproof-verifier",
+    "anthropic>=2.3,<3",  # adapter tests, with a mocked transport only
     "fastapi>=0.115",  # tests of the sample app's API
     "httpx2>=2.16",  # transport for the Starlette TestClient
     "jsonschema>=4.23",
