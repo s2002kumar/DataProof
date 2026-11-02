@@ -4,6 +4,11 @@
 * ``run --database <admin DSN>``: run every case at the database tier and score it; writes
   ``benchmarks/results/benchmark-results.json``. The DSN needs to create databases.
 * ``report``: write ``benchmarks/results/REPORT.md`` from the results.
+* ``pipeline`` and ``pipeline-report``: the pipeline tier on local Docker (``PIPELINE.md``).
+* ``ablation --database <admin DSN>``: the AI ablation (B3). Without ``--live`` a scripted model
+  runs it at no cost (a dry run, written under ``.work``). ``--live --budget-usd <approved>``
+  calls the paid model and needs ``ANTHROPIC_API_KEY``. ``ablation-report`` writes
+  ``ABLATION.md``.
 """
 
 import argparse
@@ -12,9 +17,10 @@ import os
 import platform
 import sys
 from collections.abc import Sequence
+from decimal import Decimal
 from pathlib import Path
 
-from dataproof_benchmark import pipeline_tier
+from dataproof_benchmark import ablation, pipeline_tier
 from dataproof_benchmark.corpus import (
     CORPUS_SEED,
     CORPUS_VERSION,
@@ -32,6 +38,9 @@ RESULTS = ROOT / "results" / "benchmark-results.json"
 REPORT = ROOT / "results" / "REPORT.md"
 PIPELINE_RESULTS = ROOT / "results" / "pipeline-results.json"
 PIPELINE_REPORT = ROOT / "results" / "PIPELINE.md"
+ABLATION_RESULTS = ROOT / "results" / "ablation-results.json"
+ABLATION_DRY_RUN = ROOT / ".work" / "ablation-dry-run.json"
+ABLATION_REPORT = ROOT / "results" / "ABLATION.md"
 TIER = "database (each case migrated into a fresh PostgreSQL database; no previews)"
 
 
@@ -68,6 +77,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     piped_report = commands.add_parser("pipeline-report", help="write the pipeline-tier report")
     piped_report.add_argument("--results", type=Path, default=PIPELINE_RESULTS)
     piped_report.add_argument("--out", type=Path, default=PIPELINE_REPORT)
+    ablate = commands.add_parser("ablation", help="the AI ablation: model-off against the model")
+    ablate.add_argument("--database", required=True, help="an admin DSN that can create databases")
+    ablate.add_argument("--live", action="store_true", help="call the paid model")
+    ablate.add_argument("--budget-usd", type=Decimal, help="the budget approved for a live run")
+    ablate.add_argument("--cases", nargs="*", help="case IDs (default: every failing case)")
+    ablate.add_argument("--out", type=Path)
+    ablate_report = commands.add_parser("ablation-report", help="write the ablation report")
+    ablate_report.add_argument("--results", type=Path, default=ABLATION_RESULTS)
+    ablate_report.add_argument("--out", type=Path, default=ABLATION_REPORT)
     args = parser.parse_args(argv)
 
     if args.command == "corpus":
@@ -89,6 +107,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.command == "pipeline-report":
         results = json.loads(args.results.read_text("utf-8"))
         args.out.write_text(pipeline_report(results), "utf-8", newline="\n")
+    elif args.command == "ablation":
+        document = ablation_results(args.database, args.live, args.budget_usd, args.cases)
+        out = args.out or (ABLATION_RESULTS if args.live else ABLATION_DRY_RUN)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(document, indent=2) + "\n", "utf-8", newline="\n")
+        print(json.dumps(document["summary"], indent=2))
+    elif args.command == "ablation-report":
+        results = json.loads(args.results.read_text("utf-8"))
+        args.out.write_text(ablation.report(results), "utf-8", newline="\n")
     else:
         results = json.loads(args.results.read_text("utf-8"))
         args.out.write_text(report(results), "utf-8", newline="\n")
@@ -101,6 +128,22 @@ def pipeline_cases(case_ids: Sequence[str] | None) -> list[Case]:
         by_id = {c.case_id: c for c in [*data, *api]}
         return [by_id[i] for i in case_ids]
     return [*pipeline_tier.sample(data), *api]
+
+
+def ablation_results(
+    admin_dsn: str, live: bool, budget_usd: Decimal | None, case_ids: Sequence[str] | None
+) -> dict[str, object]:
+    """Investigate, then score: the labels are read only after every case is investigated."""
+    if live:
+        budget = ablation.live_budget(budget_usd, os.environ)
+        model = ablation.live_model()
+        rows = ablation.investigate(admin_dsn, CORPUS, lambda _: model, budget, case_ids)
+        name = model.name
+    else:
+        budget = ablation.MAX_BUDGET_USD  # a scripted model costs nothing
+        rows = ablation.investigate(admin_dsn, CORPUS, ablation.dry_run_model, budget, case_ids)
+        name = "scripted:dry-run"
+    return ablation.results(rows, labels(CORPUS), live=live, budget_usd=budget, model=name)
 
 
 def pipeline_score(case: Case, result: dict[str, object]) -> None:
