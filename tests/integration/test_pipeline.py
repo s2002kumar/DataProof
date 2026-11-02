@@ -5,6 +5,7 @@ and candidate environments, then cleaned up. The tests assert the recorded resul
 """
 
 import hashlib
+import itertools
 import json
 import subprocess
 from collections.abc import Callable
@@ -942,9 +943,10 @@ def test_an_approval_runs_the_change_again_and_the_original_stays_incomplete(
         )
         assert outcome.started is not None
         started.append(outcome.started.run)
-    # Each approval starts a run; only the last carries all three, so the others are cancelled.
-    for run in started[:-1]:
-        assert harness.store.cancel(run.run_id, actor="user:maintainer")
+    # Each approval starts a run carrying every approval so far, and supersedes the one before
+    # it while that one is still queued: only the last, with all three, runs.
+    for older, newer in itertools.pairwise(started):
+        assert harness.store.get_run(older.run_id).superseded_by == newer.run_id
     while worker.run_once():
         pass
 
