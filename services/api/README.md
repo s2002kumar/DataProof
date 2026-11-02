@@ -133,10 +133,7 @@ The dashboard runs separately (`next start`) on the dashboard's origin, with `/a
 
 ## Not built yet
 
-These are the remaining steps of work package 9 (#47):
-
-- a queued reproduction job and its route;
-- a browser end-to-end test of the whole review through the [dashboard](../dashboard/README.md).
+- A queued reproduction job and its route (#47).
 
 No GitHub App is registered for this project. Everything here is tested against signed fixture events and a fake GitHub (`tests/github_env.py`) that verifies App JWTs against the App's public key and checks token scope and expiry. Nothing has talked to the real GitHub.
 
