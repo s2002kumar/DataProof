@@ -131,6 +131,7 @@ Each process runs as `python -m dataproof_api <process>`:
 | `gateway` | The signed preview gateway (default `127.0.0.1:8080`), behind the preview domain's wildcard certificate |
 | `worker` | Claims queued runs and reproduction requests and runs them on the local Docker backend. Each run uses its stored configuration, with the source broker fetching exact commits into `<data_dir>/mirror.git`. It times out overdue runs every 30 seconds |
 | `publisher` | Publishes check runs to GitHub every few seconds |
+| `reaper` | Removes environments whose expiry has passed, every minute, and appends what it removed to `<data_dir>/reaper.jsonl`. It reads only the deployment file and Docker's labels, needs no secret and never connects to the control database, so it keeps working when the control plane is down |
 
 The dashboard runs separately (`next start`) on the dashboard's origin, with `/api` and `/auth` routed to the `api` process.
 

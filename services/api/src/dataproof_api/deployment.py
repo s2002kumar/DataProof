@@ -271,6 +271,10 @@ class Stack:
             describe=False,
         )
 
+    def journal(self) -> Path:
+        """Where the independent reaper records what it removed."""
+        return self.deployment.worker.data_dir / "reaper.jsonl"
+
     def backend(self) -> LocalDockerBackend:
         return LocalDockerBackend(scope=self.deployment.worker.scope, client=docker.from_env())
 

@@ -70,6 +70,9 @@ OUTPUT_SCHEMA: Mapping[str, Any] = InvestigationOutput.model_json_schema()
 class Budget:
     max_tool_calls: int = 12
     max_turns: int = 16
+    max_cost_usd: Decimal | None = None
+    """Stop once the model has cost more than this. The turn that crosses it has already
+    been paid for, so a caller holding a hard budget reserves one turn more."""
 
 
 class _BudgetExhausted(Exception):  # noqa: N818 - an outcome, not a program error
@@ -138,6 +141,11 @@ class Investigator:
                 tokens["input"] += turn.input_tokens
                 tokens["output"] += turn.output_tokens
                 cost += turn.cost_usd
+                if self.budget.max_cost_usd is not None and cost > self.budget.max_cost_usd:
+                    return finish(
+                        InvestigationStatus.BUDGET_EXHAUSTED,
+                        failure=f"spent {cost} USD of the {self.budget.max_cost_usd} allowed",
+                    )
                 if turn.served_by:
                     served["by"] = turn.served_by
                 if turn.stop == "refusal":
