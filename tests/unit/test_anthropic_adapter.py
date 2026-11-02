@@ -20,7 +20,7 @@ from dataproof_contracts import (
     InvestigationStatus,
     ToolCallOutcome,
 )
-from dataproof_investigator import TOOL_SPECS, Investigator, ToolContext
+from dataproof_investigator import TOOL_SPECS, Budget, Investigator, ToolContext
 from dataproof_investigator.anthropic_model import FALLBACK_BETA, AnthropicModel, strict_schema
 
 C1 = "commerce.c1_event_preservation"
@@ -223,3 +223,44 @@ def test_strict_schemas_keep_only_what_strict_mode_accepts() -> None:
         "required": ["max_rows", "note", "sql", "table"],
         "additionalProperties": False,
     }
+
+
+def test_no_request_is_sent_when_even_the_first_turn_could_pass_the_cost_cap() -> None:
+    api = tool_call_then_answer()
+    model = api.model(fallbacks=False, max_tokens=1000)
+    budget = Budget(max_cost_usd=Decimal("0.0001"))
+    investigation = Investigator(model, budget).investigate(uuid.uuid4(), CONTEXT)
+
+    assert investigation.status is InvestigationStatus.BUDGET_EXHAUSTED
+    assert api.requests == [], "nothing was sent, so nothing was spent"
+    assert investigation.usage.cost_usd == 0
+
+
+def test_a_turn_that_could_pass_the_cost_cap_is_not_sent() -> None:
+    api = FakeApi(
+        message(
+            [{"type": "tool_use", "id": "toolu_1", "name": "get_check_result", "input": {}}],
+            "tool_use",
+            usage=(100_000, 1000),
+        ),
+        message([{"type": "text", "text": FINAL}], "end_turn"),
+    )
+    model = api.model(fallbacks=False, max_tokens=1000)
+    # The first turn costs 100,000 * $4/M + 1,000 * $20/M = $0.42. The next one would carry at
+    # least those 101,000 tokens of context: up to $0.404 + $0.02 more, past the $0.50 cap.
+    budget = Budget(max_cost_usd=Decimal("0.50"))
+    investigation = Investigator(model, budget).investigate(uuid.uuid4(), CONTEXT)
+
+    assert investigation.status is InvestigationStatus.BUDGET_EXHAUSTED
+    assert len(api.requests) == 1
+    assert investigation.usage.cost_usd == Decimal("0.42")
+    assert "could cost up to" in (investigation.failure or "")
+
+
+def test_with_fallbacks_a_turn_has_no_known_ceiling() -> None:
+    session = (
+        tool_call_then_answer()
+        .model()
+        .open(system="s", task="t", tools=TOOL_SPECS, output_schema={"type": "object"})
+    )
+    assert session.ceiling_usd([]) is None
