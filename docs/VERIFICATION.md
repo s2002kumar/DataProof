@@ -24,7 +24,7 @@ A commerce service migrates from legacy order payment/refund storage to an expli
 3. **Schema:** target schema matches declared version and required constraints; introspect authoritative PostgreSQL catalogs. Intentionally removed columns are checked against mapping policy.
 4. **Data:** row counts, keys, nulls, duplicate keys, FK/orphan checks, deterministic relational mappings, exact decimals, typed timestamps, deliberate scalar/range tolerances and explicit business invariants.
 5. **Application behavior:** selected before/after API request/response comparisons at stable endpoints; HTTP 200 alone is insufficient. Normalize nondeterministic IDs/order/timestamps only by reviewed rules.
-6. **Reproduction:** candidate subset + dependent rows actually replays the *same invariant violation* in fresh isolated runner; otherwise label `NOT_REPRODUCED` and explain why.
+6. **Reproduction:** candidate subset + dependent rows actually replays the *same invariant violation* in fresh isolated runner; otherwise label `NOT_REPRODUCED` and explain why. *Implemented for data contracts with a fixed FK-closure rule ([runner](../services/runner/README.md#reproduction)).*
 7. **Correction replay:** a newly submitted developer-approved SQL correction executes in a fresh environment with the same dataset/contracts; new evidence and new result. Never revise old evidence.
 
 ## Row matching and canonicalization
