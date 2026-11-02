@@ -61,7 +61,9 @@ Other tests cover:
 
 ## Pipeline
 
-`Pipeline` supplies the stage handlers for one configured project. Each stage records its results through the transition's `effects`, in the control database's write-once result tables, so results exist exactly when the run has moved past the stage that produced them.
+`Pipeline` supplies the stage handlers for one configured project. `ConfiguredPipelines` serves runs under many: it loads each run's configuration from the control database by the digest the run pins, checks that it hashes to that digest, and hands each stage to a `Pipeline` built for that configuration alone. A run whose configuration is missing or altered ends `ERROR: CONFIG_DIGEST_MISMATCH` and is still cleaned up.
+
+Each stage records its results through the transition's `effects`, in the control database's write-once result tables, so results exist exactly when the run has moved past the stage that produced them.
 
 | Stage | What it does | Ends in |
 | --- | --- | --- |
@@ -117,6 +119,10 @@ API behaviour checks need live previews, so a replay reports them as skipped, no
 
 The subset is stored as an artifact with its digest, the `Reproduction` is recorded write-once, and every environment used is destroyed. The run is never changed.
 
+### Binding decisions
+
+Each check records the single binding it was evaluated against or is waiting on. `decisions.decide_binding(store, results, decision)` checks a reviewer's decision against the run: it must name a binding that one of the run's checks is waiting on. An approval then starts a new run under the run's own configuration plus every binding decision made at its head (`RunStore.decide_binding`). Who may decide is enforced by the reviewer API (#47), which does not exist yet.
+
 Problems caused by the pull request become check outcomes; problems with the trusted setup become a typed run `ERROR`; transient failures are retried. Source archives are written once to `LocalArtifactStore` and re-verified by SHA-256 on every read.
 
 `tests/integration/test_pipeline.py` runs commerce change sets end to end on local Docker:
@@ -135,8 +141,10 @@ Problems caused by the pull request become check outcomes; problems with the tru
 - **Investigation:** an F1 run with a scripted model goes through `INVESTIGATING`; the model reads the live candidate (refund 1002 at 99.98), and both its investigation and the model-off diagnosis are reported as advisory while the verdict stays `BLOCKED`. A hostile model's `DELETE` and `approve_binding` are denied, its "every check passes" answer is rejected, and the data and verdict are unchanged.
 - **Reproduction:** after cleanup, F1's C1 failure reproduces on a subset of under 100 of the baseline's rows (customers, orders, items, events). A fault that corrupts data only when the events table holds over 100 rows is honestly `NOT_REPRODUCED` ("the check is PASS on the subset"). Only a failed check can be reproduced.
 - **Correction replay:** after F1 is `BLOCKED`, a correction commit that replaces the faulty revision with the safe one runs as a new child run under its own configuration and is `CHECKED`. The original run's report and checks are unchanged, and it is not superseded.
+- **Binding approval:** a safe change with unreviewed bindings is `INCOMPLETE`, and each of C1–C3 records the binding it waits on. A decision on any other binding is refused. Approving the three bindings starts runs under new configurations, and the one that carries all three is `CHECKED` with C1–C3 passing. The original stays `INCOMPLETE` and is not superseded.
+- **Unknown configuration:** a run pinned to a configuration that is not stored ends `ERROR: CONFIG_DIGEST_MISMATCH`, with nothing staged.
 - **API behaviour (C6):** on the safe change both C6 checks pass for all 208 orders through the previews. On F1 the app itself works (`preview.candidate` passes), but both C6 checks fail, with refund 1002 at 49.99 expected and 99.98 observed through the candidate API.
 
 ## Status
 
-Work package 4 is complete on local Docker. Real pull-request migrations run end to end, from the control store through sealed, restore-verified evidence to cleanup, with retries, cancellation, timeouts and supersession. Work package 5 adds live reference and candidate previews behind token-checking edges, and API behaviour checks (C6) through them. There is no GitHub integration or user interface yet.
+Work package 4 is complete on local Docker. Real pull-request migrations run end to end, from the control store through sealed, restore-verified evidence to cleanup, with retries, cancellation, timeouts and supersession. Work package 5 adds live reference and candidate previews behind token-checking edges, and API behaviour checks (C6) through them. Work packages 6–8 add sealed evidence and replay, the advisory investigator, reproduction and correction replay. Work package 9 has begun with binding decisions and runs under stored configurations; there is no GitHub integration or user interface yet.

@@ -292,6 +292,28 @@ def _all(*effects: Effects) -> Effects:
     return apply
 
 
+#: The stages a pipeline handles, in order. Cleanup is separate: it needs only the backend.
+STAGES = (
+    RunState.FETCHING,
+    RunState.ANALYZING,
+    RunState.PROVISIONING,
+    RunState.MIGRATING,
+    RunState.VERIFYING,
+    RunState.INVESTIGATING,
+    RunState.REPORTING,
+)
+
+
+def destroy_run(backend: ExecutionBackend, run_id: UUID) -> Mapping[str, Any]:
+    """Destroy every environment of a run; the cleanup record."""
+    report = backend.destroy(run_id)
+    return {
+        "cleanup": report.outcome.value,
+        "backend": backend.name,
+        "removed": list(report.removed),
+    }
+
+
 class Pipeline:
     def __init__(
         self,
@@ -770,7 +792,7 @@ class Pipeline:
                 if oracle_model.api_route is not None and apis is None:
                     # API behaviour needs both previews serving; without them it did not run.
                     result = self._not_run(oracle, NotRunReason.PREREQUISITE_FAILED, dataset)
-                    records.append(CheckRecord(result))
+                    records.append(CheckRecord(result, binding=binding))
                     continue
                 if oracle_model.api_route is not None and apis is not None:
                     verification = verify_api_contract(
@@ -792,6 +814,7 @@ class Pipeline:
                 records.append(
                     CheckRecord(
                         verification.check,
+                        binding=binding,
                         binding_analysis=verification.binding_analysis,
                         binding_problem=verification.binding_problem,
                     )
@@ -1260,12 +1283,7 @@ class Pipeline:
     # CLEANING ----------------------------------------------------------------------------------
 
     def cleanup(self, context: StageContext) -> Mapping[str, Any]:
-        report = self.backend.destroy(context.run.run_id)
-        return {
-            "cleanup": report.outcome.value,
-            "backend": self.backend.name,
-            "removed": list(report.removed),
-        }
+        return destroy_run(self.backend, context.run.run_id)
 
     # Helpers -----------------------------------------------------------------------------------
 

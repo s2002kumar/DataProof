@@ -6,8 +6,9 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
+from dataproof_control import StoredConfig
 from dataproof_runner.artifacts import ArtifactIntegrityError, LocalArtifactStore
-from dataproof_runner.project import ProjectConfig
+from dataproof_runner.project import ConfigIntegrityError, ProjectConfig
 
 IMAGE = "sha256:" + "a" * 64
 
@@ -33,6 +34,21 @@ def test_digest_is_stable_and_covers_every_setting() -> None:
         first.digest()
         != _config(approved_binding_digests=approvals, step_timeout_seconds=5).digest()
     )
+
+
+def test_a_stored_configuration_loads_only_if_it_hashes_to_its_digest() -> None:
+    config = _config(approved_binding_digests=["1" * 64])
+    stored = config.stored()
+    assert stored.digest == config.digest()
+    assert ProjectConfig.from_stored(stored) == config
+
+    widened = {**stored.config, "allowed_change_roots": ["sample-app/", "dataproof/", "infra/"]}
+    with pytest.raises(ConfigIntegrityError):
+        ProjectConfig.from_stored(StoredConfig(stored.digest, stored.repository, widened))
+    with pytest.raises(ConfigIntegrityError):
+        ProjectConfig.from_stored(
+            StoredConfig(stored.digest, "example-org/elsewhere", stored.config)
+        )
 
 
 @pytest.mark.parametrize(
