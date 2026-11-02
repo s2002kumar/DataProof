@@ -158,6 +158,25 @@ def test_binding_cannot_narrow_the_key_universe(envs: dict[str, str]) -> None:
     ]
 
 
+def test_a_binding_that_remaps_the_key_cannot_shrink_the_key_universe(
+    envs: dict[str, str],
+) -> None:
+    """Mapping the oracle's event key to another column leaves every expected key unmatched (#9)."""
+    remapped = override(
+        C1,
+        "SELECT ledger_sequence, order_id, entry_kind::text AS entry_kind, amount, occurred_at"
+        " FROM ledger_entries",
+        event_id="ledger_sequence",
+    )
+    check = verify(contracts(SAFE_CHANGE, overrides=remapped), envs["reference"], envs["safe"])[
+        C1
+    ].check
+    assert check.outcome in (CheckOutcome.FAIL, CheckOutcome.ERROR)
+    assert check.expected_key_count is None or check.expected_key_count == 435, (
+        "the universe is the oracle's, whatever the binding returns"
+    )
+
+
 def test_unmapped_oracle_column_is_an_error(envs: dict[str, str]) -> None:
     gap = override(
         C1,

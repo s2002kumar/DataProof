@@ -58,7 +58,7 @@ Steps marked **owner** create or use credentials and are run by the repository o
    uv run python scripts/demo/stack.py --env ~/.dataproof/github-app/secrets.env --tunnel
    ```
 
-   This migrates and serves the dashboard on `http://127.0.0.1:3000`, the API, the webhook intake, the gateway, a worker and the publisher. It opens a new quick tunnel to the webhook port alone and points the App's webhook at it.
+   This migrates and serves the dashboard on `http://127.0.0.1:3000`, the API, the webhook intake, the gateway, a worker, the publisher and the reaper. It opens a new quick tunnel to the webhook port alone and points the App's webhook at it.
 8. **The review:** open a pull request from `ledger-backfill` to `main` in the demo repository.
    1. DataProof's check appears on the head commit, and the previews build.
    2. The first run is `INCOMPLETE` (`action_required`): the pull request proposes new bindings.

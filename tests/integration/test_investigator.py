@@ -11,7 +11,8 @@ import json
 import tarfile
 import uuid
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from decimal import Decimal
 from typing import Any
 
 import psycopg
@@ -347,6 +348,23 @@ def test_the_budget_stops_an_endless_investigation(f1: Run) -> None:
     )
     assert investigation.status is InvestigationStatus.BUDGET_EXHAUSTED
     assert len(investigation.tool_calls) == 3
+
+
+def test_the_cost_cap_stops_an_investigation_after_the_turn_that_crosses_it(f1: Run) -> None:
+    def costly(n: int) -> ModelTurn:
+        turn = call("get_check_result", {"check_id": C1}, f"t{n}")
+        return replace(turn, input_tokens=50_000, output_tokens=2_000, cost_usd=Decimal("0.30"))
+
+    looping = ScriptedModel([costly(n) for n in range(20)])
+    budget = Budget(max_tool_calls=12, max_cost_usd=Decimal("0.50"))
+    investigation = Investigator(looping, budget).investigate(uuid.uuid4(), f1.context)
+
+    assert investigation.status is InvestigationStatus.BUDGET_EXHAUSTED
+    assert investigation.usage.cost_usd == Decimal("0.60"), (
+        "the crossing turn is paid for and counted"
+    )
+    assert len(investigation.tool_calls) == 1, "its tool calls are not run"
+    assert investigation.usage.input_tokens == 100_000
 
 
 def test_a_refusal_or_a_failing_provider_leaves_the_report_alone(f1: Run) -> None:

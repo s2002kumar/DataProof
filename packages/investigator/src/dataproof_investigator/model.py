@@ -52,6 +52,10 @@ class ModelSession(Protocol):
         """Return the model's next turn. The first call has no tool results."""
         ...
 
+    def ceiling_usd(self, tool_results: Sequence[ToolResult]) -> Decimal | None:
+        """The most the next ``send`` with these results could cost, or None if unknown."""
+        ...
+
 
 class InvestigatorModel(Protocol):
     name: str
@@ -80,6 +84,8 @@ class ScriptedModel:
 
     steps: Sequence[ScriptStep]
     name: str = "scripted:test"
+    turn_ceiling_usd: Decimal | None = None
+    """What every session reports as the most its next turn could cost."""
     received: list[Sequence[ToolResult]] = field(default_factory=list)
     opened_with: dict[str, Any] = field(default_factory=dict)
 
@@ -112,6 +118,9 @@ class _ScriptedSession:
         step = self._model.steps[self._next]
         self._next += 1
         return step(tool_results) if callable(step) else step
+
+    def ceiling_usd(self, tool_results: Sequence[ToolResult]) -> Decimal | None:
+        return self._model.turn_ceiling_usd
 
 
 def call(name: str, arguments: Mapping[str, Any], use_id: str = "t1") -> ModelTurn:
