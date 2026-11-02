@@ -769,3 +769,42 @@ def test_only_failed_checks_can_be_reproduced(harness: Harness) -> None:
     harness.worker(pipeline).run_once()
     with pytest.raises(ValueError, match="did not fail"):
         pipeline.reproduce(harness.store.get_run(run_id), C1)
+
+
+def test_a_correction_is_evaluated_as_a_new_run_and_the_original_stands(harness: Harness) -> None:
+    head = harness.repo.change(F1, {f"{SAMPLE_APP}/README.md": "Needs a correction.\n"})
+    project = harness.project(head)
+    original = harness.submit(project, head)
+    harness.worker(harness.pipeline(project)).run_once()
+    report_before = harness.results.report(original)
+    checks_before = harness.results.checks(original)
+    assert report_before is not None
+    assert report_before.verdict is ReportVerdict.BLOCKED
+
+    # The developer pushes a correction: the faulty revision is replaced by the safe one.
+    (faulty,) = (CHANGES / F1).glob("*.py")
+    (fixed,) = (CHANGES / SAFE).glob("*.py")
+    versions = f"{SAMPLE_APP}/migrations/versions"
+    correction = harness.repo.commit(
+        head,
+        {f"{versions}/{faulty.name}": None, f"{versions}/{fixed.name}": fixed.read_text("utf-8")},
+        "Aggregate events before the ledger insert",
+    )
+    corrected_project = harness.project(correction)
+    created = harness.store.start_correction_replay(
+        original,
+        head_sha=correction,
+        config_digest=corrected_project.digest(),
+        actor="user:alice",
+        run_ttl=timedelta(minutes=30),
+        retry=FAST_RETRY,
+    )
+    harness.worker(harness.pipeline(corrected_project)).run_once()
+
+    corrected = harness.results.report(created.run.run_id)
+    assert corrected is not None
+    assert corrected.verdict is ReportVerdict.CHECKED
+    assert created.run.parent_run_id == original
+    assert harness.results.report(original) == report_before, "the original report stands"
+    assert harness.results.checks(original) == checks_before
+    assert harness.store.get_run(original).superseded_by is None
