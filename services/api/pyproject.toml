@@ -1,7 +1,7 @@
 [project]
 name = "dataproof-api"
 version = "0.1.0"
-description = "DataProof control plane API: GitHub webhook intake and, later, the reviewer API"
+description = "DataProof control plane: GitHub connector, reviewer API, preview gateway and process composition"
 license = "Apache-2.0"
 requires-python = ">=3.12"
 dependencies = [
@@ -9,9 +9,11 @@ dependencies = [
     "dataproof-control",
     "dataproof-runner",
     "cryptography>=44",  # RS256 signing of GitHub App JWTs
+    "docker>=7.1",  # the local execution backend, for the worker and gateway
     "fastapi>=0.115",
     "httpx2>=2.16",  # GitHub REST client
     "psycopg>=3.2",
+    "uvicorn>=0.35",  # serves the API and the gateway
 ]
 
 [tool.uv.sources]
