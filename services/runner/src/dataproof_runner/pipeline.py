@@ -25,7 +25,7 @@ import hashlib
 import io
 import json
 import tarfile
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
@@ -42,7 +42,6 @@ from dataproof_contracts import (
     ErrorCode,
     EvidenceManifest,
     EvidenceRecord,
-    FailureKey,
     NotExecutedReason,
     NotRunReason,
     Oracle,
@@ -92,6 +91,7 @@ from dataproof_runner.baselines import Baseline, database_digest, user_tables
 from dataproof_runner.broker import SourceFetcher
 from dataproof_runner.preview_client import PreviewApi
 from dataproof_runner.project import ProjectConfig
+from dataproof_runner.signature import failure_signature, seeds, verdict
 from dataproof_runner.source import archive_commit, changed_paths
 from dataproof_runner.subset import Catalog, closure, export, load
 from dataproof_runner.worker import StageContext, StageHandler, StageOutcome
@@ -115,8 +115,6 @@ RESTORE_VARIANT = "restore"
 REPLAY_VARIANT = "replay"
 REPRODUCTION_VARIANT = "repro"
 SUBSET_SOURCE_VARIANT = "reprosrc"
-SEED_KEYS = 3
-"""How many failing keys a reproduction starts from: the first ones, in a fixed order."""
 
 
 @dataclass(frozen=True)
@@ -134,46 +132,6 @@ class ReplayReport:
     @property
     def matches(self) -> bool:
         return not self.differences
-
-
-def _signature(result: CheckResult) -> list[FailureKey]:
-    """The first ``SEED_KEYS`` failing keys, in a fixed order, with their differing columns."""
-    columns: dict[str, set[str]] = {}
-    keys: dict[str, Any] = {}
-    for mismatch in result.mismatch_examples:
-        encoded = json.dumps([k.model_dump(mode="json") for k in mismatch.key], sort_keys=True)
-        keys[encoded] = mismatch.key
-        columns.setdefault(encoded, set())
-        if (
-            mismatch.column is not None
-            and mismatch.expected is not None
-            and mismatch.observed is not None
-        ):
-            columns[encoded].add(mismatch.column)
-    return [
-        FailureKey(key=keys[encoded], columns=tuple(sorted(columns[encoded])))
-        for encoded in sorted(keys)[:SEED_KEYS]
-    ]
-
-
-def _unconfirmed(signature: Sequence[FailureKey], result: CheckResult) -> list[FailureKey]:
-    """Seed keys the result does not show failing on the same columns."""
-    seen: dict[str, set[str]] = {}
-    for mismatch in result.mismatch_examples:
-        encoded = json.dumps([k.model_dump(mode="json") for k in mismatch.key], sort_keys=True)
-        seen.setdefault(encoded, set())
-        if (
-            mismatch.column is not None
-            and mismatch.expected is not None
-            and mismatch.observed is not None
-        ):
-            seen[encoded].add(mismatch.column)
-    return [
-        key
-        for key in signature
-        if seen.get(json.dumps([k.model_dump(mode="json") for k in key.key], sort_keys=True))
-        != set(key.columns)
-    ]
 
 
 def _fingerprint(result: CheckResult) -> tuple[object, ...]:
@@ -952,8 +910,8 @@ class Pipeline:
         if oracle is None or oracle[1].api_route is not None:
             raise ValueError(f"{check_id} is not a data contract of this run")
         key_columns = oracle[1].key_columns
-        signature = _signature(original)
-        seeds = [tuple(getattr(k, "value", None) for k in fk.key) for fk in signature]
+        signature = failure_signature(original)
+        seed_values = seeds(signature)
 
         def outcome(
             status: ReproductionStatus,
@@ -999,7 +957,9 @@ class Pipeline:
                         ReproductionStatus.NOT_REPRODUCED,
                         reason=f"no baseline table holds the keys {list(key_columns)}",
                     )
-                data = export(conn, catalog, closure(conn, catalog, table, key_columns, seeds))
+                data = export(
+                    conn, catalog, closure(conn, catalog, table, key_columns, seed_values)
+                )
         finally:
             self.backend.destroy(run.run_id, variant=SUBSET_SOURCE_VARIANT)
         stored = self.artifacts.put(
@@ -1046,28 +1006,8 @@ class Pipeline:
             for role in (Environment.REFERENCE, Environment.CANDIDATE):
                 self.backend.destroy(run.run_id, role=role, variant=REPRODUCTION_VARIANT)
 
-        missing = _unconfirmed(signature, result)
-        if result.outcome is CheckOutcome.FAIL and not missing:
-            return outcome(
-                ReproductionStatus.REPRODUCED,
-                table=table,
-                data=data,
-                stored=stored,
-                result=result,
-            )
-        reason = (
-            f"the check is {result.outcome.value} on the subset"
-            if result.outcome is not CheckOutcome.FAIL
-            else f"{len(missing)} seed key(s) did not fail the same way on the subset"
-        )
-        return outcome(
-            ReproductionStatus.NOT_REPRODUCED,
-            reason=reason,
-            table=table,
-            data=data,
-            stored=stored,
-            result=result,
-        )
+        status, reason = verdict(signature, result)
+        return outcome(status, reason=reason, table=table, data=data, stored=stored, result=result)
 
     def _fresh(self, run_id: UUID, role: Environment, variant: str) -> EnvironmentHandle:
         self.backend.destroy(run_id, role=role, variant=variant)
