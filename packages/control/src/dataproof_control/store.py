@@ -287,6 +287,7 @@ class RunStore:
         actor: str,
         run_ttl: timedelta,
         retry: RetryPolicy,
+        decision: HumanDecision | None = None,
     ) -> CreatedRun:
         """Evaluate a developer's correction as a new run (ARCHITECTURE, correction replay).
 
@@ -294,23 +295,38 @@ class RunStore:
         engine version; its head is the correction commit and its configuration digest the one
         that approves the correction's bindings (approvals are bound to the head commit). It
         records the original as its parent, supersedes nothing, and leaves the original run, its
-        report and its evidence exactly as they are.
+        report and its evidence exactly as they are. ``decision``, a
+        ``REQUEST_CORRECTION_REPLAY`` on the original naming the correction commit, is recorded
+        with the run it started, in the same transaction.
         """
-        original = self.get_run(original_run_id)
-        if head_sha == original.inputs.head_sha:
-            raise ValueError("a correction must be a different commit from the one it corrects")
-        inputs = original.inputs.model_copy(
-            update={"head_sha": head_sha, "config_digest": config_digest}
-        )
-        RunInputs.model_validate(inputs.model_dump())
-        return self.create_run(
-            inputs,
-            RunTrigger.CORRECTION_REPLAY,
-            actor=actor,
-            run_ttl=run_ttl,
-            retry=retry,
-            parent_run_id=original_run_id,
-        )
+        if decision is not None and (
+            decision.action is not HumanDecisionAction.REQUEST_CORRECTION_REPLAY
+            or decision.run_id != original_run_id
+            or decision.head_sha != head_sha
+        ):
+            raise ValueError("the decision does not request this correction of this run")
+        with self._transaction() as conn:
+            original = self._load(conn, original_run_id)
+            if head_sha == original.inputs.head_sha:
+                raise ValueError("a correction must be a different commit from the one it corrects")
+            inputs = original.inputs.model_copy(
+                update={"head_sha": head_sha, "config_digest": config_digest}
+            )
+            RunInputs.model_validate(inputs.model_dump())
+            created = self._create(
+                conn,
+                inputs,
+                RunTrigger.CORRECTION_REPLAY,
+                actor=actor,
+                run_ttl=run_ttl,
+                retry=retry,
+                parent_run_id=original_run_id,
+            )
+            if decision is not None:
+                self._insert_decision(
+                    conn, decision, original.inputs.repository, created.run.run_id
+                )
+            return created
 
     # Configurations and decisions ------------------------------------------------------------
 
@@ -410,25 +426,36 @@ class RunStore:
                     retry=retry,
                     parent_run_id=run.run_id,
                 )
-            conn.execute(
-                """
-                INSERT INTO human_decisions (decision_id, run_id, repository, head_sha, action,
-                                             actor, binding_digest, started_run_id, decision)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    decision.decision_id,
-                    decision.run_id,
-                    inputs.repository,
-                    decision.head_sha,
-                    decision.action.value,
-                    decision.actor,
-                    decision.binding_digest,
-                    created.run.run_id if created else None,
-                    Jsonb(decision.model_dump(mode="json")),
-                ),
+            self._insert_decision(
+                conn, decision, inputs.repository, created.run.run_id if created else None
             )
             return RecordedDecision(decision, recorded=True, started=created)
+
+    def _insert_decision(
+        self,
+        conn: Connection,
+        decision: HumanDecision,
+        repository: str,
+        started_run_id: UUID | None,
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO human_decisions (decision_id, run_id, repository, head_sha, action,
+                                         actor, binding_digest, started_run_id, decision)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                decision.decision_id,
+                decision.run_id,
+                repository,
+                decision.head_sha,
+                decision.action.value,
+                decision.actor,
+                decision.binding_digest,
+                started_run_id,
+                Jsonb(decision.model_dump(mode="json")),
+            ),
+        )
 
     def decisions(self, run_id: UUID) -> list[HumanDecision]:
         """The decisions recorded on a run, oldest first."""
@@ -516,8 +543,22 @@ class RunStore:
 
     # Trusted interruptions (no lease) ----------------------------------------------------------
 
-    def cancel(self, run_id: UUID, *, actor: str, reason: str = "requested") -> bool:
-        """Cancel a working or reviewable run; return False if it is already ending or ended."""
+    def cancel(
+        self,
+        run_id: UUID,
+        *,
+        actor: str,
+        reason: str = "requested",
+        decision: HumanDecision | None = None,
+    ) -> bool:
+        """Cancel a working or reviewable run; return False if it is already ending or ended.
+
+        ``decision``, a reviewer's ``CANCEL_RUN`` on this run, is recorded with the cancellation.
+        """
+        if decision is not None and (
+            decision.action is not HumanDecisionAction.CANCEL_RUN or decision.run_id != run_id
+        ):
+            raise ValueError("the decision does not cancel this run")
         with self._transaction() as conn:
             state = self._lock_run(conn, run_id)
             if state not in CANCELLABLE_STATES:
@@ -525,6 +566,9 @@ class RunStore:
             self._revoke(
                 conn, run_id, state, RunState.CANCELLED, actor=actor, detail={"reason": reason}
             )
+            if decision is not None:
+                run = self._load(conn, run_id)
+                self._insert_decision(conn, decision, run.inputs.repository, None)
             return True
 
     def close_pull_request(
