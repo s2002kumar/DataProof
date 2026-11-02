@@ -101,6 +101,36 @@ Reproduction takes minutes in fresh environments, so it is not run inside a requ
 
 `services/api/openapi.json` is the API's OpenAPI document, which the dashboard is written against. Regenerate it with `uv run python -m dataproof_api.openapi services/api/openapi.json`. A pre-commit hook and `tests/unit/test_openapi.py` fail if it is stale; the test also pins the list of routes.
 
+## Running a deployment
+
+A deployment is a trusted operator file plus secrets from the environment (`deployment.py`). [`deployment.example.toml`](deployment.example.toml) shows every setting.
+
+- **The file** (its path in `DATAPROOF_CONFIG`) names the GitHub App (ID, private key file, OAuth client ID, API and web URLs), the dashboard's origin, the preview domain, the worker's data directory and Docker scope, run limits, and each registered repository: its installation and its trusted project configuration. Unknown keys are refused, so a secret cannot be put in the file by mistake. Each project's configuration is validated when the file loads. Origins must be `https://`, except a loopback dashboard during local use.
+- **Secrets** come only from the environment, and each process reads only the ones it needs:
+
+  | Variable | Used by |
+  | --- | --- |
+  | `DATAPROOF_DATABASE_URL` | every process |
+  | `DATAPROOF_WEBHOOK_SECRET` (at least 16 characters) | `api` |
+  | `DATAPROOF_SESSION_SECRET` (at least 32) | `api` |
+  | `DATAPROOF_GITHUB_CLIENT_SECRET` | `api` |
+  | `DATAPROOF_PREVIEW_SECRET` (at least 32) | `api`, `gateway` |
+
+  A missing or short secret stops the process with the variable's name.
+- **Derived, not configured:** each repository's dataset digest comes from its baseline, and the engine version from the installed runner.
+
+Each process runs as `python -m dataproof_api <process>`:
+
+| Process | What it does |
+| --- | --- |
+| `migrate` | Applies the control database's migrations |
+| `api` | Webhook intake and the reviewer API (default `127.0.0.1:8000`) |
+| `gateway` | The signed preview gateway (default `127.0.0.1:8080`), behind the preview domain's wildcard certificate |
+| `worker` | Claims queued runs and runs them on the local Docker backend. Each run uses its stored configuration, with the source broker fetching exact commits into `<data_dir>/mirror.git`. It times out overdue runs every 30 seconds |
+| `publisher` | Publishes check runs to GitHub every few seconds |
+
+The dashboard runs separately (`next start`) on the dashboard's origin, with `/api` and `/auth` routed to the `api` process.
+
 ## Not built yet
 
 These are the remaining steps of work package 9 (#47):
@@ -113,6 +143,12 @@ No GitHub App is registered for this project. Everything here is tested against 
 ## Tests
 
 - **`tests/unit/test_webhooks.py`:** signature verification, including altered bodies, wrong secrets, missing or `sha1=` signatures. Event parsing accepts people and apps (`dependabot[bot]`) and rejects malformed logins.
+- **`tests/unit/test_deployment.py`:**
+  - the example deployment loads;
+  - a secret or unknown key anywhere in the file is refused, and so is a non-loopback `http://` origin;
+  - the API composes from the file and the environment, with digests and versions derived;
+  - a missing or weak secret names its variable;
+  - secrets are read only from the environment.
 - **`tests/integration/test_github_intake.py`** (PostgreSQL), signed deliveries through the FastAPI app:
   - pinned runs, the stored configuration, the recorded author and the actor on the first transition;
   - redeliveries, and supersession by a new head;

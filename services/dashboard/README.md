@@ -47,4 +47,3 @@ The dashboard stays on TypeScript 5.9 because Next.js type-checks through the Ty
 These are the remaining steps of work package 9 (#47):
 
 - a browser end-to-end test of the whole review against a local stack;
-- an entry point that composes the API from deployment configuration, so the stack runs without code.
