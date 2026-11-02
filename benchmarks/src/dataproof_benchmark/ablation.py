@@ -1,6 +1,6 @@
 """B3, the AI ablation: the same failures diagnosed with and without a model (#7, #58).
 
-Every database-tier case whose contracts fail is diagnosed twice, on the same evidence:
+Every database-tier case whose contracts fail or error is diagnosed twice, on the same evidence:
 
 * **model-off**: the rule-based diagnosis every run gets (``dataproof_investigator.diagnose``);
 * **model**: the bounded Failure Investigator, as a run's ``INVESTIGATING`` stage runs it. It has
@@ -184,17 +184,20 @@ def checks_and_evidence(
 
 
 def failed(checks: Mapping[str, CheckResult]) -> list[str]:
-    return sorted(c for c, r in checks.items() if r.outcome is CheckOutcome.FAIL)
+    """The checks a run investigates: those that failed or errored, as ``INVESTIGATING`` does."""
+    return sorted(
+        c for c, r in checks.items() if r.outcome in (CheckOutcome.FAIL, CheckOutcome.ERROR)
+    )
 
 
 def dry_run_model(checks: Mapping[str, CheckResult]) -> InvestigatorModel:
-    """A scripted investigator: reads the first failed check, then cites it. Costs nothing."""
+    """A scripted investigator: reads the first failed check, then cites what it read."""
     first = checks[failed(checks)[0]]
     final = {
         "hypotheses": [
             {
                 "statement": f"Scripted: {first.check_id} failed.",
-                "cited_evidence_ids": [first.evidence_ids[0], "investigation.tool.1"],
+                "cited_evidence_ids": ["investigation.tool.1"],
                 "confidence": "LOW",
             }
         ],
@@ -249,7 +252,7 @@ def _case(
         return row
     checks, evidence = checks_and_evidence(reference_dsn, candidate_dsn, change)
     if not failed(checks):
-        row["skipped"] = "no contract failed"
+        row["skipped"] = "no contract failed or errored"
         return row
     run_id = uuid.uuid4()
     row["failed"] = failed(checks)

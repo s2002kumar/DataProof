@@ -20,19 +20,19 @@ from dataproof_investigator import InvestigatorModel, ScriptedModel, call
 
 pytestmark = pytest.mark.integration
 
-JOIN, RETRY, CLEAN = "case-104", "case-105", "case-101"
+JOIN, RETRY, CLEAN, DUPLICATED = "case-104", "case-105", "case-101", "case-107"
 
 
 def test_a_dry_run_diagnoses_each_failing_case_in_both_arms(postgres_dsn: str) -> None:
     rows = ablation.investigate(
-        postgres_dsn, CORPUS, ablation.dry_run_model, Decimal(10), [CLEAN, JOIN]
+        postgres_dsn, CORPUS, ablation.dry_run_model, Decimal(10), [CLEAN, JOIN, DUPLICATED]
     )
     document = ablation.results(
         rows, labels(CORPUS), live=False, budget_usd=Decimal(10), model="scripted:dry-run"
     )
     cases = {c["case_id"]: c for c in document["cases"]}
 
-    assert cases[CLEAN]["skipped"] == "no contract failed"
+    assert cases[CLEAN]["skipped"] == "no contract failed or errored"
     assert (cases[CLEAN]["model_off"], cases[CLEAN]["model"]) == (None, None)
 
     join = cases[JOIN]
@@ -45,8 +45,11 @@ def test_a_dry_run_diagnoses_each_failing_case_in_both_arms(postgres_dsn: str) -
     assert model["status"] == "COMPLETED", model["failure"]
     assert model["model"] == "scripted:dry-run"
     assert model["tool_calls"] == {"OK": 1}
+    duplicated = cases[DUPLICATED]
+    assert duplicated["failed"] == ["commerce.c1_event_preservation"], "an errored check counts"
+    assert duplicated["model"]["status"] == "COMPLETED", duplicated["model"]["failure"]
     assert document["dry_run"] is True
-    assert document["summary"]["model"]["investigations"] == 1
+    assert document["summary"]["model"]["investigations"] == 2
     assert "not results" in ablation.report(document)
 
 

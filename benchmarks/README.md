@@ -65,7 +65,7 @@ Labels are read only after every case has run. The results hold nothing that var
 
 ## AI ablation (B3)
 
-`python -m dataproof_benchmark ablation --database <admin DSN>` diagnoses every database-tier case whose contracts fail, twice, on the same evidence:
+`python -m dataproof_benchmark ablation --database <admin DSN>` diagnoses every database-tier case whose contracts fail or error, twice, on the same evidence:
 
 - **Model-off:** the rule-based diagnosis every run gets.
 - **Model:** the bounded Failure Investigator, exactly as a run's `INVESTIGATING` stage runs it. It has the five read-only tools over the case's live databases (through a role that cannot write) and the head commit's allowlisted source.
@@ -75,7 +75,7 @@ Labels are read only after every case has run. The results hold nothing that var
 - **Guard:** a live run needs `--live --budget-usd <approved>` (at most 10 USD) and `ANTHROPIC_API_KEY`. Without them, a scripted model runs every path at no cost. That dry run is written under `.work/` and is never reported as a result.
 - **Pinned model:** `claude-opus-5-5` at effort high, at most 8,000 output tokens a turn, with no fallbacks, so every turn has a known cost ceiling.
 - **Per-case cap (0.50 USD, hard):** the investigator never sends a turn that could take the case past 0.50 USD. It also stops at 12 tool calls or 16 turns.
-- **Budget gate:** a case starts only while the cap still fits in what is left of the budget. With 18 failing cases, the worst case is 9 USD.
+- **Budget gate:** a case starts only while the cap still fits in what is left of the budget. With 18 failing or errored cases, the worst case is 9 USD.
 - **Accounting:** every investigation records input and output tokens, cost, tool calls by outcome, latency and the model that served it.
 
 **Scoring** is frozen in `ablation.py` before any live run:
