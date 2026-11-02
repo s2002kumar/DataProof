@@ -452,6 +452,33 @@ def test_a_correction_is_requested_as_a_new_run_of_an_existing_commit(stack: Sta
     assert stack.store.get_run(run_id).state is RunState.QUEUED, "the original is untouched"
 
 
+def test_a_correction_run_s_bindings_are_decided_like_its_pull_request_s(stack: Stack) -> None:
+    run_id = stack.webhook_run()
+    correction = "1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c"
+    stack.github.commits.add(correction)
+    developer, developer_csrf = stack.signed_in("developer")
+    requested = post(
+        developer, developer_csrf, f"/api/runs/{run_id}/correction-replay", {"head_sha": correction}
+    )
+    replay = UUID(requested.json()["run_id"])
+    digest = awaiting_binding(stack, replay, head=correction).digest()
+
+    client, csrf = stack.signed_in("maintainer")
+    assert client.get(f"/api/runs/{replay}").json()["pull_request_author"] == "developer"
+    response = post(
+        client,
+        csrf,
+        f"/api/runs/{replay}/binding-decisions",
+        {"action": "APPROVE_BINDING", "binding_digest": digest},
+    )
+    assert response.status_code == 201, response.text
+    decision = response.json()["decision"]
+    assert (decision["pr_author"], decision["head_sha"]) == ("developer", correction)
+    assert decision["approver_separation"] == "ORGANIZATIONAL"
+    started = stack.store.get_run(UUID(response.json()["started_run_id"]))
+    assert (started.parent_run_id, started.inputs.head_sha) == (replay, correction)
+
+
 @pytest.mark.parametrize(("login", "status"), [("viewer", 200), ("stranger", 404)])
 def test_a_preview_link_is_a_grant_for_one_run_role_and_reviewer(
     stack: Stack, login: str, status: int

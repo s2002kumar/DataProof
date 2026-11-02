@@ -45,6 +45,7 @@ from dataproof_contracts._base import GitSha, Sha256Hex
 from dataproof_control import (
     DecisionConflictError,
     GitHubRecords,
+    PullRequestHead,
     ReproductionQueue,
     RetryPolicy,
     RunNotFoundError,
@@ -336,11 +337,7 @@ class Reviewer:
     ) -> dict[str, Any]:
         run = self.decidable_run(run_id, login)
         inputs = run.inputs
-        head = (
-            self.records.head(inputs.repository, inputs.pull_request, inputs.head_sha)
-            if inputs.pull_request is not None
-            else None
-        )
+        head = self._pull_request_head(run)
         if head is None:
             raise HTTPException(409, "binding decisions need a pull request with a known author")
         action = HumanDecisionAction(request.action)
@@ -445,15 +442,24 @@ class Reviewer:
             "created_at": run.created_at.isoformat(),
         }
 
+    def _pull_request_head(self, run: ReviewRun) -> PullRequestHead | None:
+        """The pull-request head a run descends from, as GitHub reported it, with its author.
+
+        A correction replay runs a commit that was never a head of the pull request, so the
+        record comes from the run it corrects: the pull request, and its author, are the same.
+        """
+        while (pull_request := run.inputs.pull_request) is not None:
+            head = self.records.head(run.inputs.repository, pull_request, run.inputs.head_sha)
+            if head is not None or run.parent_run_id is None:
+                return head
+            run = self.store.get_run(run.parent_run_id)
+        return None
+
     def _detail(self, run: ReviewRun) -> dict[str, Any]:
         run_id = run.run_id
         report = self.results.report(run_id)
         check_run = self.records.check_run(run_id)
-        head = (
-            self.records.head(run.inputs.repository, run.inputs.pull_request, run.inputs.head_sha)
-            if run.inputs.pull_request is not None
-            else None
-        )
+        head = self._pull_request_head(run)
         previews = {
             role.value: {
                 key: value
