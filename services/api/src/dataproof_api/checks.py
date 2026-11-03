@@ -70,7 +70,7 @@ def check_status(
     if interruption is None and run.state not in (RunState.COMPLETE, RunState.SUPERSEDED):
         return CheckStatus("in_progress", "Running", _provenance(run))
     if run.superseded_by is not None:
-        conclusion, title = GitHubCheckConclusion.CANCELLED, "Superseded by a newer commit"
+        conclusion, title = GitHubCheckConclusion.CANCELLED, "Superseded by a newer run"
     elif interruption is RunState.TIMED_OUT:
         conclusion, title = GitHubCheckConclusion.TIMED_OUT, "Timed out before it was verified"
     elif interruption is RunState.CANCELLED:
