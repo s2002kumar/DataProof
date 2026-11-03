@@ -37,7 +37,7 @@ Steps marked **owner** create or use credentials and are run by the repository o
 
    Then set `DATAPROOF_DATABASE_URL=postgresql://postgres@127.0.0.1:5433/postgres`.
 3. **Runtime image:** run `docker build --quiet --file infra/docker/runtime/Dockerfile .` and keep the printed `sha256:` image ID.
-4. **Demo repository (owner):** run `python scripts/demo/build_demo_repo.py <empty dir>`. Then push it to a new repository, for example with `gh repo create <owner>/<name> --private --source <dir> --push`, followed by `git push origin ledger-backfill ledger-backfill-direct`.
+4. **Demo repository (owner):** run `python scripts/demo/build_demo_repo.py <empty dir>`. Then push it to a new repository, for example with `gh repo create <owner>/<name> --public --source <dir> --push`, followed by `git push origin ledger-backfill ledger-backfill-direct`. A public repository lets anyone open the pull request and its check runs. It does not let strangers start runs: a pull request from a fork is refused before anything runs (`NOT_EXECUTED: FORK_PULL_REQUEST`), so only people with write access can start one.
 5. **GitHub App (owner):** start a tunnel first, so the App has a webhook address:
 
    ```bash
@@ -65,7 +65,40 @@ Steps marked **owner** create or use credentials and are run by the repository o
    3. In the dashboard, sign in, inspect the binding and approve it. The approval run is `BLOCKED` (`failure`), and C1 shows refund 1002 at 49.99 expected and 99.98 observed.
    4. The diagnosis cites its evidence, the candidate preview shows the same refund, and the reviewer decides.
 
-Status: everything above except the owner steps is implemented and tested locally (#63). The live run, and the recording made from it, wait for the owner's App registration.
+Status: done. The project's App is registered and installed on [s2002kumar/dataproof-demo-commerce](https://github.com/s2002kumar/dataproof-demo-commerce) alone, and the review has run live ([Live run](#live-run)).
+
+## Live run
+
+`scripts/demo/live.py` runs the review above end to end against real GitHub, and can record it:
+
+```bash
+uv run python scripts/demo/live.py --env ~/.dataproof/github-app/secrets.env --record
+```
+
+It needs setup steps 1 to 6, `DATAPROOF_CONFIG` and `DATAPROOF_DATABASE_URL`, and `gh` signed in as someone with write access to the demo repository.
+
+- **The stack:** it starts the stack with a quick tunnel, as in step 7. It opens the pull request only once GitHub can reach the intake, because GitHub does not retry a failed delivery by itself.
+- **Sign-in, off camera:** a browser window opens for the owner to sign in with GitHub. The script keeps only the dashboard's session cookie, in memory. GitHub's cookies close with the window.
+- **The review:** it opens the pull request with `gh` and runs the rehearsal's walk-through. The walk-through also shows GitHub's own pages: the pull request with its check, and at the end the check runs on both commits.
+- **Output:** the check run GitHub holds for every run goes to `evidence.json`, and the recording to `live.mp4`, under `.dataproof-demo/live`.
+- **On the way out:** the stack and the tunnel stop, and every environment in the deployment's scope is removed. The pull request stays open as the record.
+
+Approvals are bound to a commit and a binding digest, so a second take on the same commits would start out approved. For a new take, give the demo branches new commits with the same content (for example `git commit --amend --no-edit` on each, then a force push), and the script opens a new pull request.
+
+**Recorded on 2026-11-03** ([recording](media/live-demo.mp4)), on [pull request #2](https://github.com/s2002kumar/dataproof-demo-commerce/pull/2):
+
+| Run | Commit | Verdict | Wait, off camera | GitHub check |
+| --- | --- | --- | --- | --- |
+| Started by the pull request's webhook | `9073d40`, the head | `INCOMPLETE` | 123 s | [`action_required`](https://github.com/s2002kumar/dataproof-demo-commerce/runs/126166567317) |
+| Carries the five approvals | `9073d40` | `BLOCKED` | 106 s | [`failure`](https://github.com/s2002kumar/dataproof-demo-commerce/runs/126168145938) |
+| Correction replay | `2e49a55`, the corrected commit | `INCOMPLETE` | 73 s | [`action_required`](https://github.com/s2002kumar/dataproof-demo-commerce/runs/126169394549) |
+| Carries the five approvals | `2e49a55` | `CHECKED` | 91 s | [`success`](https://github.com/s2002kumar/dataproof-demo-commerce/runs/126170290869) |
+
+- **What failed:** in the `BLOCKED` run, C1 found 300 mismatches, C2 79, C3 141, and the two C6 API checks 220 and 110. The migration itself and the candidate preview passed.
+- **The other check runs:** approval runs that a later approval superseded while queued are on GitHub as `cancelled`, "Superseded by a newer run". So is the one approval run a worker claimed before the remaining approvals arrived; the script released it ("Cancelled before it was verified").
+- **One person:** the pull request's author is also the reviewer and the repository's only maintainer, so every approval is recorded with procedural separation.
+- **Cleanup:** after the run, no DataProof container, network or volume was left.
+- **The first take,** pull request #1, ran correctly through the `BLOCKED` run. Then the recording script, not DataProof, took an approval run that a later approval superseded. The script now takes each approval's run from the dashboard. #1 is closed with that explanation.
 
 ## Local rehearsal
 
@@ -89,7 +122,7 @@ uv run python scripts/demo/rehearse.py --image <runtime image ID> --record
 
   The script then prints the check runs that GitHub received.
 - **Between steps** the script cancels, off camera, the runs the walk-through has finished with. A run in review holds its databases and previews until its review expires, and one machine's Docker address pool holds only a few runs. Their reports and decisions stand.
-- **The recording:** with `--record`, every step is recorded and the steps are joined into `.dataproof-demo/rehearsal/rehearsal.mp4`. Joining needs `ffmpeg` on the path, or `FFMPEG` set. Waiting for a run happens off camera, and each step opens with a card that says how long the wait took. Captions are drawn as a subtitle bar that is clearly not part of the product. Nothing is sped up or staged.
+- **The recording:** with `--record`, every step is recorded and the steps are joined into `.dataproof-demo/rehearsal/rehearsal.mp4` ([a recording](media/rehearsal.mp4)). Joining needs `ffmpeg` on the path, or `FFMPEG` set. Waiting for a run happens off camera, and each step opens with a card that says how long the wait took. Captions are drawn as a subtitle bar that is clearly not part of the product. Nothing is sped up or staged.
 
 ## README ordering after implementation
 

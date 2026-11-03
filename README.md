@@ -13,34 +13,37 @@ Merge and deployment decisions stay with people.
 
 ## Demo
 
-[![An excerpt of the walk-through: a BLOCKED run whose mismatch table shows refund 1002 at 49.99 in the reference and 99.98 in the candidate, then the same order in the reference and candidate previews](docs/media/rehearsal.gif)](docs/media/rehearsal.mp4)
+[![An excerpt of the live run: a BLOCKED run whose mismatch table shows refund 1002 at 49.99 in the reference and 99.98 in the candidate, the same order in the reference and candidate previews, and the cited diagnosis](docs/media/live-demo.gif)](docs/media/live-demo.mp4)
 
-The animation above is a 21-second excerpt from step 2, at real speed. **[Watch the full walk-through (MP4, 1 min 33 s)](docs/media/rehearsal.mp4).** It is recorded by [`scripts/demo/rehearse.py`](scripts/demo/rehearse.py) on one machine:
+The animation above is a 20-second excerpt from step 2, at real speed. **[Watch the full live run (MP4, 1 min 46 s)](docs/media/live-demo.mp4).** It was recorded by [`scripts/demo/live.py`](scripts/demo/live.py) on a real GitHub pull request, [dataproof-demo-commerce#2](https://github.com/s2002kumar/dataproof-demo-commerce/pull/2), with DataProof running on one machine:
 
-1. A signed `pull_request` webhook starts a run that migrates isolated copies of the database and builds previews of both commits. The run is `INCOMPLETE`: the pull request proposes five bindings. The reviewer approves them, which starts a new run.
-2. The approved run is `BLOCKED`: the migration succeeded, but refund event 1002 went from 49.99 to 99.98. Both previews show the order, and the diagnosis cites its evidence.
+1. Opening the pull request sent GitHub's signed `pull_request` webhook to DataProof. The run migrated isolated copies of the database and built previews of both commits. It is `INCOMPLETE`, and its GitHub check is `action_required`, because the pull request proposes five bindings. The reviewer approves them, which starts one new run.
+2. That run is `BLOCKED`, and its check is `failure`: the migration succeeded, but refund event 1002 went from 49.99 to 99.98. Both previews show the order, and the diagnosis cites its evidence.
 3. The reviewer replays the corrected commit and approves its bindings.
-4. The corrected run is `CHECKED`.
+4. The corrected run is `CHECKED`, and the corrected commit's check is `success`.
 
-**What is real and what is not:**
+Each verdict is a check run on its commit, for anyone to open: [`BLOCKED` on the pull request's head](https://github.com/s2002kumar/dataproof-demo-commerce/runs/126168145938) and [`CHECKED` on the corrected commit](https://github.com/s2002kumar/dataproof-demo-commerce/runs/126170290869).
 
-- **Real:** everything DataProof does — the control database, webhook intake, Docker isolation, previews behind the signed gateway, contracts, check-run publishing and the dashboard.
-- **Simulated: GitHub only.** It is played by the test double used in the integration tests. The commits come from a local repository.
+**What the recording is:**
+
+- **Real:** GitHub (the pull request, the App, its webhook and check runs, and the reviewer's GitHub sign-in) and everything DataProof does.
+- **On one machine:** nothing runs in the cloud. The only route reachable from the internet is the webhook intake, through a temporary Cloudflare tunnel.
+- **One person:** the pull request's author is also its reviewer, the repository's only maintainer. DataProof allows that only when there is no other maintainer, and records the approvals as procedural rather than organizational separation.
 - **The diagnosis** shown is the rule-based, model-off one. The AI investigator is built and tested with scripted models, but no paid model has been called.
-- **Timing:** waits for runs happen off camera, each labelled with how long it took. Nothing is sped up. Between steps the script cancels, off camera, the runs it has finished with, so that one machine can hold the live ones.
+- **Timing:** waits for runs happen off camera, each labelled with how long it took. Nothing is sped up. The reviewer signed in before recording, so no credentials are on screen. Between steps the script cancels, off camera, runs it has finished with, so that one machine can hold the live ones.
 
-The live demo against a real GitHub pull request waits for the project's GitHub App to be registered ([Live setup](docs/DEMO.md#live-setup)).
+The same walk-through also runs with no credentials at all, against simulated GitHub: [`scripts/demo/rehearse.py`](scripts/demo/rehearse.py) ([Local rehearsal](docs/DEMO.md#local-rehearsal)).
 
 ## Status
 
 | Capability | Implemented and tested | Demonstrated |
 | --- | --- | --- |
-| GitHub pull request to run | Webhook signatures, pinned runs, App authentication, commit-bound check runs, App registration tooling | In the rehearsal, against simulated GitHub. Real GitHub waits for App registration. |
-| Isolated environments and previews | Local Docker backend with tested isolation, and previews of both commits behind a signed, per-preview gateway | In the rehearsal. 15 pipeline-tier runs ([report](benchmarks/results/PIPELINE.md)) |
-| Verified migration outcome | Data contracts C1 to C3 and API contracts C6, with reviewed bindings and the approver rule | Benchmark: 18 of 20 faults at the database tier, all 18 the contracts can observe, with 0 of 11 false positives ([report](benchmarks/results/REPORT.md)). Pipeline tier: 11 of 12 faults and 0 of 3 false positives, end to end. |
-| Evidence-grounded diagnosis | Rule-based diagnosis on every failing run. A bounded AI investigator with five read-only tools, citation checks and a per-investigation cost cap (a hard limit when the model is pinned) | Rule-based diagnosis in the rehearsal. The AI ablation's harness is tested with scripted models; its live run waits for an approved model budget. |
-| Reviewer decisions | GitHub sign-in, binding approval and rejection, correction replay, cancellation, and reproduction on a subset | In the rehearsal (approval and correction replay) |
-| Cleanup | Per-run cleanup, plus an independent reaper that works without the control plane | 15 of 15 pipeline-tier runs left nothing behind. Reaper test |
+| GitHub pull request to run | Webhook signatures, pinned runs, App authentication, commit-bound check runs, App registration tooling | Live on GitHub: a real pull request's webhook started the run, and the App published a check run for every run on its commit ([live run](docs/DEMO.md#live-run)) |
+| Isolated environments and previews | Local Docker backend with tested isolation, and previews of both commits behind a signed, per-preview gateway | In the live run, and in 15 pipeline-tier runs ([report](benchmarks/results/PIPELINE.md)) |
+| Verified migration outcome | Data contracts C1 to C3 and API contracts C6, with reviewed bindings and the approver rule | Live run: `BLOCKED` on the faulty migration, `CHECKED` on the corrected one. Benchmark: 18 of 20 faults at the database tier, all 18 the contracts can observe, with 0 of 11 false positives ([report](benchmarks/results/REPORT.md)). Pipeline tier: 11 of 12 faults and 0 of 3 false positives, end to end. |
+| Evidence-grounded diagnosis | Rule-based diagnosis on every failing run. A bounded AI investigator with five read-only tools, citation checks and a per-investigation cost cap (a hard limit when the model is pinned) | Rule-based diagnosis in the live run. The AI ablation's harness is tested with scripted models; its live run waits for an approved model budget. |
+| Reviewer decisions | GitHub sign-in, binding approval and rejection, correction replay, cancellation, and reproduction on a subset | In the live run: GitHub sign-in, binding approval and correction replay |
+| Cleanup | Per-run cleanup, plus an independent reaper that works without the control plane | 15 of 15 pipeline-tier runs left nothing behind, and so did the live run. Reaper test |
 | Hosted deployment | Not built: a cloud deployment needs an approved cost and security review | — |
 
 ## The problem
