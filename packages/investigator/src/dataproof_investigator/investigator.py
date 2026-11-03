@@ -13,7 +13,7 @@ The loop owns every decision the model could try to take:
 
 import json
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -33,7 +33,7 @@ from dataproof_contracts import (
     ToolCall,
     ToolCallOutcome,
 )
-from dataproof_investigator.model import InvestigatorModel, ModelTurn, ToolResult
+from dataproof_investigator.model import InvestigatorModel, ModelTurn, ToolResult, ToolSpec
 from dataproof_investigator.prompts import PROMPT_VERSION, SYSTEM_PROMPT, failure_task
 from dataproof_investigator.tools import (
     TOOL_SPECS,
@@ -82,12 +82,31 @@ class _BudgetExhausted(Exception):  # noqa: N818 - an outcome, not a program err
 
 
 class Investigator:
-    def __init__(self, model: InvestigatorModel, budget: Budget | None = None) -> None:
+    """The bounded loop. By default it is the Failure Investigator; ``change_analyst`` (in
+    ``analyst``) configures the same loop with its own role, prompt, task and one tool."""
+
+    def __init__(
+        self,
+        model: InvestigatorModel,
+        budget: Budget | None = None,
+        *,
+        role: InvestigatorRole = InvestigatorRole.FAILURE_INVESTIGATOR,
+        system: str = SYSTEM_PROMPT,
+        task: Callable[[ToolContext], str] = failure_task,
+        tools: Sequence[ToolSpec] = TOOL_SPECS,
+        prompt_version: str = PROMPT_VERSION,
+    ) -> None:
         self.model = model
         self.budget = budget or Budget()
+        self.role = role
+        self.system = system
+        self.task = task
+        self.tools = tuple(tools)
+        self.prompt_version = prompt_version
+        self._allowed = frozenset(spec.name for spec in self.tools)
 
     def investigate(self, run_id: UUID, context: ToolContext) -> Investigation:
-        """Investigate the failed and errored checks of one run."""
+        """Investigate one run: by default, its failed and errored checks."""
         started_at, clock = datetime.now(UTC), time.monotonic()
         calls: list[ToolCall] = []
         tokens = {"input": 0, "output": 0}
@@ -103,10 +122,10 @@ class Investigator:
             return Investigation(
                 investigation_id=uuid4(),
                 run_id=run_id,
-                role=InvestigatorRole.FAILURE_INVESTIGATOR,
+                role=self.role,
                 status=status,
                 model=served["by"],
-                prompt_version=PROMPT_VERSION,
+                prompt_version=self.prompt_version,
                 tool_version=TOOL_VERSION,
                 tool_calls=tuple(calls),
                 hypotheses=tuple(
@@ -131,9 +150,9 @@ class Investigator:
             )
 
         session = self.model.open(
-            system=SYSTEM_PROMPT,
-            task=failure_task(context),
-            tools=TOOL_SPECS,
+            system=self.system,
+            task=self.task(context),
+            tools=self.tools,
             output_schema=OUTPUT_SCHEMA,
         )
         results: list[ToolResult] = []
@@ -196,6 +215,8 @@ class Investigator:
         sequence = len(calls) + 1
         recorded_arguments = json.loads(json.dumps(dict(arguments), default=str))
         try:
+            if name not in self._allowed:
+                raise ToolDenied(f"there is no tool named {name!r}")
             content = run_tool(context, name, arguments)
         except ToolDenied as exc:
             calls.append(

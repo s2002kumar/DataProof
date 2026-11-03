@@ -100,6 +100,10 @@ Reviewing the investigator, the Anthropic adapter and the harness for this evalu
 - **No measure of unsupported claims.** Unsupported specifics is new, as defined above.
 - **Model-off latency was recorded as zero, not measured,** and latency and cost had no spread. Both arms are now timed, with median, 90th percentile and maximum.
 
+## The Change Analyst
+
+The Change Analyst's model arm has its own harness, the [change-analysis benchmark](../benchmarks/README.md#change-analysis), against the static risk rules. Its live run is **not** part of the 10 USD above. It needs its own approval: at most 0.15 USD a case, and 5.10 USD for all 34 change sets in the worst case. The same pinned model and guards apply.
+
 ## Limits
 
 - **Keyword rubric:** a negation ("not a time-zone problem") still matches. Every hypothesis is kept verbatim, so a reader can check each score.

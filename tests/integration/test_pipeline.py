@@ -39,6 +39,7 @@ from dataproof_contracts import (
     HumanDecisionAction,
     IntegerValue,
     InvestigationStatus,
+    InvestigatorRole,
     NotExecutedReason,
     NotRunReason,
     ReportVerdict,
@@ -51,7 +52,7 @@ from dataproof_contracts import (
     canonical_json,
 )
 from dataproof_control import GitHubRecords, ReproductionQueue, RunResults, RunStore
-from dataproof_investigator import Investigator, ScriptedModel, answer, call
+from dataproof_investigator import Investigator, ScriptedModel, answer, call, change_analyst
 from dataproof_runner import StageContext, StageOutcome, Worker, WorkerSettings
 from dataproof_runner.artifacts import ArtifactIntegrityError, LocalArtifactStore
 from dataproof_runner.baselines import CommerceBaseline
@@ -134,6 +135,7 @@ class Harness:
         investigator: Investigator | None = None,
         clone: Path | None = None,
         fetcher: SourceFetcher | None = None,
+        analyst: Investigator | None = None,
     ) -> Pipeline:
         """Previews are off unless a test is about them: each one builds a frontend."""
         return Pipeline(
@@ -146,6 +148,7 @@ class Harness:
             baseline=CommerceBaseline(),
             settings=PipelineSettings(previews=previews),
             investigator=investigator,
+            analyst=analyst,
         )
 
     def configured(self) -> Worker:
@@ -733,7 +736,11 @@ def test_failures_are_investigated_but_only_ever_advised_on(harness: Harness) ->
         S.REPORTING,
         S.READY_FOR_REVIEW,
     ]
-    rules, model = harness.results.investigations(run_id)
+    analysis, rules, model = harness.results.investigations(run_id)
+    assert (analysis.role, analysis.model) == (
+        InvestigatorRole.CHANGE_ANALYST,
+        "dataproof:risk-rules-v1",
+    ), "the change was analyzed before anything ran"
     assert (rules.model, model.model) == ("dataproof:rules-v1", "scripted:test")
     assert rules.status is model.status is InvestigationStatus.COMPLETED
     rows = json.loads(careful.received[1][0].content)["data"]["rows"]
@@ -741,7 +748,11 @@ def test_failures_are_investigated_but_only_ever_advised_on(harness: Harness) ->
     report = harness.results.report(run_id)
     assert report is not None
     assert report.verdict is ReportVerdict.BLOCKED
-    assert [i["advisory"] for i in report.report["investigations"]] == [True, True]
+    assert [(i["role"], i["advisory"]) for i in report.report["investigations"]] == [
+        ("CHANGE_ANALYST", True),
+        ("FAILURE_INVESTIGATOR", True),
+        ("FAILURE_INVESTIGATOR", True),
+    ]
 
 
 def test_a_hostile_investigator_changes_nothing_in_the_run(harness: Harness) -> None:
@@ -774,7 +785,7 @@ def test_a_hostile_investigator_changes_nothing_in_the_run(harness: Harness) -> 
     run_id = harness.submit(project, head)
     harness.worker(pipeline).run_once()
 
-    _, model = harness.results.investigations(run_id)
+    *_, model = harness.results.investigations(run_id)
     assert model.status is InvestigationStatus.INVALID_OUTPUT
     assert [c.outcome for c in model.tool_calls] == [ToolCallOutcome.DENIED, ToolCallOutcome.DENIED]
     report = harness.results.report(run_id)
@@ -787,6 +798,57 @@ def test_a_hostile_investigator_changes_nothing_in_the_run(harness: Harness) -> 
         remaining = conn.execute("SELECT count(*) FROM ledger_entries").fetchone()
     assert remaining is not None
     assert remaining[0] > 0, "the hostile DELETE never ran"
+
+
+def test_the_change_analyst_reads_the_change_before_anything_runs(harness: Harness) -> None:
+    head = harness.repo.change(F1, {f"{SAMPLE_APP}/README.md": "Analyze me.\n"})
+    project = harness.project(head)
+    (revision,) = (CHANGES / F1).glob("*.py")
+    path = f"{SAMPLE_APP}/migrations/versions/{revision.name}"
+    analyst = ScriptedModel(
+        [
+            call(
+                "run_readonly_query",
+                {"environment": "CANDIDATE", "sql": "SELECT 1", "max_rows": 1},
+            ),
+            call("read_source", {"path": path, "start_line": 1, "end_line": 60}, "t2"),
+            answer(
+                json.dumps(
+                    {
+                        "hypotheses": [
+                            {
+                                "statement": "The backfill joins order items before summing.",
+                                "cited_evidence_ids": ["investigation.tool.2"],
+                                "confidence": "MEDIUM",
+                            }
+                        ],
+                        "suggested_action": "An order with two items and one refund.",
+                        "caveat": "Read before anything ran.",
+                    }
+                )
+            ),
+        ]
+    )
+    pipeline = harness.pipeline(project, analyst=change_analyst(analyst))
+    run_id = harness.submit(project, head)
+    harness.worker(pipeline).run_once()
+
+    rules, model, *_ = harness.results.investigations(run_id)
+    assert rules.role is model.role is InvestigatorRole.CHANGE_ANALYST
+    assert rules.model == "dataproof:risk-rules-v1"
+    assert {h.statement.split(" ", 1)[0] for h in rules.hypotheses} >= {
+        "join-in-backfill",
+        "aggregate-in-backfill",
+    }, "the static rules saw F1's join and sum"
+    assert model.status is InvestigationStatus.COMPLETED, model.failure
+    assert [c.outcome for c in model.tool_calls] == [ToolCallOutcome.DENIED, ToolCallOutcome.OK]
+    assert "no tool named 'run_readonly_query'" in (model.tool_calls[0].detail or "")
+    assert analyst.opened_with["tools"] == ["read_source"]
+    assert path in analyst.opened_with["task"], "it is told what changed"
+    report = harness.results.report(run_id)
+    assert report is not None
+    assert report.verdict is ReportVerdict.BLOCKED, "the checks still decide"
+    assert harness.outcomes(run_id)[C1] is CheckOutcome.FAIL
 
 
 def test_f1_reproduces_on_a_small_subset_of_its_sealed_baseline(harness: Harness) -> None:

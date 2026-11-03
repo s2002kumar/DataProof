@@ -93,6 +93,28 @@ The rubric and the unsupported-specifics count are proxies, so every hypothesis 
 
 **Dry run, 2026-11-03** (scripted model, so only the model-off arm means anything): the rules completed 17 of 18 failing cases and named the root cause in 9, with all 79 of their citations valid and no unsupported specifics. The model arm completed every path of the harness.
 
+## Change analysis
+
+`python -m dataproof_benchmark change-analysis` analyzes every change set (the 31 database-tier cases and the 3 API behaviour cases) as its pull request's head commit is analyzed in `ANALYZING`: the migration, the ledger API and frontend, and the bindings (which neither arm may read). It needs no database. Results: [`results/change-analysis-results.json`](results/change-analysis-results.json), and `change-analysis-report` writes [`results/CHANGE_ANALYSIS.md`](results/CHANGE_ANALYSIS.md).
+
+- **Arms:**
+  - the static risk rules, deterministic, so their results are committed and a test regenerates them exactly;
+  - the Change Analyst model, with `read_source` only. `--dry-run` runs it with a scripted model under `.work`, and `--live --budget-usd <approved>` with the pinned model, at most 0.15 USD a case (worst case 34 × 0.15 = 5.10 USD).
+- **Scoring,** frozen in `change_analysis.py`:
+  - a fault is *anticipated* when a flagged risk points at its family: a matched rule whose families include it (`RULE_FAMILIES`), or the family's rubric in the model's hypotheses;
+  - a clean control is *alarmed* by any rule match, or by a model risk of MEDIUM or HIGH confidence.
+- **Results, the rules:**
+
+  | Measure | Result |
+  | --- | --- |
+  | Faults anticipated | 21 of 22 |
+  | Clean controls alarmed | 6 of 12 (a retired legacy table, a staged copy, a UTC-to-UTC conversion, a `DISTINCT ON`, and two ranged backfills) |
+  | Missed | API fault `case-201`: a refunded total summed over every ledger entry, a missing filter that no pattern names |
+
+  The two NULL and empty-string faults, which no contract can observe, are anticipated by the rules.
+- **Read with care:** the rules were written by the corpus's author with the corpus in view. They are generic, with no case-specific literal, but their recall is an optimistic bound. A rule names a reason to look; only the contracts find a fault.
+- **The model arm has not run live.** It waits for an approved budget. The question it would answer is whether the model alarms less on correct changes (for example, recognizing complementary ranges or a no-op conversion) and catches what no pattern names (`case-201`).
+
 ## Findings worth knowing
 
 - **Failures made of extra rows are not reproduced.** When a migration adds rows under new keys, as when refunds are inserted a second time, the failing keys exist only in the candidate. A subset seeded from the reference cannot contain them, so the replay passes and the result is honestly `NOT_REPRODUCED` (#8).
@@ -102,7 +124,7 @@ The rubric and the unsupported-specifics count are proxies, so every hypothesis 
 ## Not covered yet
 
 - **A live `B3` run** (#7). The harness is built and tested with scripted models; the run waits for an approved model budget.
-- **The Change Analyst** has no implementation, so it has no evaluation.
+- **A live Change Analyst run.** The model arm is built and dry-run, and waits for an approved budget.
 
 ## Tests
 
@@ -115,4 +137,5 @@ The rubric and the unsupported-specifics count are proxies, so every hypothesis 
 - **`tests/integration/test_benchmark_run.py`** (PostgreSQL): a fresh run reproduces the committed results exactly.
 - **`tests/integration/test_benchmark_pipeline.py`** (Docker): the first API behaviour case, run end to end, gives the committed outcomes and leaves nothing behind.
 - **`tests/integration/test_benchmark_ablation.py`** (PostgreSQL, scripted models): both arms diagnose a failing case, with their citations and specifics measured and a transcript kept; clean cases are skipped. The per-case cap stops before a turn that could pass it, and a case does not start once the budget left cannot cover the cap. The investigator's role cannot write.
+- **`tests/unit/test_change_analysis_benchmark.py`:** the committed change-analysis results are what the rules give now, and the report is generated from them. Every rule names the families it anticipates. A dry run analyzes all 34 cases citing only its reads, and the worst case fits a 10 USD budget.
 - **`tests/unit/test_ablation_scoring.py`:** the frozen rubric and event matching, the live-run guard (an approved budget of at most 10 USD and an API key), and the worst case fits the largest budget. Also the label-free measures: specifics are IDs, amounts and identifiers, not small numbers; citations are counted from a rejected answer too; a specific counts as supported only by the evidence its own hypothesis cites; and hedging is counted.

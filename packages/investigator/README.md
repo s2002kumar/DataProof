@@ -1,6 +1,11 @@
 # dataproof-investigator
 
-The bounded AI investigator (ADR-0002). It explains why deterministic checks failed, using real evidence, and it cannot decide anything: the loop never receives a handle to a check, a verdict, a binding approval or the run. Its only output is an `Investigation` record (see the contracts package).
+The bounded AI investigator (ADR-0002), in two roles:
+
+- **The Failure Investigator** explains why deterministic checks failed, using real evidence.
+- **The Change Analyst** names plausible risks in a change, and edge cases to test, before anything runs.
+
+Neither can decide anything: the loop never receives a handle to a check, a verdict, a binding approval or the run. Its only output is an `Investigation` record (see the contracts package), with its role.
 
 ## The loop
 
@@ -33,6 +38,8 @@ The bounded AI investigator (ADR-0002). It explains why deterministic checks fai
 
 The runner moves a run from `VERIFYING` to `INVESTIGATING` only when a required check failed or errored. The model-off diagnosis always runs there. When the pipeline is given an `Investigator`, the model also investigates the **live** environments through the read-only role, and the head commit's source under `ProjectConfig.investigator_source_roots`. Both investigations are written to `run_investigations` and listed in the report as `advisory`. The report's verdict and checks are computed from the checks alone.
 
+Earlier, in `ANALYZING`, the Change Analyst's records are written the same way, with the `CHANGE_ANALYST` role: the risk rules on every run that passed the change policy, and the model when the pipeline is given an `analyst` (`change_analyst(model)`). The report lists every record with its role.
+
 ## Models
 
 - `InvestigatorModel` / `ModelSession` is the provider interface. An adapter keeps its own conversation state.
@@ -51,6 +58,27 @@ The runner moves a run from `VERIFYING` to `INVESTIGATING` only when a required 
 - **Cost:** every turn records its tokens and cost at first-party list prices. For Claude Opus 5.5 that is, per million tokens: $4 input, $5 for a cache write (1.25 times input), $0.20 for a cache read and $20 output. A turn's input tokens count every prompt token, cached or not.
 
 Nothing configures it automatically. Using it needs credentials (`ANTHROPIC_API_KEY` or an `ant auth login` profile), and, for this project, the owner's approval of the spend. Its tests (`tests/unit/test_anthropic_adapter.py`) replace the HTTP transport with a mock and make no network call.
+
+## Change Analyst
+
+The original design gives the AI two roles (ADR-0002, ARCHITECTURE "AI investigator"): an advisory Change Analyst before execution, and the Failure Investigator after checks. The Change Analyst is the same bounded loop with a different role, not a separate agent framework. It runs while the run is `ANALYZING`, after the change policy has passed and before any environment exists, and both of its arms are recorded with the `CHANGE_ANALYST` role:
+
+- **`risk_rules(run_id, files, migration_roots)`, on every eligible run:** deterministic static risk rules (`RULES`, model `dataproof:risk-rules-v1`) over the changed Python files under the readable roots.
+  - In a migration, only `upgrade()` is read; `downgrade()` undoes it.
+  - Each rule matches a pattern known to go wrong in data migrations: a join or an aggregate in a backfill, rounding or fewer decimal places, a time-zone conversion, a filtered backfill, repeated inserts, a row-level patch by hard-coded key, a key column without a reference or uniqueness constraint, de-duplication, NULL and empty-string coercion, and dropped data.
+  - In application code it also matches rounding calls (`round`, `quantize`, `floor`, `trunc`).
+  - Each hypothesis cites the lines it matched (`source:<path>:L<start>-L<end>`, at the head commit), and the suggested action lists the rules' edge cases. No match is `NOT_AVAILABLE`, not a finding.
+- **`change_analyst(model)`, only when a model is configured:** the investigation loop with its own prompt (`change-analyst/1`), a task that lists the readable changed paths, and **one tool, `read_source`**.
+  - There is no database to query yet, and any other tool call is `DENIED`.
+  - Every hypothesis must cite its own `read_source` evidence, so an analysis that cites anything else is `INVALID_OUTPUT` and is not shown.
+  - Each hypothesis is one risk with where it is and the edge case that would show it. The suggested action lists edge cases worth a contract or a fixture row, and LOW confidence means "looks safe, but check".
+  - Default budget: 8 tool calls, 10 turns.
+
+**What it is worth, and what it is not:**
+
+- **Rules:** the [change-analysis benchmark](../../benchmarks/README.md#change-analysis) anticipates 21 of 22 corpus faults, but also alarms on 6 of 12 clean controls. A rule cannot tell a correct ranged backfill from one that skips its boundary. The rules were written with the corpus in view, so that recall is an optimistic bound.
+- **The model arm** is built and tested with scripted models only. Whether it is more precise than the rules waits for an approved model budget.
+- **Either way:** nothing it says changes a check or the verdict, and a change that passes analysis can still fail its contracts.
 
 ## Model-off baseline
 
@@ -73,3 +101,11 @@ Nothing configures it automatically. Using it needs credentials (`ANTHROPIC_API_
 - **Prompt injection:** a model that obeys an instruction injected into the migration source is denied `approve_binding`, and its uncited "all checks PASS" answer is rejected. The checks remain unchanged.
 - **Loop limits:** invalid and uncited answers, the budget, refusals and provider failures each end with the right status.
 - **Baseline:** it names F1, F3, the decimal fault and the timestamp fault.
+
+`tests/unit/test_change_analyst.py` covers the Change Analyst, offline:
+
+- **Rules:** each rule matches its pattern and not a plain copy. Two inserts into one table, or a self-copy, are repeated inserts. Only `upgrade()` is analyzed, rounding in changed application code is found, and matches cite their lines with valid evidence IDs. No match is not a finding.
+- **Reads:** only changed files under the readable roots are read, never bindings or documentation.
+- **The model arm:** it is offered `read_source` alone. Database queries, check results, approvals and reads of bindings are denied, and an analysis citing anything but its own reads is not shown.
+
+`tests/integration/test_pipeline.py` (Docker) runs a scripted Change Analyst on F1 in a real run. The rules see F1's join and sum, the model reads the migration and is denied a database query, and the verdict stays `BLOCKED`.

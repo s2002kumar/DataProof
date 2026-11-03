@@ -129,8 +129,9 @@ def _summary(run: ReviewRun, report: ReportRecord) -> str:
     if investigations:
         lines += [
             "",
-            f"{len(investigations)} advisory investigation(s) are attached to the run. "
-            "They explain failures and never change a check or the verdict.",
+            f"{len(investigations)} advisory finding(s) are attached to the run: risks named "
+            "before the migration ran, and explanations of failures. They never change a check "
+            "or the verdict.",
         ]
     return "\n".join([*lines, "", _provenance(run)])
 
