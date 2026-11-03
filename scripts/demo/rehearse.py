@@ -301,6 +301,11 @@ def release(dsn: str, repository: str, keep: UUID, actor: str = "rehearsal") -> 
 
 
 def child(dsn: str, repository: str, parent: UUID, timeout: float = 60) -> UUID:
+    """The run a decision on ``parent`` started: here, its correction replay.
+
+    Approval runs are not found this way: several approvals start several runs in quick
+    succession, so the walk-through takes the last one's ID from the dashboard instead.
+    """
     store, started = RunStore(dsn), time.monotonic()
     while time.monotonic() - started < timeout:
         children = [
@@ -308,7 +313,7 @@ def child(dsn: str, repository: str, parent: UUID, timeout: float = 60) -> UUID:
             for r in store.runs([repository])
             if r.parent_run_id == parent and r.superseded_by is None
         ]
-        if children:  # the newest: an approval run carries every approval made before it
+        if children:
             return max(children, key=lambda r: r.created_at).run_id
         time.sleep(1)
     raise SystemExit(f"no run followed {parent}")
@@ -360,16 +365,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             walk = Walkthrough(args.out / "video" if args.record else None, SIZE)
             try:
                 first = deliver(secret, commits["main"], commits["ledger-backfill"], "rehearsal-1")
-                walk.binding_review(first, expect(dsn, first, "INCOMPLETE", "run"))
-                approval = child(dsn, REPOSITORY, first)
+                approval = walk.binding_review(first, expect(dsn, first, "INCOMPLETE", "run"))
                 release(dsn, REPOSITORY, keep=approval)
                 waited = expect(dsn, approval, "BLOCKED", "approval run")
                 walk.blocked(approval, waited, commits["ledger-backfill-direct"])
                 correction = child(dsn, REPOSITORY, approval)
                 release(dsn, REPOSITORY, keep=correction)
                 waited = expect(dsn, correction, "INCOMPLETE", "correction run")
-                walk.correction_review(correction, waited)
-                corrected = child(dsn, REPOSITORY, correction)
+                corrected = walk.correction_review(correction, waited)
                 release(dsn, REPOSITORY, keep=corrected)
                 walk.checked(corrected, expect(dsn, corrected, "CHECKED", "corrected run"))
             finally:

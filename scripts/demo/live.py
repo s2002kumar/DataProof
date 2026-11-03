@@ -226,16 +226,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             reviewer=reviewer,
         )
         try:
-            walk.binding_review(first, finished(first, "INCOMPLETE", "run", head), url)
-            approval = child(dsn, repository, first)
+            approval = walk.binding_review(first, finished(first, "INCOMPLETE", "run", head), url)
             release(dsn, repository, keep=approval, actor="live-demo")
             waited = finished(approval, "BLOCKED", "approval run", head)
             walk.blocked(approval, waited, direct)
             correction = child(dsn, repository, approval)
             release(dsn, repository, keep=correction, actor="live-demo")
             waited = finished(correction, "INCOMPLETE", "correction run", direct)
-            walk.correction_review(correction, waited)
-            corrected = child(dsn, repository, correction)
+            corrected = walk.correction_review(correction, waited)
             release(dsn, repository, keep=corrected, actor="live-demo")
             waited = finished(corrected, "CHECKED", "corrected run", direct)
             blocked_check = evidence["runs"][1]["check_run"]["html_url"]

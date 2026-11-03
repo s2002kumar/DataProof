@@ -31,6 +31,12 @@ flex-direction:column;justify-content:center;padding:0 96px;background:#0f172a;c
 font:20px/1.5 system-ui,sans-serif"><p style="color:#93c5fd;margin:0">{kicker}</p>
 <h1 style="font-size:40px;margin:12px 0 24px">{title}</h1><p style="max-width:900px">{text}</p>
 <p style="position:fixed;bottom:24px;color:#94a3b8;font-size:15px">{footer}</p></body></html>"""
+STARTED = """previous => {
+  const found = /A new run started: ([0-9a-f-]{36})/.exec(
+    document.querySelector('[role="status"]')?.textContent ?? "");
+  return found && found[1] !== previous ? found[1] : null;
+}"""
+"""The run an approval started, once the notice names one other than ``previous``'s."""
 CAPTION = """text => {
   let bar = document.getElementById("__demo_caption");
   if (!bar) {
@@ -169,10 +175,16 @@ class Walkthrough:
         expect(page.get_by_test_id("refunded-total")).to_be_visible()
         caption(page, text, hold=3000)
 
-    def _approve_every_binding(self, page: Page, comment: str, explain: str) -> int:
-        """Approve each binding awaiting review on this run; how many there were."""
+    def _approve_every_binding(self, page: Page, comment: str, explain: str) -> UUID:
+        """Approve each binding awaiting review on this run; the run the last approval started.
+
+        Each approval starts a run that carries every approval at that commit, so the last one
+        carries them all. Each click waits for the notice to name its own run: the notice still
+        names the previous approval's until the new one is recorded.
+        """
         reviews = page.locator("section.binding")
         count = reviews.count()
+        started: str | None = None
         for index in range(count):
             review = reviews.nth(index)
             scroll_to(review)
@@ -180,11 +192,14 @@ class Walkthrough:
                 caption(page, explain.format(count=count), hold=4000)
                 review.get_by_label("Comment (optional)").fill(comment)
             review.get_by_role("button", name="Approve binding").click()
-            expect(page.get_by_role("status")).to_contain_text("Approved", timeout=STARTS)
+            started = page.wait_for_function(STARTED, arg=started, timeout=STARTS).json_value()
             reviews = page.locator("section.binding")
-        return count
+        if started is None:
+            raise RuntimeError("the run has no binding awaiting review")
+        return UUID(started)
 
-    def binding_review(self, run_id: UUID, waited: float, pull_request: str | None = None) -> None:
+    def binding_review(self, run_id: UUID, waited: float, pull_request: str | None = None) -> UUID:
+        """Step 1; the run that carries the reviewer's approvals."""
         with self._step(
             "Step 1 of 4",
             "A pull request rewrites the payments ledger",
@@ -227,7 +242,7 @@ class Walkthrough:
                 "request brings is trusted until a reviewer approves it.",
                 hold=3500,
             )
-            self._approve_every_binding(
+            approval = self._approve_every_binding(
                 page,
                 "Reads the new ledger table.",
                 "The pull request proposes {count} bindings: how its new ledger maps onto each "
@@ -235,6 +250,7 @@ class Walkthrough:
                 "approves it.",
             )
             caption(page, "Each approval is recorded; one new run carries all of them.", 2000)
+        return approval
 
     def blocked(self, run_id: UUID, waited: float, correction: str) -> None:
         with self._step(
@@ -285,7 +301,8 @@ class Walkthrough:
             )
             caption(page, "The reviewer replays the corrected commit on the same baseline.", 2000)
 
-    def correction_review(self, run_id: UUID, waited: float) -> None:
+    def correction_review(self, run_id: UUID, waited: float) -> UUID:
+        """Step 3; the run that carries the approvals of the corrected commit's bindings."""
         with self._step(
             "Step 3 of 4",
             "The corrected commit proposes its own bindings",
@@ -293,7 +310,7 @@ class Walkthrough:
             "is bound to one commit and one binding digest, so nothing carries over silently.",
         ) as page:
             self._open_run(page, run_id, "INCOMPLETE")
-            self._approve_every_binding(
+            return self._approve_every_binding(
                 page,
                 "Same ledger mapping on the corrected commit.",
                 "INCOMPLETE again: the reviewer approves the corrected commit's {count} bindings.",
