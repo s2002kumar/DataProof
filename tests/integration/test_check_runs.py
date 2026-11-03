@@ -128,7 +128,7 @@ def test_a_check_run_follows_the_run_on_its_exact_head_commit(setup: Setup) -> N
     ("interrupt", "conclusion", "title"),
     [
         ("cancel", "cancelled", "Cancelled before it was verified"),
-        ("supersede", "cancelled", "Superseded by a newer commit"),
+        ("supersede", "cancelled", "Superseded by a newer run"),
         ("error", "failure", "Not verified: ERROR BASE_MIGRATION_FAILED"),
         ("timeout", "timed_out", "Timed out before it was verified"),
     ],
