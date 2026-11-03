@@ -117,12 +117,12 @@ def demo_repository(out: Path) -> dict[str, str]:
 
 
 @contextlib.contextmanager
-def removing_environments() -> Iterator[None]:
-    """On the way out, remove every environment the rehearsal's runs still hold."""
+def removing_environments(scope: str) -> Iterator[None]:
+    """On the way out, remove every environment the demo's runs still hold in ``scope``."""
     try:
         yield
     finally:
-        backend = LocalDockerBackend(scope=SCOPE, client=docker.from_env())
+        backend = LocalDockerBackend(scope=scope, client=docker.from_env())
         backend.reap_expired(datetime.max.replace(tzinfo=UTC))
 
 
@@ -287,7 +287,7 @@ def expect(dsn: str, run_id: UUID, verdict: str, name: str) -> float:
     return waited
 
 
-def release(dsn: str, keep: UUID) -> None:
+def release(dsn: str, repository: str, keep: UUID, actor: str = "rehearsal") -> None:
     """Cancel, off camera, every other run the walk-through has finished with.
 
     A run in review keeps its databases and previews (about six Docker networks) until its
@@ -295,20 +295,25 @@ def release(dsn: str, keep: UUID) -> None:
     releases them; their reports and decisions stand.
     """
     store = RunStore(dsn)
-    for run in store.runs([REPOSITORY]):
-        if run.run_id != keep and store.cancel(run.run_id, actor="rehearsal", reason="released"):
+    for run in store.runs([repository]):
+        if run.run_id != keep and store.cancel(run.run_id, actor=actor, reason="released"):
             print(f"released run {run.run_id} ({run.state.value})")
 
 
-def child(dsn: str, parent: UUID, timeout: float = 60) -> UUID:
+def child(dsn: str, repository: str, parent: UUID, timeout: float = 60) -> UUID:
+    """The run a decision on ``parent`` started: here, its correction replay.
+
+    Approval runs are not found this way: several approvals start several runs in quick
+    succession, so the walk-through takes the last one's ID from the dashboard instead.
+    """
     store, started = RunStore(dsn), time.monotonic()
     while time.monotonic() - started < timeout:
         children = [
             r
-            for r in store.runs([REPOSITORY])
+            for r in store.runs([repository])
             if r.parent_run_id == parent and r.superseded_by is None
         ]
-        if children:  # the newest: an approval run carries every approval made before it
+        if children:
             return max(children, key=lambda r: r.created_at).run_id
         time.sleep(1)
     raise SystemExit(f"no run followed {parent}")
@@ -354,23 +359,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             "utf-8",
         )
         # The stack stops first, then what its runs still hold is removed.
-        with removing_environments(), running(environment(env_file), args.out / "logs"):
+        with removing_environments(SCOPE), running(environment(env_file), args.out / "logs"):
             wait_for(f"{DASHBOARD}/", seconds=120)
             wait_for("http://127.0.0.1:8000/openapi.json")
             walk = Walkthrough(args.out / "video" if args.record else None, SIZE)
             try:
                 first = deliver(secret, commits["main"], commits["ledger-backfill"], "rehearsal-1")
-                walk.binding_review(first, expect(dsn, first, "INCOMPLETE", "run"))
-                approval = child(dsn, first)
-                release(dsn, keep=approval)
+                approval = walk.binding_review(first, expect(dsn, first, "INCOMPLETE", "run"))
+                release(dsn, REPOSITORY, keep=approval)
                 waited = expect(dsn, approval, "BLOCKED", "approval run")
                 walk.blocked(approval, waited, commits["ledger-backfill-direct"])
-                correction = child(dsn, approval)
-                release(dsn, keep=correction)
+                correction = child(dsn, REPOSITORY, approval)
+                release(dsn, REPOSITORY, keep=correction)
                 waited = expect(dsn, correction, "INCOMPLETE", "correction run")
-                walk.correction_review(correction, waited)
-                corrected = child(dsn, correction)
-                release(dsn, keep=corrected)
+                corrected = walk.correction_review(correction, waited)
+                release(dsn, REPOSITORY, keep=corrected)
                 walk.checked(corrected, expect(dsn, corrected, "CHECKED", "corrected run"))
             finally:
                 walk.close()
