@@ -63,7 +63,9 @@ def message(
     *,
     model: str = "claude-opus-5-5",
     usage: tuple[int, int] = (1000, 200),
+    cache: tuple[int, int] = (0, 0),
 ) -> dict[str, Any]:
+    """A Messages API response; ``cache`` is (tokens written to, tokens read from) the cache."""
     return {
         "id": f"msg_{uuid.uuid4().hex[:12]}",
         "type": "message",
@@ -72,7 +74,12 @@ def message(
         "content": content,
         "stop_reason": stop_reason,
         "stop_sequence": None,
-        "usage": {"input_tokens": usage[0], "output_tokens": usage[1]},
+        "usage": {
+            "input_tokens": usage[0],
+            "output_tokens": usage[1],
+            "cache_creation_input_tokens": cache[0],
+            "cache_read_input_tokens": cache[1],
+        },
     }
 
 
@@ -139,6 +146,7 @@ def test_an_investigation_round_trip_through_the_messages_api() -> None:
     assert "tool_choice" not in first, "forced tool use is rejected on this model"
     assert first["fallbacks"] == "default"
     assert FALLBACK_BETA in api.requests[0].headers["anthropic-beta"]
+    assert first["cache_control"] == {"type": "ephemeral"}, "the conversation is cached"
     assert [t["name"] for t in first["tools"]] == [t.name for t in TOOL_SPECS]
     assert all(t["strict"] is True for t in first["tools"])
 
@@ -247,7 +255,8 @@ def test_a_turn_that_could_pass_the_cost_cap_is_not_sent() -> None:
     )
     model = api.model(fallbacks=False, max_tokens=1000)
     # The first turn costs 100,000 * $4/M + 1,000 * $20/M = $0.42. The next one would carry at
-    # least those 101,000 tokens of context: up to $0.404 + $0.02 more, past the $0.50 cap.
+    # least those 101,000 tokens of context, priced as cache writes (1.25 * $4/M): up to
+    # $0.505 + $0.02 more, past the $0.50 cap.
     budget = Budget(max_cost_usd=Decimal("0.50"))
     investigation = Investigator(model, budget).investigate(uuid.uuid4(), CONTEXT)
 
@@ -264,3 +273,57 @@ def test_with_fallbacks_a_turn_has_no_known_ceiling() -> None:
         .open(system="s", task="t", tools=TOOL_SPECS, output_schema={"type": "object"})
     )
     assert session.ceiling_usd([]) is None
+
+
+def test_caching_can_be_turned_off() -> None:
+    api = tool_call_then_answer()
+    Investigator(api.model(cache=False)).investigate(uuid.uuid4(), CONTEXT)
+    assert "cache_control" not in api.body(0)
+
+
+def test_cached_tokens_are_counted_and_priced() -> None:
+    api = FakeApi(
+        message(
+            [
+                {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "get_check_result",
+                    "input": {"check_id": C1},
+                }
+            ],
+            "tool_use",
+            usage=(100, 200),
+            cache=(1000, 0),
+        ),
+        message([{"type": "text", "text": FINAL}], "end_turn", usage=(100, 200), cache=(0, 5000)),
+    )
+    investigation = Investigator(api.model()).investigate(uuid.uuid4(), CONTEXT)
+
+    assert investigation.status is InvestigationStatus.COMPLETED, investigation.failure
+    assert investigation.usage.input_tokens == 100 + 1000 + 100 + 5000, "every prompt token"
+    # Uncached input at $4/M, cache writes at 1.25 * $4/M, cache reads at $0.20/M, output $20/M:
+    # (200 * 4 + 1000 * 5 + 5000 * 0.2 + 400 * 20) / 1e6
+    assert investigation.usage.cost_usd == Decimal("0.0148")
+
+
+def test_a_cached_context_still_counts_toward_the_next_turns_ceiling() -> None:
+    api = FakeApi(
+        message(
+            [{"type": "tool_use", "id": "toolu_1", "name": "get_check_result", "input": {}}],
+            "tool_use",
+            usage=(100, 1000),
+            cache=(0, 100_000),
+        ),
+        message([{"type": "text", "text": FINAL}], "end_turn"),
+    )
+    model = api.model(fallbacks=False, max_tokens=1000)
+    # The first turn costs 100 * $4/M + 100,000 * $0.20/M + 1,000 * $20/M = $0.0404. Its context
+    # is 101,100 tokens, almost all read from the cache; the next turn could have to write it
+    # all again: up to 101,100 * 1.25 * $4/M + $0.02 = $0.5255, past the $0.50 cap.
+    budget = Budget(max_cost_usd=Decimal("0.50"))
+    investigation = Investigator(model, budget).investigate(uuid.uuid4(), CONTEXT)
+
+    assert investigation.status is InvestigationStatus.BUDGET_EXHAUSTED
+    assert len(api.requests) == 1
+    assert investigation.usage.cost_usd == Decimal("0.0404")
