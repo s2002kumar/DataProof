@@ -37,7 +37,8 @@ An interrupted run is never green, and a `NOT_EXECUTED` run is `action_required`
 Rules:
 
 - **Recorded once, then repeated only if missing.** Each status is recorded write-once (migration 0009) after GitHub accepted it. A status that failed to publish, for example during an outage, is published on the next pass.
-- **One check run per run.** A per-run lock keeps concurrent publishers from creating two. Before creating one, the publisher looks for an existing check run with the run's external ID on that commit, so a crash between GitHub accepting a check run and recording it does not duplicate it.
+- **The newest run's check run is created last.** A required check reads only the check run created last with its name on a commit, whatever order check runs completed in ([probed on GitHub](../../docs/DEMO.md#check-run-finality)). So a run that has not reached GitHub when a newer pull request run exists on its commit gets no check run. A late one could otherwise hide the newer run's result, in either direction. The omission is recorded once (migration 0011), the reviewer API names the newer run, and the newer run reports. A check run GitHub already shows is always brought to completion.
+- **At most one check run per run, in order.** A lock per commit keeps concurrent publishers from creating two, or from creating a commit's check runs out of their runs' order. Before creating one, the publisher looks for an existing check run with the run's external ID on that commit, so a crash between GitHub accepting a check run and recording it does not duplicate it.
 - **Trusted content only.** The summary holds check IDs, outcomes, reasons and counts from the run's results, plus the run's commits and configuration digest. No text from the pull request appears in it.
 - **Scope.** Only runs of registered repositories with a pull request are published.
 
@@ -68,7 +69,7 @@ The reviewer API is mounted when `create_app` is given a `Reviewer`.
 **Reads.**
 
 - `GET /api/runs` lists runs of the readable registered repositories, newest first. It can be filtered by repository and pull request.
-- `GET /api/runs/{id}` returns the run, its transition log, the pull request's author, the report, decisions, investigations, reproductions, previews (never a token or its hash) and the GitHub check run.
+- `GET /api/runs/{id}` returns the run, its transition log, the pull request's author, the report, decisions, investigations, reproductions, previews (never a token or its hash) and the GitHub check run, or the newer run that reports on the commit instead (`check_run_omitted_for`).
 - `GET /api/runs/{id}/checks` returns each check with the binding it waits on or used, that binding's digest (computed here, so clients never re-implement the canonical form) and its analysis.
 - `GET /api/runs/{id}/evidence` returns the run's evidence records.
 
@@ -183,7 +184,7 @@ No GitHub App is registered for this project. Everything here is tested against 
   - a missing, tampered or expired session gets `401`;
   - runs are listed only from readable repositories;
   - an unreadable run's `404` is identical to a missing run's;
-  - run detail shows the author, transitions and check run;
+  - run detail shows the author, transitions and check run, or the newer run that reports instead;
   - checks show the binding a reviewer decides on;
   - losing access takes effect after the 60-second cache;
   - writes without the CSRF token or the dashboard's `Origin` get `403`;
@@ -219,6 +220,10 @@ No GitHub App is registered for this project. Everything here is tested against 
   - an outage is retried;
   - other repositories and runs without a pull request are not published;
   - four concurrent publishers create one check run;
+  - a burst of approvals (the live demo's `2e49a55`) leaves the newest run's check run as the one a required check reads, and the superseded runs that never reached GitHub get none;
+  - an older run's `success`, published late, never hides a newer run's `BLOCKED` on the same commit;
+  - a check run already on GitHub is still completed when a newer run exists;
+  - a commit's check runs are published one at a time, without holding up other commits;
   - `NOT_EXECUTED` is `action_required`.
 - **`tests/integration/test_pipeline.py`** (Docker):
   - a fork's run is `NOT_EXECUTED` (`action_required`) and nothing is provisioned;

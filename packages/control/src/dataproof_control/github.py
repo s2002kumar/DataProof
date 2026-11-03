@@ -4,7 +4,8 @@ All are write-once. A delivery is recorded only after its signature was verified
 is an audit of what intake did with every genuine event, including the ones it ignored or
 refused. Pull request heads carry the facts that later decisions need, such as who opened the
 pull request (ADR-0005, approver rule). Check runs and their publications are the outbox from
-which each run's status reaches GitHub.
+which each run's status reaches GitHub; omissions record the runs left to a newer run on their
+commit.
 """
 
 from collections.abc import Iterator, Mapping, Sequence
@@ -172,8 +173,8 @@ class GitHubRecords:
             )
 
     def unpublished(self, repositories: Sequence[str], limit: int) -> list[UUID]:
-        """Pull request runs of these repositories whose completion has not reached GitHub,
-        least recently changed first."""
+        """Pull request runs of these repositories whose completion has not reached GitHub and
+        that were not left to a newer run, least recently changed first."""
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -183,6 +184,9 @@ class GitHubRecords:
                       SELECT 1 FROM github_check_publications AS p
                       WHERE p.run_id = r.run_id AND p.status = 'completed'
                   )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM github_check_omissions AS o WHERE o.run_id = r.run_id
+                  )
                 ORDER BY r.updated_at, r.run_id
                 LIMIT %s
                 """,
@@ -190,12 +194,46 @@ class GitHubRecords:
             ).fetchall()
         return [row["run_id"] for row in rows]
 
-    @contextmanager
-    def publishing(self, run_id: UUID) -> Iterator[bool]:
-        """Hold the right to publish a run's check run; yields False if another publisher has
-        it. Held for the duration of the GitHub calls, so a check run is never created twice."""
+    def newer_run(self, run_id: UUID) -> UUID | None:
+        """The newest pull request run created after this one on the same commit, if any."""
         with self._connect() as conn:
-            key = f"github-check:{run_id}"
+            row = conn.execute(
+                """
+                SELECT n.run_id FROM runs AS r
+                JOIN runs AS n ON n.repository = r.repository AND n.head_sha = r.head_sha
+                WHERE r.run_id = %s AND n.pull_request IS NOT NULL
+                  AND (n.created_at, n.run_id) > (r.created_at, r.run_id)
+                ORDER BY n.created_at DESC, n.run_id DESC
+                LIMIT 1
+                """,
+                (run_id,),
+            ).fetchone()
+        return row["run_id"] if row else None
+
+    def record_omission(self, run_id: UUID, newer_run_id: UUID) -> None:
+        """Record that the run gets no check run because ``newer_run_id`` reports instead."""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO github_check_omissions (run_id, newer_run_id) VALUES (%s, %s) "
+                "ON CONFLICT (run_id) DO NOTHING",
+                (run_id, newer_run_id),
+            )
+
+    def omission(self, run_id: UUID) -> UUID | None:
+        """The newer run recorded when this run was left without a check run, if it was."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT newer_run_id FROM github_check_omissions WHERE run_id = %s", (run_id,)
+            ).fetchone()
+        return row["newer_run_id"] if row else None
+
+    @contextmanager
+    def publishing(self, repository: str, head_sha: str) -> Iterator[bool]:
+        """Hold the right to publish check runs on a commit; yields False if another publisher
+        has it. Held for the duration of the GitHub calls, so a check run is never created twice
+        and the check runs on one commit are created in the order of their runs."""
+        with self._connect() as conn:
+            key = f"github-check:{repository}@{head_sha}"
             row = conn.execute(
                 "SELECT pg_try_advisory_lock(hashtextextended(%s, 0)) AS held", (key,)
             ).fetchone()

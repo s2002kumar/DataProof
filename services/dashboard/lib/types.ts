@@ -175,4 +175,6 @@ export interface RunDetail {
   reproduction_requests: ReproductionRequest[];
   previews: Record<string, { commit_sha: string; ready: boolean; failure: string | null }>;
   check_run: { id: number; url: string } | null;
+  /** The newer run on the same commit that reports to GitHub, when this run has no check run. */
+  check_run_omitted_for: string | null;
 }

@@ -102,7 +102,18 @@ export function RunView({ id }: { id: string }) {
           )}
         </dd>
         <dt>GitHub check</dt>
-        <dd>{run.check_run !== null ? <a href={run.check_run.url}>check run {run.check_run.id}</a> : "not published"}</dd>
+        <dd>
+          {run.check_run !== null ? (
+            <a href={run.check_run.url}>check run {run.check_run.id}</a>
+          ) : run.check_run_omitted_for !== null ? (
+            <>
+              none: <Link href={`/runs/${run.check_run_omitted_for}`}>a newer run</Link> on this commit reports to
+              GitHub
+            </>
+          ) : (
+            "not published"
+          )}
+        </dd>
       </dl>
 
       {notice !== null && (
