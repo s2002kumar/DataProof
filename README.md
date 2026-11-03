@@ -115,6 +115,7 @@ Out of scope: production cutover automation, other databases or warehouses, Spar
 | [Scenario contract](docs/SCENARIO_CONTRACT.md) | Demo schemas, invariants C1–C8, safe and faulty migrations, fixture rules |
 | [Threat model](docs/THREAT_MODEL.md) | Threat-to-control map, trust boundaries, mandatory security tests |
 | [Benchmark](docs/BENCHMARK.md) | Fault families, clean controls, baselines, metrics and protocol |
+| [Status](docs/STATUS.md) | The product requirements against what has been verified, with the evidence and every shortfall |
 | [AI evaluation](docs/AI_EVALUATION.md) | The protocol for comparing the AI investigator with the rule-based diagnosis, fixed before any live run |
 | [Implementation](docs/IMPLEMENTATION.md) | Repository standards, work packages, gates and pull-request plan |
 | [Demo](docs/DEMO.md) | Walkthrough script and the evidence a recorded demo must contain |
