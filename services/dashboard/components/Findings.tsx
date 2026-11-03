@@ -1,6 +1,7 @@
 import type { Investigation, Reproduction, ReproductionRequest } from "@/lib/types";
 
-/** AI and rule-based findings: advisory, cited, and never a verdict (ADR-0002). */
+/** AI and rule-based findings, before the migration ran and after the checks: advisory, cited, and
+ * never a verdict (ADR-0002). */
 export function Findings({ investigations }: { investigations: Investigation[] }) {
   if (investigations.length === 0) return <p className="muted">No investigation ran.</p>;
   return (
@@ -8,8 +9,9 @@ export function Findings({ investigations }: { investigations: Investigation[] }
       {investigations.map((investigation) => (
         <article key={investigation.investigation_id} className="finding">
           <h3>
-            <span className="badge advisory">Advisory</span> {investigation.model}{" "}
-            <span className="muted">({investigation.status})</span>
+            <span className="badge advisory">Advisory</span>{" "}
+            {investigation.role === "CHANGE_ANALYST" ? "Change analysis, before the migration ran" : "Failure investigation, after the checks"}
+            : {investigation.model} <span className="muted">({investigation.status})</span>
           </h3>
           {investigation.hypotheses.map((hypothesis, index) => (
             <div key={index} className="hypothesis">
@@ -27,7 +29,7 @@ export function Findings({ investigations }: { investigations: Investigation[] }
           {investigation.failure !== null && <p className="warning">Did not complete: {investigation.failure}</p>}
         </article>
       ))}
-      <p className="muted">Findings explain failures from cited evidence. Only the deterministic checks decide the verdict.</p>
+      <p className="muted">Findings are advisory and cite their evidence. Only the deterministic checks decide the verdict.</p>
     </div>
   );
 }

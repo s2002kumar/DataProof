@@ -1,7 +1,9 @@
 """The run pipeline: the stage handlers a worker executes for one configured project.
 
 FETCHING      stage exact base and head archives in the artifact store
-ANALYZING     refuse unsupported repositories and dependency or out-of-root changes
+ANALYZING     refuse unsupported repositories and dependency or out-of-root changes, then the
+              Change Analyst: static risk rules over the changed source and, if a model is
+              configured, a bounded read of it; advisory only
 PROVISIONING  create reference and candidate environments, migrate both to the base schema with
               the base source, load the identical baseline, prove it identical, and serve the
               reference preview from the base source
@@ -42,6 +44,7 @@ from dataproof_contracts import (
     ErrorCode,
     EvidenceManifest,
     EvidenceRecord,
+    Investigation,
     NotExecutedReason,
     NotRunReason,
     Oracle,
@@ -77,7 +80,13 @@ from dataproof_control.results import (
     record_source,
     record_step,
 )
-from dataproof_investigator import Investigator, ToolContext, diagnose
+from dataproof_investigator import (
+    Investigator,
+    ToolContext,
+    changed_files,
+    diagnose,
+    risk_rules,
+)
 from dataproof_runner.artifacts import ArtifactIntegrityError, ArtifactRef, LocalArtifactStore
 from dataproof_runner.backend import (
     FRONTEND_BUILD_LIMITS,
@@ -286,6 +295,7 @@ class Pipeline:
         settings: PipelineSettings | None = None,
         investigator: Investigator | None = None,
         fetcher: SourceFetcher | None = None,
+        analyst: Investigator | None = None,
     ) -> None:
         if baseline.name != project.baseline:
             raise ValueError(f"project expects baseline {project.baseline}, got {baseline.name}")
@@ -298,6 +308,8 @@ class Pipeline:
         self.settings = settings or PipelineSettings()
         self.investigator = investigator
         """Optional: without a model, failures are explained by the model-off diagnosis only."""
+        self.analyst = analyst
+        """Optional (``change_analyst``): without a model, changes get the risk rules only."""
         self.fetcher = fetcher
         """Optional: fetches the pinned commits into ``clone`` first (the source broker)."""
 
@@ -379,7 +391,42 @@ class Pipeline:
                 NotExecutedReason.DEPENDENCY_CHANGE_REQUIRES_IMAGE_APPROVAL,
                 {"paths": violations},
             )
-        return StageOutcome(RunState.PROVISIONING, detail={"changed_paths": paths})
+        analyses = self._analyses(context, paths)
+        return StageOutcome(
+            RunState.PROVISIONING,
+            detail={
+                "changed_paths": paths,
+                "analyses": [{"model": a.model, "status": a.status.value} for a in analyses],
+            },
+            effects=_all(*(self._recorder(record_investigation, a) for a in analyses)),
+        )
+
+    def _analyses(self, context: StageContext, paths: list[str]) -> list[Investigation]:
+        """The Change Analyst, before anything runs; advisory only (ADR-0002).
+
+        The static risk rules always run over the changed files under the readable source
+        roots. A configured model may read the head commit's allowlisted source and nothing
+        else: no environment exists yet. Neither can change what the checks will decide.
+        """
+        run = context.run
+        head = self._source(run.run_id, Environment.CANDIDATE)
+        roots = self.project.investigator_source_roots
+        # Alembic's script location in the supported profile: <app>/migrations.
+        migrations = (f"{PurePosixPath(self.project.alembic_config).parent}/migrations/",)
+        files = changed_files(head.data, paths, roots)
+        analyses = [risk_rules(run.run_id, files, migrations)]
+        if self.analyst is not None:
+            context.ensure_lease()
+            source = ToolContext(
+                checks={},
+                evidence={},
+                source_archive=head.data,
+                source_roots=roots,
+                databases={},
+                changed_paths=tuple(paths),
+            )
+            analyses.append(self.analyst.investigate(run.run_id, source))
+        return analyses
 
     def _not_executed(
         self, run: ReviewRun, reason: NotExecutedReason, detail: Mapping[str, Any]
@@ -1047,6 +1094,7 @@ class Pipeline:
                 "investigations": [
                     {
                         "advisory": True,
+                        "role": i.role.value,
                         "model": i.model,
                         "status": i.status.value,
                         "hypotheses": [

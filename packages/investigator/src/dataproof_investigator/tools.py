@@ -126,6 +126,8 @@ class ToolContext:
     source_roots: tuple[str, ...]
     databases: Mapping[Environment, str]
     """Read-only role connection strings, one per environment."""
+    changed_paths: tuple[str, ...] = ()
+    """The paths the pull request changed, for the Change Analyst's task."""
 
 
 def _json(document: Any) -> str:

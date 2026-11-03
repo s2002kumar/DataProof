@@ -96,3 +96,11 @@ def stale(root: Path) -> list[str]:
 def labels(root: Path) -> list[dict[str, object]]:
     cases: list[dict[str, object]] = json.loads((root / "labels.json").read_text("utf-8"))["cases"]
     return cases
+
+
+def api_labels(root: Path) -> list[dict[str, object]]:
+    """The API behaviour cases' labels (the pipeline tier's)."""
+    cases: list[dict[str, object]] = json.loads((root / "labels.json").read_text("utf-8"))[
+        "api_cases"
+    ]
+    return cases

@@ -10,6 +10,10 @@
   calls the paid model and needs ``ANTHROPIC_API_KEY``; the protocol is docs/AI_EVALUATION.md.
   Each investigation's transcript is written beside the results. ``ablation-report`` writes
   ``ABLATION.md``.
+* ``change-analysis``: the Change Analyst against the static risk rules, before anything runs.
+  The rules alone by default; ``--dry-run`` adds a scripted model (written under ``.work``),
+  and ``--live --budget-usd <approved>`` the paid one. ``change-analysis-report`` writes
+  ``CHANGE_ANALYSIS.md``.
 """
 
 import argparse
@@ -20,8 +24,9 @@ import sys
 from collections.abc import Sequence
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
-from dataproof_benchmark import ablation, pipeline_tier
+from dataproof_benchmark import ablation, change_analysis, pipeline_tier
 from dataproof_benchmark.corpus import (
     CORPUS_SEED,
     CORPUS_VERSION,
@@ -30,7 +35,7 @@ from dataproof_benchmark.corpus import (
     build_corpus,
 )
 from dataproof_benchmark.evaluate import as_json, run
-from dataproof_benchmark.files import PROVENANCE, labels, stale, write
+from dataproof_benchmark.files import PROVENANCE, api_labels, labels, stale, write
 from dataproof_benchmark.score import joined, pipeline_report, report, summarize
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -42,6 +47,9 @@ PIPELINE_REPORT = ROOT / "results" / "PIPELINE.md"
 ABLATION_RESULTS = ROOT / "results" / "ablation-results.json"
 ABLATION_DRY_RUN = ROOT / ".work" / "ablation-dry-run.json"
 ABLATION_REPORT = ROOT / "results" / "ABLATION.md"
+CHANGE_RESULTS = ROOT / "results" / "change-analysis-results.json"
+CHANGE_DRY_RUN = ROOT / ".work" / "change-analysis-dry-run.json"
+CHANGE_REPORT = ROOT / "results" / "CHANGE_ANALYSIS.md"
 TIER = "database (each case migrated into a fresh PostgreSQL database; no previews)"
 
 
@@ -93,6 +101,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     ablate_report = commands.add_parser("ablation-report", help="write the ablation report")
     ablate_report.add_argument("--results", type=Path, default=ABLATION_RESULTS)
     ablate_report.add_argument("--out", type=Path, default=ABLATION_REPORT)
+    change = commands.add_parser(
+        "change-analysis", help="the Change Analyst against the static risk rules"
+    )
+    change.add_argument("--dry-run", action="store_true", help="add a scripted model, at no cost")
+    change.add_argument("--live", action="store_true", help="add the paid model")
+    change.add_argument("--budget-usd", type=Decimal, help="the budget approved for a live run")
+    change.add_argument("--out", type=Path)
+    change_report = commands.add_parser(
+        "change-analysis-report", help="write the change-analysis report"
+    )
+    change_report.add_argument("--results", type=Path, default=CHANGE_RESULTS)
+    change_report.add_argument("--out", type=Path, default=CHANGE_REPORT)
     args = parser.parse_args(argv)
 
     if args.command == "corpus":
@@ -128,6 +148,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             (folder / f"{case_id}.json").write_text(text, "utf-8", newline="\n")
         print(json.dumps(document["summary"], indent=2))
         print(f"results: {out}; transcripts: {folder}")
+    elif args.command == "change-analysis":
+        document = change_results(args.dry_run, args.live, args.budget_usd)
+        out = args.out or (CHANGE_DRY_RUN if args.dry_run else CHANGE_RESULTS)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(document, indent=2) + "\n", "utf-8", newline="\n")
+        print(json.dumps(document["summary"], indent=2))
+    elif args.command == "change-analysis-report":
+        results = json.loads(args.results.read_text("utf-8"))
+        args.out.write_text(change_analysis.report(results), "utf-8", newline="\n")
     elif args.command == "ablation-report":
         results = json.loads(args.results.read_text("utf-8"))
         args.out.write_text(ablation.report(results), "utf-8", newline="\n")
@@ -167,6 +196,24 @@ def ablation_results(
         rows, labels(CORPUS), live=live, budget_usd=budget, model=name, effort=effort
     )
     return document, ablation.transcripts(rows)
+
+
+def change_results(dry_run: bool, live: bool, budget_usd: Decimal | None) -> dict[str, Any]:
+    """Analyze, then score: the labels are read only after every case is analyzed."""
+    cases = [*build_corpus(), *build_api_cases()]
+    model_for: change_analysis.ModelFactory | None = None
+    name, budget = None, None
+    if live:
+        budget = ablation.live_budget(budget_usd, os.environ)
+        model = ablation.live_model()
+        model_for, name = (lambda _: model), model.name
+    elif dry_run:
+        model_for, name = change_analysis.dry_run_model, "scripted:dry-run"
+    rows = change_analysis.analyze(cases, model_for, budget or ablation.MAX_BUDGET_USD)
+    every = [*labels(CORPUS), *api_labels(CORPUS)]
+    document = change_analysis.results(rows, every, model=name, live=live, budget_usd=budget)
+    document["transcripts"] = {r["case_id"]: r["transcript"] for r in rows if r.get("transcript")}
+    return document
 
 
 def pipeline_score(case: Case, result: dict[str, object]) -> None:

@@ -1,0 +1,729 @@
+{
+  "tier": "change analysis, before anything runs (ANALYZING)",
+  "model": null,
+  "dry_run": false,
+  "budget": {
+    "approved_usd": null,
+    "case_cap_usd": "0.15",
+    "max_tool_calls": 8,
+    "max_turns": 10
+  },
+  "rule_families": {
+    "join-in-backfill": [
+      "join multiplication",
+      "wrong column mapping"
+    ],
+    "aggregate-in-backfill": [
+      "join multiplication"
+    ],
+    "rounding": [
+      "API behaviour",
+      "lossy numeric conversion"
+    ],
+    "time-zone-conversion": [
+      "timestamp shift"
+    ],
+    "filtered-backfill": [
+      "partial migration"
+    ],
+    "repeated-insert": [
+      "balanced loss and duplication",
+      "partial migration",
+      "retry effects"
+    ],
+    "row-level-patch": [
+      "balanced loss and duplication",
+      "orphaned reference",
+      "retry effects",
+      "transposition",
+      "wrong column mapping"
+    ],
+    "unconstrained-key": [
+      "balanced loss and duplication",
+      "orphaned reference",
+      "retry effects"
+    ],
+    "deduplication": [
+      "balanced loss and duplication"
+    ],
+    "null-coercion": [
+      "NULL and empty confusion"
+    ],
+    "destructive-ddl": []
+  },
+  "cases": [
+    {
+      "case_id": "case-101",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "legacy table retired",
+      "holdout": true,
+      "detected_by_contracts": false,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "destructive-ddl"
+        ],
+        "anticipated": null,
+        "relevant_edge_case": null,
+        "alarmed": true
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-102",
+      "family": "NULL and empty confusion",
+      "kind": "fault",
+      "variant": "NULL to empty",
+      "holdout": true,
+      "detected_by_contracts": false,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "null-coercion"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-103",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "extra column and index",
+      "holdout": true,
+      "detected_by_contracts": false,
+      "rules": {
+        "risks": 0,
+        "matched": [],
+        "anticipated": null,
+        "relevant_edge_case": null,
+        "alarmed": false
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-104",
+      "family": "join multiplication",
+      "kind": "fault",
+      "variant": "all events",
+      "holdout": true,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 2,
+        "matched": [
+          "join-in-backfill",
+          "aggregate-in-backfill"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-105",
+      "family": "retry effects",
+      "kind": "fault",
+      "variant": "refunds inserted again",
+      "holdout": false,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 2,
+        "matched": [
+          "filtered-backfill",
+          "repeated-insert"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-106",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "staged copy",
+      "holdout": false,
+      "detected_by_contracts": false,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "destructive-ddl"
+        ],
+        "anticipated": null,
+        "relevant_edge_case": null,
+        "alarmed": true
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-107",
+      "family": "balanced loss and duplication",
+      "kind": "fault",
+      "variant": "equal amounts",
+      "holdout": true,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 4,
+        "matched": [
+          "filtered-backfill",
+          "repeated-insert",
+          "row-level-patch",
+          "unconstrained-key"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-108",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "wider precision",
+      "holdout": false,
+      "detected_by_contracts": false,
+      "rules": {
+        "risks": 0,
+        "matched": [],
+        "anticipated": null,
+        "relevant_edge_case": null,
+        "alarmed": false
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-109",
+      "family": "wrong column mapping",
+      "kind": "fault",
+      "variant": "time from the order",
+      "holdout": true,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "join-in-backfill"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-110",
+      "family": "partial migration",
+      "kind": "fault",
+      "variant": "batch boundary skipped",
+      "holdout": false,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 2,
+        "matched": [
+          "filtered-backfill",
+          "repeated-insert"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-111",
+      "family": "lossy numeric conversion",
+      "kind": "fault",
+      "variant": "one currency floored",
+      "holdout": true,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 2,
+        "matched": [
+          "join-in-backfill",
+          "rounding"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-112",
+      "family": "timestamp shift",
+      "kind": "fault",
+      "variant": "one currency's zone",
+      "holdout": false,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 2,
+        "matched": [
+          "join-in-backfill",
+          "time-zone-conversion"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-113",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "memo copied faithfully",
+      "holdout": false,
+      "detected_by_contracts": false,
+      "rules": {
+        "risks": 0,
+        "matched": [],
+        "anticipated": null,
+        "relevant_edge_case": null,
+        "alarmed": false
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-114",
+      "family": "timestamp shift",
+      "kind": "fault",
+      "variant": "local time read as UTC",
+      "holdout": true,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "time-zone-conversion"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-115",
+      "family": "NULL and empty confusion",
+      "kind": "fault",
+      "variant": "empty to NULL",
+      "holdout": false,
+      "detected_by_contracts": false,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "null-coercion"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-116",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "timestamps through UTC",
+      "holdout": false,
+      "detected_by_contracts": false,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "time-zone-conversion"
+        ],
+        "anticipated": null,
+        "relevant_edge_case": null,
+        "alarmed": true
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-117",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "sequenced by reference",
+      "holdout": false,
+      "detected_by_contracts": false,
+      "rules": {
+        "risks": 0,
+        "matched": [],
+        "anticipated": null,
+        "relevant_edge_case": null,
+        "alarmed": false
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-118",
+      "family": "wrong column mapping",
+      "kind": "fault",
+      "variant": "kind of one capture",
+      "holdout": false,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "row-level-patch"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-119",
+      "family": "partial migration",
+      "kind": "fault",
+      "variant": "stops at a date",
+      "holdout": true,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "filtered-backfill"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-120",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "distinct events",
+      "holdout": false,
+      "detected_by_contracts": false,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "deduplication"
+        ],
+        "anticipated": null,
+        "relevant_edge_case": null,
+        "alarmed": true
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-121",
+      "family": "lossy numeric conversion",
+      "kind": "fault",
+      "variant": "one decimal place",
+      "holdout": true,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "rounding"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-122",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "orders with and without items",
+      "holdout": false,
+      "detected_by_contracts": false,
+      "rules": {
+        "risks": 2,
+        "matched": [
+          "filtered-backfill",
+          "repeated-insert"
+        ],
+        "anticipated": null,
+        "relevant_edge_case": null,
+        "alarmed": true
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-123",
+      "family": "join multiplication",
+      "kind": "fault",
+      "variant": "refunds only",
+      "holdout": false,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 4,
+        "matched": [
+          "join-in-backfill",
+          "aggregate-in-backfill",
+          "filtered-backfill",
+          "repeated-insert"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-124",
+      "family": "orphaned reference",
+      "kind": "fault",
+      "variant": "one capture",
+      "holdout": false,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 2,
+        "matched": [
+          "row-level-patch",
+          "unconstrained-key"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-125",
+      "family": "transposition",
+      "kind": "fault",
+      "variant": "capture pair",
+      "holdout": false,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "row-level-patch"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-126",
+      "family": "balanced loss and duplication",
+      "kind": "fault",
+      "variant": "different amounts",
+      "holdout": false,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 4,
+        "matched": [
+          "filtered-backfill",
+          "repeated-insert",
+          "row-level-patch",
+          "unconstrained-key"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-127",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "batched by order range",
+      "holdout": false,
+      "detected_by_contracts": false,
+      "rules": {
+        "risks": 2,
+        "matched": [
+          "filtered-backfill",
+          "repeated-insert"
+        ],
+        "anticipated": null,
+        "relevant_edge_case": null,
+        "alarmed": true
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-128",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "direct copy",
+      "holdout": false,
+      "detected_by_contracts": false,
+      "rules": {
+        "risks": 0,
+        "matched": [],
+        "anticipated": null,
+        "relevant_edge_case": null,
+        "alarmed": false
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-129",
+      "family": "orphaned reference",
+      "kind": "fault",
+      "variant": "one refund",
+      "holdout": true,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 2,
+        "matched": [
+          "row-level-patch",
+          "unconstrained-key"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-130",
+      "family": "transposition",
+      "kind": "fault",
+      "variant": "refund pair",
+      "holdout": false,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "row-level-patch"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-131",
+      "family": "retry effects",
+      "kind": "fault",
+      "variant": "fix-up applied twice",
+      "holdout": false,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "row-level-patch"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-201",
+      "family": "API behaviour",
+      "kind": "fault",
+      "variant": "refunded total over every entry",
+      "holdout": false,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 0,
+        "matched": [],
+        "anticipated": false,
+        "relevant_edge_case": false,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-202",
+      "family": "clean control",
+      "kind": "clean",
+      "variant": "totals from two subqueries",
+      "holdout": false,
+      "detected_by_contracts": false,
+      "rules": {
+        "risks": 0,
+        "matched": [],
+        "anticipated": null,
+        "relevant_edge_case": null,
+        "alarmed": false
+      },
+      "model": null,
+      "skipped": null
+    },
+    {
+      "case_id": "case-203",
+      "family": "API behaviour",
+      "kind": "fault",
+      "variant": "transaction amounts rounded",
+      "holdout": false,
+      "detected_by_contracts": true,
+      "rules": {
+        "risks": 1,
+        "matched": [
+          "rounding"
+        ],
+        "anticipated": true,
+        "relevant_edge_case": true,
+        "alarmed": null
+      },
+      "model": null,
+      "skipped": null
+    }
+  ],
+  "summary": {
+    "faults": 22,
+    "clean_controls": 12,
+    "rules": {
+      "analyzed": 34,
+      "faults_anticipated": 21,
+      "relevant_edge_cases": 21,
+      "clean_controls_alarmed": 6,
+      "risks_flagged": 45
+    },
+    "model": {
+      "analyzed": 0,
+      "faults_anticipated": 0,
+      "relevant_edge_cases": 0,
+      "clean_controls_alarmed": 0,
+      "risks_flagged": 0,
+      "citations": 0,
+      "valid_citations": 0,
+      "unsupported_specifics": 0,
+      "cost_usd": "0"
+    }
+  },
+  "transcripts": {}
+}
