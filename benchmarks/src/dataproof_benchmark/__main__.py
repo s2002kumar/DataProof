@@ -7,7 +7,8 @@
 * ``pipeline`` and ``pipeline-report``: the pipeline tier on local Docker (``PIPELINE.md``).
 * ``ablation --database <admin DSN>``: the AI ablation (B3). Without ``--live`` a scripted model
   runs it at no cost (a dry run, written under ``.work``). ``--live --budget-usd <approved>``
-  calls the paid model and needs ``ANTHROPIC_API_KEY``. ``ablation-report`` writes
+  calls the paid model and needs ``ANTHROPIC_API_KEY``; the protocol is docs/AI_EVALUATION.md.
+  Each investigation's transcript is written beside the results. ``ablation-report`` writes
   ``ABLATION.md``.
 """
 
@@ -82,6 +83,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     ablate.add_argument("--live", action="store_true", help="call the paid model")
     ablate.add_argument("--budget-usd", type=Decimal, help="the budget approved for a live run")
     ablate.add_argument("--cases", nargs="*", help="case IDs (default: every failing case)")
+    ablate.add_argument(
+        "--effort",
+        choices=("high", "medium"),
+        default=ablation.EFFORT,
+        help="the model's effort; medium only if the pilot rule calls for it",
+    )
     ablate.add_argument("--out", type=Path)
     ablate_report = commands.add_parser("ablation-report", help="write the ablation report")
     ablate_report.add_argument("--results", type=Path, default=ABLATION_RESULTS)
@@ -108,11 +115,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         results = json.loads(args.results.read_text("utf-8"))
         args.out.write_text(pipeline_report(results), "utf-8", newline="\n")
     elif args.command == "ablation":
-        document = ablation_results(args.database, args.live, args.budget_usd, args.cases)
+        document, kept = ablation_results(
+            args.database, args.live, args.budget_usd, args.cases, args.effort
+        )
         out = args.out or (ABLATION_RESULTS if args.live else ABLATION_DRY_RUN)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(document, indent=2) + "\n", "utf-8", newline="\n")
+        folder = out.with_name(out.stem.removesuffix("-results") + "-transcripts")
+        folder.mkdir(exist_ok=True)
+        for case_id, turns in kept.items():
+            text = json.dumps(turns, indent=2, default=str) + "\n"
+            (folder / f"{case_id}.json").write_text(text, "utf-8", newline="\n")
         print(json.dumps(document["summary"], indent=2))
+        print(f"results: {out}; transcripts: {folder}")
     elif args.command == "ablation-report":
         results = json.loads(args.results.read_text("utf-8"))
         args.out.write_text(ablation.report(results), "utf-8", newline="\n")
@@ -131,19 +146,27 @@ def pipeline_cases(case_ids: Sequence[str] | None) -> list[Case]:
 
 
 def ablation_results(
-    admin_dsn: str, live: bool, budget_usd: Decimal | None, case_ids: Sequence[str] | None
-) -> dict[str, object]:
-    """Investigate, then score: the labels are read only after every case is investigated."""
+    admin_dsn: str,
+    live: bool,
+    budget_usd: Decimal | None,
+    case_ids: Sequence[str] | None,
+    effort: str = ablation.EFFORT,
+) -> tuple[dict[str, object], dict[str, list[dict[str, object]]]]:
+    """Investigate, then score: the labels are read only after every case is investigated.
+    Returns the results and each investigated case's transcript."""
     if live:
         budget = ablation.live_budget(budget_usd, os.environ)
-        model = ablation.live_model()
+        model = ablation.live_model(effort)
         rows = ablation.investigate(admin_dsn, CORPUS, lambda _: model, budget, case_ids)
         name = model.name
     else:
         budget = ablation.MAX_BUDGET_USD  # a scripted model costs nothing
         rows = ablation.investigate(admin_dsn, CORPUS, ablation.dry_run_model, budget, case_ids)
         name = "scripted:dry-run"
-    return ablation.results(rows, labels(CORPUS), live=live, budget_usd=budget, model=name)
+    document = ablation.results(
+        rows, labels(CORPUS), live=live, budget_usd=budget, model=name, effort=effort
+    )
+    return document, ablation.transcripts(rows)
 
 
 def pipeline_score(case: Case, result: dict[str, object]) -> None:

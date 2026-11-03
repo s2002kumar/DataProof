@@ -41,7 +41,7 @@ The same walk-through also runs with no credentials at all, against simulated Gi
 | GitHub pull request to run | Webhook signatures, pinned runs, App authentication, commit-bound check runs, App registration tooling | Live on GitHub: a real pull request's webhook started the run, and the App published a check run for every run on its commit ([live run](docs/DEMO.md#live-run)) |
 | Isolated environments and previews | Local Docker backend with tested isolation, and previews of both commits behind a signed, per-preview gateway | In the live run, and in 15 pipeline-tier runs ([report](benchmarks/results/PIPELINE.md)) |
 | Verified migration outcome | Data contracts C1 to C3 and API contracts C6, with reviewed bindings and the approver rule | Live run: `BLOCKED` on the faulty migration, `CHECKED` on the corrected one. Benchmark: 18 of 20 faults at the database tier, all 18 the contracts can observe, with 0 of 11 false positives ([report](benchmarks/results/REPORT.md)). Pipeline tier: 11 of 12 faults and 0 of 3 false positives, end to end. |
-| Evidence-grounded diagnosis | Rule-based diagnosis on every failing run. A bounded AI investigator with five read-only tools, citation checks and a per-investigation cost cap (a hard limit when the model is pinned) | Rule-based diagnosis in the live run. The AI ablation's harness is tested with scripted models; its live run waits for an approved model budget. |
+| Evidence-grounded diagnosis | Rule-based diagnosis on every failing run. A bounded AI investigator with five read-only tools, citation checks and a per-investigation cost cap (a hard limit when the model is pinned) | Rule-based diagnosis in the live run. The AI evaluation is prepared and its [protocol](docs/AI_EVALUATION.md) fixed: a scripted dry run covers all 18 failing cases, and the rules name the root cause in 9 of them. Its live run waits for an approved model budget. |
 | Reviewer decisions | GitHub sign-in, binding approval and rejection, correction replay, cancellation, and reproduction on a subset | In the live run: GitHub sign-in, binding approval and correction replay |
 | Cleanup | Per-run cleanup, plus an independent reaper that works without the control plane | 15 of 15 pipeline-tier runs left nothing behind, and so did the live run. Reaper test |
 | Hosted deployment | Not built: a cloud deployment needs an approved cost and security review | — |
@@ -112,6 +112,7 @@ Out of scope: production cutover automation, other databases or warehouses, Spar
 | [Scenario contract](docs/SCENARIO_CONTRACT.md) | Demo schemas, invariants C1–C8, safe and faulty migrations, fixture rules |
 | [Threat model](docs/THREAT_MODEL.md) | Threat-to-control map, trust boundaries, mandatory security tests |
 | [Benchmark](docs/BENCHMARK.md) | Fault families, clean controls, baselines, metrics and protocol |
+| [AI evaluation](docs/AI_EVALUATION.md) | The protocol for comparing the AI investigator with the rule-based diagnosis, fixed before any live run |
 | [Implementation](docs/IMPLEMENTATION.md) | Repository standards, work packages, gates and pull-request plan |
 | [Demo](docs/DEMO.md) | Walkthrough script and the evidence a recorded demo must contain |
 | [Architecture decisions](docs/adr/) | ADR-0001 to ADR-0006 |

@@ -40,7 +40,10 @@ class ModelTurn:
     tool_uses: tuple[ToolUse, ...] = ()
     text: str | None = None
     input_tokens: int = 0
+    """Every prompt token of the turn, including those written to or read from a cache."""
     output_tokens: int = 0
+    cache_write_tokens: int = 0
+    cache_read_tokens: int = 0
     cost_usd: Decimal = Decimal(0)
     served_by: str | None = None
     """``provider:model`` that produced this turn, when it differs from the one asked for

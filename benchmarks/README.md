@@ -73,18 +73,25 @@ Labels are read only after every case has run. The results hold nothing that var
 **Live runs and cost:**
 
 - **Guard:** a live run needs `--live --budget-usd <approved>` (at most 10 USD) and `ANTHROPIC_API_KEY`. Without them, a scripted model runs every path at no cost. That dry run is written under `.work/` and is never reported as a result.
-- **Pinned model:** `claude-opus-5-5` at effort high, at most 8,000 output tokens a turn, with no fallbacks, so every turn has a known cost ceiling.
+- **Protocol:** [`docs/AI_EVALUATION.md`](../docs/AI_EVALUATION.md) fixes the question, the cases, the settings, a pilot of at most 1 USD with a rule decided in advance, and the measures, before any live result exists.
+- **Pinned model:** `claude-opus-5-5` at effort high (`--effort medium` only if the pilot rule calls for it), at most 8,000 output tokens a turn, with no fallbacks, so every turn has a known cost ceiling. Prompt caching is on, and the ceiling prices every input token as a cache write, so it stays an upper bound.
 - **Per-case cap (0.50 USD, hard):** the investigator never sends a turn that could take the case past 0.50 USD. It also stops at 12 tool calls or 16 turns.
 - **Budget gate:** a case starts only while the cap still fits in what is left of the budget. With 18 failing or errored cases, the worst case is 9 USD.
-- **Accounting:** every investigation records input and output tokens, cost, tool calls by outcome, latency and the model that served it.
+- **Accounting:** every investigation records input, cache-write, cache-read and output tokens, cost, tool calls by outcome, latency and the model that served it.
+- **Transcripts:** every turn the model saw and sent (text, tool calls, tokens, cost, latency, and tool results truncated to 2,000 characters with the full result's hash) is written beside the results, in `ablation-transcripts/` (or `.work/ablation-dry-run-transcripts/`).
 
 **Scoring** is frozen in `ablation.py` before any live run:
 
 - the status (completed with every citation valid, budget exhausted, invalid output or unavailable);
 - how many labelled affected event IDs the hypotheses name;
-- whether the hypotheses or suggested action use the family's root-cause rubric terms.
+- whether the hypotheses or suggested action use the family's root-cause rubric terms, whether the first hypothesis alone does, and how many other families' rubrics also match (hedging);
+- **citation validity:** of every evidence ID the final answer cites, how many exist. It is counted from the model's raw answer, so it is measured even when the investigator rejects the answer;
+- **unsupported specifics:** numbers with three or more digits, amounts and `snake_case` identifiers in a hypothesis that appear in none of the evidence it cites;
+- **latency** of both arms (the model-off arm's is measured too), and **cost** per investigation and in total.
 
-The rubric is a keyword proxy, so every hypothesis is kept verbatim in the report for reading. `ablation-report` writes `results/ABLATION.md`.
+The rubric and the unsupported-specifics count are proxies, so every hypothesis is kept verbatim in the report for reading. `ablation-report` writes `results/ABLATION.md`.
+
+**Dry run, 2026-11-03** (scripted model, so only the model-off arm means anything): the rules completed 17 of 18 failing cases and named the root cause in 9, with all 79 of their citations valid and no unsupported specifics. The model arm completed every path of the harness.
 
 ## Findings worth knowing
 
@@ -107,5 +114,5 @@ The rubric is a keyword proxy, so every hypothesis is kept verbatim in the repor
   - the committed report is generated from the committed results.
 - **`tests/integration/test_benchmark_run.py`** (PostgreSQL): a fresh run reproduces the committed results exactly.
 - **`tests/integration/test_benchmark_pipeline.py`** (Docker): the first API behaviour case, run end to end, gives the committed outcomes and leaves nothing behind.
-- **`tests/integration/test_benchmark_ablation.py`** (PostgreSQL, scripted models): both arms diagnose a failing case; clean cases are skipped. The per-case cap stops before a turn that could pass it, and a case does not start once the budget left cannot cover the cap. The investigator's role cannot write.
-- **`tests/unit/test_ablation_scoring.py`:** the frozen rubric and event matching, the live-run guard (an approved budget of at most 10 USD and an API key), and the worst case fits the largest budget.
+- **`tests/integration/test_benchmark_ablation.py`** (PostgreSQL, scripted models): both arms diagnose a failing case, with their citations and specifics measured and a transcript kept; clean cases are skipped. The per-case cap stops before a turn that could pass it, and a case does not start once the budget left cannot cover the cap. The investigator's role cannot write.
+- **`tests/unit/test_ablation_scoring.py`:** the frozen rubric and event matching, the live-run guard (an approved budget of at most 10 USD and an API key), and the worst case fits the largest budget. Also the label-free measures: specifics are IDs, amounts and identifiers, not small numbers; citations are counted from a rejected answer too; a specific counts as supported only by the evidence its own hypothesis cites; and hedging is counted.

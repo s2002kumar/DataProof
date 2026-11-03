@@ -52,6 +52,24 @@ def test_a_dry_run_diagnoses_each_failing_case_in_both_arms(postgres_dsn: str) -
     assert document["summary"]["model"]["investigations"] == 2
     assert "not results" in ablation.report(document)
 
+    # The label-free measures, from what each arm actually said and cited.
+    assert (model["citations"], model["valid_citations"]) == (1, 1)
+    assert model["unsupported_specifics"] == [], "it names only the check its tool call read"
+    rules = join["model_off"]
+    assert rules["valid_citations"] == rules["citations"] > 0
+    assert rules["unsupported_specifics"] == []
+    assert rules["latency_ms"] >= 0, "measured, not assumed"
+    kept = ablation.transcripts(rows)
+    assert set(kept) == {JOIN, DUPLICATED}
+    asked, answered = kept[JOIN]
+    assert asked["tool_uses"] == [
+        {"name": "get_check_result", "arguments": {"check_id": "commerce.c1_event_preservation"}}
+    ]
+    (result,) = answered["tool_results"]
+    assert result["sha256"]
+    assert not result["is_error"]
+    assert answered["stop"] == "end"
+
 
 def test_the_budget_stops_before_a_case_could_overspend_it(postgres_dsn: str) -> None:
     def costly(checks: Mapping[str, CheckResult]) -> InvestigatorModel:
@@ -64,6 +82,7 @@ def test_the_budget_stops_before_a_case_could_overspend_it(postgres_dsn: str) ->
     first, second = rows
 
     assert first["model"]["status"] == "BUDGET_EXHAUSTED"
+    assert first["model_measures"]["answer_parsed"] is False, "it never answered"
     assert Decimal(first["model"]["usage"]["cost_usd"]) == Decimal("0.40"), (
         "a third turn could have reached 0.60, past the 0.50 cap, so it was never sent"
     )

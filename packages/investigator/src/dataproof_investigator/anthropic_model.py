@@ -12,7 +12,11 @@ Request shape (Claude Opus 5.5, the default):
   sent; the investigator still validates every argument against the full schema;
 * the final answer is constrained to the ``InvestigationOutput`` JSON schema, and validated
   again by the investigator;
-* server-side refusal fallbacks are on by default, and the turn records which model served it.
+* server-side refusal fallbacks are on by default, and the turn records which model served it;
+* prompt caching is automatic (a top-level ``cache_control``): each turn re-sends the
+  conversation so far, and the cached prefix is billed at the cache-read price. Cost counts
+  every kind of input token, and the next turn's ceiling prices all of its input at the
+  cache-write price, so it stays an upper bound.
 """
 
 import json
@@ -40,15 +44,18 @@ from dataproof_investigator.model import (
 DEFAULT_MODEL = "claude-opus-5-5"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
-#: USD per million input and output tokens, first-party API rates (claude-api skill, 2026-10).
-PRICES: Mapping[str, tuple[Decimal, Decimal]] = {
-    "claude-opus-5-5": (Decimal(4), Decimal(20)),
-    "claude-opus-5": (Decimal(5), Decimal(25)),
-    "claude-opus-4-8": (Decimal(5), Decimal(25)),
-    "claude-fable-5-1": (Decimal(10), Decimal(50)),
-    "claude-sonnet-5-5": (Decimal(2), Decimal(10)),
-    "claude-haiku-5-5": (Decimal("0.10"), Decimal("0.50")),
+#: USD per million input, output and cache-read tokens, first-party API rates (claude-api
+#: skill, 2026-11). Haiku 5.5's higher rate above 100K prompt tokens is not modelled.
+PRICES: Mapping[str, tuple[Decimal, Decimal, Decimal]] = {
+    "claude-opus-5-5": (Decimal(4), Decimal(20), Decimal("0.20")),
+    "claude-opus-5": (Decimal(5), Decimal(25), Decimal("0.50")),
+    "claude-opus-4-8": (Decimal(5), Decimal(25), Decimal("0.50")),
+    "claude-fable-5-1": (Decimal(10), Decimal(50), Decimal("0.25")),
+    "claude-sonnet-5-5": (Decimal(2), Decimal(10), Decimal("0.20")),
+    "claude-haiku-5-5": (Decimal("0.10"), Decimal("0.50"), Decimal("0.01")),
 }
+#: A five-minute cache entry is written at this multiple of the input price.
+CACHE_WRITE = Decimal("1.25")
 
 _UNSUPPORTED = frozenset(
     {
@@ -98,9 +105,18 @@ REQUEST_OVERHEAD_TOKENS = 4000
 RESULT_OVERHEAD_TOKENS = 100
 
 
-def _cost(model: str, input_tokens: int, output_tokens: int) -> Decimal:
-    input_price, output_price = PRICES.get(model, PRICES[DEFAULT_MODEL])
-    return (input_price * input_tokens + output_price * output_tokens) / Decimal(1_000_000)
+def _cost(
+    model: str, input_tokens: int, output_tokens: int, cache_write: int = 0, cache_read: int = 0
+) -> Decimal:
+    """What a turn costs; ``input_tokens`` is the uncached remainder, as the API reports it."""
+    input_price, output_price, read_price = PRICES.get(model, PRICES[DEFAULT_MODEL])
+    total = (
+        input_price * input_tokens
+        + input_price * CACHE_WRITE * cache_write
+        + read_price * cache_read
+        + output_price * output_tokens
+    )
+    return total / Decimal(1_000_000)
 
 
 def _bytes(value: Any) -> int:
@@ -116,12 +132,14 @@ class AnthropicModel:
         effort: str = "high",
         max_tokens: int = 16000,
         fallbacks: bool = True,
+        cache: bool = True,
     ) -> None:
         self._client = client
         self._model = model
         self._effort = effort
         self._max_tokens = max_tokens
         self._fallbacks = fallbacks
+        self._cache = cache
         self.name = f"anthropic:{model}"
 
     def open(
@@ -151,6 +169,8 @@ class AnthropicModel:
                 "format": {"type": "json_schema", "schema": strict_schema(dict(output_schema))},
             },
         }
+        if self._cache:
+            request["cache_control"] = {"type": "ephemeral"}
         if self._fallbacks:
             request["betas"] = [FALLBACK_BETA]
             request["fallbacks"] = "default"
@@ -171,14 +191,16 @@ class _AnthropicSession:
         self._messages: list[BetaMessageParam] = [{"role": "user", "content": task}]
         self._fallbacks = fallbacks
         self._context_tokens: int | None = None
-        """The last turn's input plus output tokens: an upper bound on the conversation so far."""
+        """The last turn's input (cached or not) plus output tokens: an upper bound on the
+        conversation so far."""
 
     def ceiling_usd(self, tool_results: Sequence[ToolResult]) -> Decimal | None:
         """An upper bound on the next turn's cost, from the fact that a token is at least a byte.
 
         The input is the conversation so far (the last turn's input and output, as counted by
-        the API) plus the new tool results; the output is at most ``max_tokens``. With
-        fallbacks on, another model may serve the turn at another price, so there is no bound.
+        the API) plus the new tool results, all priced as if written to the cache, the dearest
+        way to send them; the output is at most ``max_tokens``. With fallbacks on, another
+        model may serve the turn at another price, so there is no bound.
         """
         if self._fallbacks:
             return None
@@ -190,7 +212,10 @@ class _AnthropicSession:
             context = self._context_tokens + sum(
                 len(result.content.encode()) + RESULT_OVERHEAD_TOKENS for result in tool_results
             )
-        return _cost(self._request["model"], context, self._request["max_tokens"])
+        model = self._request["model"]
+        if "cache_control" in self._request:
+            return _cost(model, 0, self._request["max_tokens"], cache_write=context)
+        return _cost(model, context, self._request["max_tokens"])
 
     def send(self, tool_results: Sequence[ToolResult]) -> ModelTurn:
         if tool_results:
@@ -211,7 +236,10 @@ class _AnthropicSession:
         if stop is None:
             raise RuntimeError(f"unexpected stop reason {response.stop_reason!r}")
         usage = response.usage
-        self._context_tokens = usage.input_tokens + usage.output_tokens
+        written = usage.cache_creation_input_tokens or 0
+        read = usage.cache_read_input_tokens or 0
+        prompt = usage.input_tokens + written + read
+        self._context_tokens = prompt + usage.output_tokens
         return ModelTurn(
             stop=stop,
             tool_uses=tuple(
@@ -220,8 +248,10 @@ class _AnthropicSession:
                 if isinstance(block, BetaToolUseBlock)
             ),
             text="".join(b.text for b in response.content if isinstance(b, BetaTextBlock)) or None,
-            input_tokens=usage.input_tokens,
+            input_tokens=prompt,
             output_tokens=usage.output_tokens,
-            cost_usd=_cost(response.model, usage.input_tokens, usage.output_tokens),
+            cache_write_tokens=written,
+            cache_read_tokens=read,
+            cost_usd=_cost(response.model, usage.input_tokens, usage.output_tokens, written, read),
             served_by=f"anthropic:{response.model}",
         )
