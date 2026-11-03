@@ -31,6 +31,9 @@ Each verdict is a check run on its commit, for anyone to open: [`BLOCKED` on the
 - **One person:** the pull request's author is also its reviewer, the repository's only maintainer. DataProof allows that only when there is no other maintainer, and records the approvals as procedural rather than organizational separation.
 - **The diagnosis** shown is the rule-based, model-off one. The AI investigator is built and tested with scripted models, but no paid model has been called.
 - **Timing:** waits for runs happen off camera, each labelled with how long it took. Nothing is sped up. The reviewer signed in before recording, so no credentials are on screen. Between steps the script cancels, off camera, runs it has finished with, so that one machine can hold the live ones.
+- **The dashboard has since changed.** The recording shows the earlier run page. The run page now reads as five steps (change risk, verification, failure evidence, diagnosis, review and correction), shown here on a real rehearsal run:
+
+  [![The run page of a BLOCKED run: a one-sentence verdict with the next step, five steps with their status in words, and the change risks named before the migration ran, each citing the migration lines it rests on](docs/media/review-blocked.png)](services/dashboard/README.md#pages)
 
 The same walk-through also runs with no credentials at all, against simulated GitHub: [`scripts/demo/rehearse.py`](scripts/demo/rehearse.py) ([Local rehearsal](docs/DEMO.md#local-rehearsal)).
 

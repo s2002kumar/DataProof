@@ -375,15 +375,17 @@ def risk_rules(
         prompt_version="risk-rules/1",
         tool_version="none",
         hypotheses=tuple(hypotheses),
-        suggested_action=("Edge cases to cover: " + "; ".join(edge_cases) + ".")
-        if completed
-        else None,
+        suggested_action=(_sentence("; ".join(edge_cases))) if completed else None,
         caveat=RULES_CAVEAT if completed else None,
         failure=None if completed else "no risk rule matched the changed source",
         usage=InvestigationUsage(cost_usd=Decimal(0), latency_ms=0),
         started_at=started_at,
         finished_at=datetime.now(UTC),
     )
+
+
+def _sentence(text: str) -> str:
+    return text[:1].upper() + text[1:] + "."
 
 
 def changed_files(archive: bytes, paths: Iterable[str], roots: Sequence[str]) -> dict[str, str]:

@@ -152,6 +152,8 @@ uv run python scripts/demo/rehearse.py --image <runtime image ID> --record
 
   The script then prints the check runs that GitHub received.
 - **Between steps** the script cancels, off camera, the runs the walk-through has finished with. A run in review holds its databases and previews until its review expires, and one machine's Docker address pool holds only a few runs. Their reports and decisions stand.
+- **Screenshots:** with `--screenshots <dir>`, each run page the walk-through opens is also saved full-page at desktop and phone widths, without the caption bar. The [dashboard's README](../services/dashboard/README.md#pages) shows crops from them.
+- **On 2026-11-03,** two rehearsals ran on the five-step review page, every walk-through step passing. The runs were `INCOMPLETE` in 88 s and 67 s, `BLOCKED` in 83 s and 155 s, the correction `INCOMPLETE` in 59 s and 73 s, and `CHECKED` in 92 s and 116 s. Each commit received two check runs, the newest run's created last, and nothing was left behind.
 - **The recording:** with `--record`, every step is recorded and the steps are joined into `.dataproof-demo/rehearsal/rehearsal.mp4` ([a recording](media/rehearsal.mp4)). Joining needs `ffmpeg` on the path, or `FFMPEG` set. Waiting for a run happens off camera, and each step opens with a card that says how long the wait took. Captions are drawn as a subtitle bar that is clearly not part of the product. Nothing is sped up or staged.
 
 ## README ordering after implementation

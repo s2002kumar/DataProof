@@ -84,11 +84,21 @@ export interface Hypothesis {
   confidence: string;
 }
 
+export interface ToolCall {
+  sequence: number;
+  tool: string;
+  arguments: Record<string, unknown>;
+  outcome: "OK" | "DENIED" | "FAILED";
+  evidence_id: string | null;
+  detail: string | null;
+}
+
 export interface Investigation {
   investigation_id: string;
   role: string;
   status: string;
   model: string;
+  tool_calls: ToolCall[];
   hypotheses: Hypothesis[];
   suggested_action: string | null;
   caveat: string | null;

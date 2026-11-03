@@ -1,6 +1,7 @@
 import type { Verdict } from "@/lib/types";
 
-const DESCRIPTIONS: Record<Verdict, string> = {
+/** What each verdict means, in one sentence. */
+export const MEANINGS: Record<Verdict, string> = {
   BLOCKED: "A required check failed or errored",
   INCOMPLETE: "A required check did not run (for example, awaiting binding review)",
   NOT_EXECUTED: "Refused by policy before anything ran",
@@ -11,7 +12,7 @@ const DESCRIPTIONS: Record<Verdict, string> = {
 export function VerdictBadge({ verdict }: { verdict: Verdict | null }) {
   if (verdict === null) return <span className="badge pending">not reported</span>;
   return (
-    <span className={`badge ${verdict.toLowerCase()}`} title={DESCRIPTIONS[verdict]}>
+    <span className={`badge ${verdict.toLowerCase()}`} title={MEANINGS[verdict]}>
       {verdict}
     </span>
   );
