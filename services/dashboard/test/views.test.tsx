@@ -16,7 +16,6 @@ it("a failed check shows each mismatch with expected and observed values", () =>
   render(
     <Checks
       checks={[{ result, binding: null, binding_digest: null, binding_analysis: null, binding_problem: null }]}
-      onDecide={vi.fn()}
     />,
   );
   const row = screen.getByText("1002").closest("tr");
@@ -28,7 +27,7 @@ it("a failed check shows each mismatch with expected and observed values", () =>
 it("findings are labelled advisory and show what they cite", () => {
   render(<Findings investigations={[investigationExample as unknown as Investigation]} />);
   expect(screen.getByText("Advisory")).toBeTruthy();
-  expect(screen.getByText(/investigation\.tool\.1/)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "investigation.tool.1" }).getAttribute("href")).toMatch(/-tool-1$/);
   expect(screen.getByText(/Only the deterministic checks decide the verdict/)).toBeTruthy();
 });
 
@@ -67,7 +66,6 @@ it("a failed data check offers a reproduction; other checks do not", () => {
         { result: failed, binding: null, binding_digest: null, binding_analysis: null, binding_problem: null },
         { result: passed, binding: null, binding_digest: null, binding_analysis: null, binding_problem: null },
       ]}
-      onDecide={vi.fn()}
       onReproduce={onReproduce}
     />,
   );

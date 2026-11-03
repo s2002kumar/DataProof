@@ -9,17 +9,19 @@ export function RunList({ runs }: { runs: RunSummary[] }) {
     return <p className="muted">No runs yet in the repositories you can read.</p>;
   }
   return (
-    <table>
+    <div className="table-scroll" role="region" aria-label="Runs" tabIndex={0}>
+    <table className="runs">
+      <caption>Newest first. Open a run to review it step by step.</caption>
       <thead>
         <tr>
-          <th>Run</th>
-          <th>Repository</th>
-          <th>Pull request</th>
-          <th>Head</th>
-          <th>Trigger</th>
-          <th>State</th>
-          <th>Verdict</th>
-          <th>Created</th>
+          <th scope="col">Run</th>
+          <th scope="col">Repository</th>
+          <th scope="col">Pull request</th>
+          <th scope="col">Head</th>
+          <th scope="col">Trigger</th>
+          <th scope="col">State</th>
+          <th scope="col">Verdict</th>
+          <th scope="col">Created</th>
         </tr>
       </thead>
       <tbody>
@@ -43,5 +45,6 @@ export function RunList({ runs }: { runs: RunSummary[] }) {
         ))}
       </tbody>
     </table>
+    </div>
   );
 }

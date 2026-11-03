@@ -328,6 +328,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--image", required=True, help="the runtime image ID (sha256:...)")
     parser.add_argument("--record", action="store_true", help="record the walk-through")
+    parser.add_argument(
+        "--screenshots", type=Path, help="save full-page captures of each run page here"
+    )
     parser.add_argument("--out", type=Path, default=REPO / ".dataproof-demo" / "rehearsal")
     args = parser.parse_args(argv)
     if args.out.exists():
@@ -362,7 +365,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         with removing_environments(SCOPE), running(environment(env_file), args.out / "logs"):
             wait_for(f"{DASHBOARD}/", seconds=120)
             wait_for("http://127.0.0.1:8000/openapi.json")
-            walk = Walkthrough(args.out / "video" if args.record else None, SIZE)
+            walk = Walkthrough(
+                args.out / "video" if args.record else None, SIZE, screenshots=args.screenshots
+            )
             try:
                 first = deliver(secret, commits["main"], commits["ledger-backfill"], "rehearsal-1")
                 approval = walk.binding_review(first, expect(dsn, first, "INCOMPLETE", "run"))

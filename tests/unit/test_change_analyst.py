@@ -131,7 +131,7 @@ def test_rules_cite_the_lines_they_matched_at_the_head_commit() -> None:
     assert hypothesis.statement.startswith(f"join-in-backfill at {REVISION}:7-7: ")
     assert hypothesis.cited_evidence_ids == (source_evidence_id(REVISION, 7, 7),)
     assert all(IDENTIFIER.match(e) for e in hypothesis.cited_evidence_ids)
-    assert "a parent with several child rows" in (analysis.suggested_action or "")
+    assert (analysis.suggested_action or "").startswith("A parent with several child rows")
     assert "data contracts decide" in (analysis.caveat or "")
 
 

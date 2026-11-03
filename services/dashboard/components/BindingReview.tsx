@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import type { BindingAnalysis, CandidateBinding } from "@/lib/types";
+import { Sql } from "./Sql";
 
 const PROVENANCE: Record<string, string> = {
   CREATED: "created by this pull request",
@@ -40,23 +41,26 @@ export function BindingReview({ checkId, binding, digest, analysis, problem, onD
   const flagged = analysis?.relations.filter((relation) => relation.provenance === "UNCHANGED") ?? [];
   return (
     <section className="binding" aria-label={`Binding review for ${checkId}`}>
-      <h4>Binding awaiting review</h4>
+      <h3>
+        Binding for <code>{checkId}</code> <span className="pill outcome-not_run">awaiting review</span>
+      </h3>
       <p className="muted">
         Proposed in <code>{binding.source_path}</code> at <code>{binding.head_sha.slice(0, 12)}</code>, digest{" "}
         <code>{digest.slice(0, 12)}</code>. Approving lets a new run read the candidate this way. It does not approve
         the migration, change a result or deploy anything.
       </p>
-      {binding.query_sql !== null && <pre className="sql">{binding.query_sql}</pre>}
+      {binding.query_sql !== null && <Sql sql={binding.query_sql} />}
       {binding.api_route !== null && (
         <p>
           API route: <code>{binding.api_route}</code>
         </p>
       )}
-      <table>
+      <table className="mapping">
+        <caption>How the candidate maps onto the protected contract</caption>
         <thead>
           <tr>
-            <th>Oracle column</th>
-            <th>Candidate column</th>
+            <th scope="col">Oracle column</th>
+            <th scope="col">Candidate column</th>
           </tr>
         </thead>
         <tbody>
@@ -74,7 +78,7 @@ export function BindingReview({ checkId, binding, digest, analysis, problem, onD
       </table>
       {analysis !== null && (
         <>
-          <h5>Relations it reads</h5>
+          <h4>Relations it reads</h4>
           <ul>
             {analysis.relations.map((relation) => (
               <li key={relation.name} className={relation.provenance === "UNCHANGED" ? "flagged" : undefined}>
@@ -99,7 +103,7 @@ export function BindingReview({ checkId, binding, digest, analysis, problem, onD
         <textarea value={comment} maxLength={2000} onChange={(event) => setComment(event.target.value)} />
       </label>
       <div className="actions">
-        <button type="button" disabled={busy} onClick={() => decide("APPROVE_BINDING")}>
+        <button type="button" className="primary" disabled={busy} onClick={() => decide("APPROVE_BINDING")}>
           Approve binding
         </button>
         <button type="button" disabled={busy} className="secondary" onClick={() => decide("REJECT_BINDING")}>

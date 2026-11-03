@@ -17,7 +17,15 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from playwright.sync_api import Browser, Locator, Page, StorageState, expect, sync_playwright
+from playwright.sync_api import (
+    Browser,
+    Locator,
+    Page,
+    StorageState,
+    ViewportSize,
+    expect,
+    sync_playwright,
+)
 
 DASHBOARD = "http://127.0.0.1:3000"
 HOLD = 2500
@@ -49,6 +57,9 @@ CAPTION = """text => {
   }
   bar.textContent = "▶ " + text;
 }"""
+
+
+PHONE: ViewportSize = {"width": 390, "height": 844}
 
 
 def caption(page: Page, text: str, hold: int = HOLD) -> None:
@@ -105,6 +116,7 @@ class Walkthrough:
         footer: str = REHEARSAL,
         state: StorageState | None = None,
         reviewer: str = "maintainer",
+        screenshots: Path | None = None,
     ) -> None:
         self._playwright = sync_playwright().start()
         self._browser: Browser = self._playwright.chromium.launch()
@@ -113,6 +125,8 @@ class Walkthrough:
         self._size = size
         self._footer = footer
         self._reviewer = reviewer
+        self._screenshots = screenshots
+        """Where to save full-page captures of each run page, on a desktop and a phone."""
         self.segments: list[Path] = []
 
     def close(self) -> None:
@@ -156,6 +170,20 @@ class Walkthrough:
     def _open_run(self, page: Page, run_id: UUID, verdict: str) -> None:
         page.goto(f"{DASHBOARD}/runs/{run_id}")
         expect(page.locator("h1")).to_contain_text(verdict)
+        self._capture(page, verdict.lower())
+
+    def _capture(self, page: Page, name: str) -> None:
+        """Full-page captures of the run page as it is, without the demo's caption."""
+        if self._screenshots is None:
+            return
+        self._screenshots.mkdir(parents=True, exist_ok=True)
+        page.evaluate("document.getElementById('__demo_caption')?.remove()")
+        page.screenshot(path=self._screenshots / f"{name}-desktop.png", full_page=True)
+        page.set_viewport_size(PHONE)
+        page.wait_for_timeout(300)
+        page.screenshot(path=self._screenshots / f"{name}-phone.png", full_page=True)
+        page.set_viewport_size({"width": self._size["width"], "height": self._size["height"]})
+        page.evaluate("window.scrollTo(0, 0)")
 
     def _preview_origins(self, page: Page) -> dict[str, str]:
         """Open both previews from the run page; the origin each one's grant opened."""
@@ -236,6 +264,7 @@ class Walkthrough:
                 )
             page.get_by_role("link", name=short(run_id)).click()
             expect(page.locator("h1")).to_contain_text("INCOMPLETE")
+            self._capture(page, "incomplete")
             caption(
                 page,
                 "INCOMPLETE, so the required GitHub check is not green: nothing the pull "
@@ -287,7 +316,7 @@ class Walkthrough:
                 "shows the doubled refund.",
             )
             page.goto(run_page)
-            scroll_to(page.get_by_role("heading", name="Findings"))
+            scroll_to(page.get_by_role("heading", name="Diagnosis"))
             caption(
                 page,
                 "The diagnosis cites its evidence: the rule-based, model-off one, since no AI "
