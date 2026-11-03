@@ -85,6 +85,16 @@ class FakeGitHub:
     def runs_on(self, head_sha: str) -> list[FakeCheckRun]:
         return [run for run in self.check_runs.values() if run.head_sha == head_sha]
 
+    def latest(self, head_sha: str, name: str = "DataProof") -> FakeCheckRun | None:
+        """The check run a required check named ``name`` reads on the commit.
+
+        As GitHub reads it (probed on GitHub, docs/DEMO.md "Check-run finality"): the one
+        created last, whatever order the check runs were completed in or their ``started_at``.
+        An earlier success does not count.
+        """
+        named = [run for run in self.runs_on(head_sha) if run.name == name]
+        return max(named, key=lambda run: run.id) if named else None
+
     # Request handling ------------------------------------------------------------------------
 
     def handle(self, request: httpx2.Request) -> httpx2.Response:

@@ -494,4 +494,6 @@ class Reviewer:
                 if check_run
                 else None
             ),
+            # Left without a check run because a newer run on its commit reports (checks.py).
+            "check_run_omitted_for": self.records.omission(run_id),
         }

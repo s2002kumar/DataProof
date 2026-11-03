@@ -9,11 +9,21 @@ commit, with the run's ID as its external ID. Its status follows the run:
 * interrupted before it reported: ``completed`` with ``failure`` (an error), ``timed_out``,
   or ``cancelled`` (cancelled or superseded). An interrupted run is never green.
 
+A required check reads only the check run created last with its name on a commit, whatever
+order check runs completed in, and an earlier success does not count (probed on GitHub:
+docs/DEMO.md, "Check-run finality"). So on each commit the check run created last must be the
+newest run's. A run that has not reached GitHub by the time a newer pull request run exists on
+its commit is never given a check run: created after the newer run's, it would be the one the
+required check reads, and an older run's green could hide a newer run's BLOCKED. That is
+recorded once (an omission) and the newer run reports instead. A check run GitHub already shows
+is always brought to completion, so none is left open.
+
 The publisher works from the control database. Each status is recorded once GitHub has
-accepted it, so a publisher that crashed repeats only what is missing; a per-run lock keeps two
-publishers from creating two check runs, and an existing check run with the run's external ID
-is found before a new one is created. The summary is built from trusted results only (check
-IDs, outcomes and counts); no text from the pull request appears in it.
+accepted it, so a publisher that crashed repeats only what is missing. A lock per commit keeps
+two publishers from creating two check runs, or check runs out of their runs' order, and an
+existing check run with the run's external ID is found before a new one is created. The summary
+is built from trusted results only (check IDs, outcomes and counts); no text from the pull
+request appears in it.
 """
 
 import logging
@@ -167,13 +177,14 @@ class CheckPublisher:
 
     def publish(self, run_id: UUID) -> bool:
         """Publish the run's current status unless it already was; True if anything was sent."""
-        with self.records.publishing(run_id) as held:
+        inputs = self.store.get_run(run_id).inputs
+        installation = self.installations.get(inputs.repository)
+        if installation is None or inputs.pull_request is None:
+            return False
+        with self.records.publishing(inputs.repository, inputs.head_sha) as held:
             if not held:
                 return False
             run = self.store.get_run(run_id)
-            installation = self.installations.get(run.inputs.repository)
-            if installation is None or run.inputs.pull_request is None:
-                return False
             status = check_status(run, self.results.report(run_id), self.store.transitions(run_id))
             if status.status in self.records.publications(run_id):
                 return False
@@ -187,20 +198,25 @@ class CheckPublisher:
             if status.conclusion is not None:
                 payload["conclusion"] = status.conclusion.value
                 payload["completed_at"] = self.clock().isoformat()
-            repository = self.github.repository(installation, run.inputs.repository)
+            repository = self.github.repository(installation, inputs.repository)
             existing = self.records.check_run(run_id)
             if existing is None:
-                check_run_id = repository.find_check_run(
-                    run.inputs.head_sha, CHECK_NAME, str(run_id)
-                )
+                check_run_id = repository.find_check_run(inputs.head_sha, CHECK_NAME, str(run_id))
                 if check_run_id is None:
+                    newer = self.records.newer_run(run_id)
+                    if newer is not None:
+                        self.records.record_omission(run_id, newer)
+                        log.info(
+                            "no check run for %s: newer run %s is on its commit", run_id, newer
+                        )
+                        return False
                     check_run_id = repository.create_check_run(
-                        {**payload, "head_sha": run.inputs.head_sha, "external_id": str(run_id)}
+                        {**payload, "head_sha": inputs.head_sha, "external_id": str(run_id)}
                     )
                 else:
                     repository.update_check_run(check_run_id, payload)
                 self.records.record_check_run(
-                    CheckRun(run_id, run.inputs.repository, run.inputs.head_sha, check_run_id)
+                    CheckRun(run_id, inputs.repository, inputs.head_sha, check_run_id)
                 )
             else:
                 repository.update_check_run(existing.check_run_id, payload)

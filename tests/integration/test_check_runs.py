@@ -1,15 +1,21 @@
 """Commit-bound check runs, published from the control database to a fake GitHub."""
 
+import hashlib
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
 
 import pytest
 
 from control_env import (
+    FAST_RETRY,
     HEAD_SHA,
     LEASE,
     NEW_HEAD_SHA,
     REPOSITORY,
+    RUN_TTL,
     create,
     pass_deadline,
     run_inputs,
@@ -17,11 +23,16 @@ from control_env import (
 from dataproof_api.checks import CHECK_NAME, CheckPublisher
 from dataproof_api.github_app import GitHubApp, load_private_key
 from dataproof_contracts import (
+    ApproverSeparation,
     ErrorCode,
     GitHubCheckConclusion,
+    HumanDecision,
+    HumanDecisionAction,
     NotExecutedReason,
     ReportVerdict,
+    ReviewRun,
     RunState,
+    RunTrigger,
 )
 from dataproof_control import (
     Claim,
@@ -29,6 +40,7 @@ from dataproof_control import (
     ReportRecord,
     RunResults,
     RunStore,
+    StoredConfig,
 )
 from dataproof_control.results import record_report
 from github_env import APP_ID, INSTALLATION, PRIVATE_KEY_PEM, FakeGitHub
@@ -59,6 +71,55 @@ BLOCKED = ReportRecord(
         "investigations": [{"model": "model-off", "status": "COMPLETED"}],
     },
 )
+
+INCOMPLETE = ReportRecord(
+    verdict=ReportVerdict.INCOMPLETE,
+    conclusion=GitHubCheckConclusion.ACTION_REQUIRED,
+    report={
+        "coverage": [
+            {"check_id": "commerce.c1_event_preservation", "required": True, "outcome": "NOT_RUN"}
+        ]
+    },
+)
+CHECKED = ReportRecord(
+    verdict=ReportVerdict.CHECKED,
+    conclusion=GitHubCheckConclusion.SUCCESS,
+    report={
+        "coverage": [
+            {"check_id": "commerce.c1_event_preservation", "required": True, "outcome": "PASS"}
+        ]
+    },
+)
+
+
+def approve(store: RunStore, run: ReviewRun, binding: str) -> UUID:
+    """A maintainer approves one binding on ``run``; the approval run that started."""
+    decision = HumanDecision(
+        decision_id=uuid4(),
+        run_id=run.run_id,
+        head_sha=run.inputs.head_sha,
+        action=HumanDecisionAction.APPROVE_BINDING,
+        actor="maintainer",
+        decided_at=datetime.now(UTC),
+        binding_digest=hashlib.sha256(binding.encode()).hexdigest(),
+        pr_author="author",
+        approver_separation=ApproverSeparation.ORGANIZATIONAL,
+    )
+
+    def configure(approved: frozenset[str], rejected: frozenset[str]) -> StoredConfig:
+        config = {
+            "repository": REPOSITORY,
+            "approved": sorted(approved),
+            "rejected": sorted(rejected),
+        }
+        digest = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
+        return StoredConfig(digest=digest, repository=REPOSITORY, config=config)
+
+    recorded = store.decide_binding(
+        decision, configure=configure, run_ttl=RUN_TTL, retry=FAST_RETRY
+    )
+    assert recorded.started is not None
+    return recorded.started.run.run_id
 
 
 class Setup:
@@ -153,6 +214,87 @@ def test_a_run_interrupted_before_it_reported_is_never_green(
     assert (check.status, check.conclusion) == ("completed", conclusion)
     assert check.output["title"] == title
     assert "not green" in check.output["summary"]
+
+
+def test_a_burst_of_approvals_leaves_the_newest_run_as_the_commits_check(setup: Setup) -> None:
+    """The live demo's commit 2e49a55: approvals in quick succession start approval runs, each
+    superseding the queued one before it, between two passes of the publisher. A superseded run
+    that never reached GitHub gets no check run: one created after its successor's would be the
+    check run a required check reads, and that blocked a commit DataProof had checked."""
+    original = create(setup.store).run
+    setup.report(setup.claim(), INCOMPLETE)
+    assert setup.publisher.publish_pending() == [original.run_id]
+    started = [approve(setup.store, original, binding) for binding in ("b1", "b2", "b3")]
+    *superseded, newest = started
+    assert [setup.store.get_run(run_id).superseded_by for run_id in superseded] == started[1:]
+
+    assert setup.publisher.publish_pending() == [newest]
+    assert setup.publisher.publish_pending() == [], "nothing is left to publish or decide"
+    assert [c.external_id for c in setup.github.runs_on(HEAD_SHA)] == [
+        str(original.run_id),
+        str(newest),
+    ]
+    for run_id in superseded:
+        assert setup.records.check_run(run_id) is None
+        assert setup.records.omission(run_id) == newest
+
+    while (claim := setup.claim()).run_id != newest:
+        pass  # the superseded runs are claimed first, to be cleaned up
+    setup.report(claim, CHECKED)
+    setup.publisher.publish_pending()
+    latest = setup.github.latest(HEAD_SHA)
+    assert latest is not None
+    assert (latest.external_id, latest.conclusion) == (str(newest), "success")
+
+
+def test_an_older_runs_success_never_hides_a_newer_run_on_the_commit(setup: Setup) -> None:
+    """Fail-open, closed: an older run reported CHECKED while the publisher was behind, and a
+    newer run on the same commit was published first. Created after it, the older run's green
+    check run would be the one a required check reads, over the newer run's BLOCKED."""
+    older = create(setup.store).run
+    setup.report(setup.claim(), CHECKED)
+    newer = create(setup.store, run_inputs(config_digest="c" * 64), trigger=RunTrigger.MANUAL).run
+    assert setup.store.cancel(older.run_id, actor="user:maintainer"), "the older run changes last"
+
+    setup.publisher.publish_pending()
+    setup.report(setup.claim(), BLOCKED)
+    setup.publisher.publish_pending()
+    latest = setup.github.latest(HEAD_SHA)
+    assert latest is not None
+    assert (latest.external_id, latest.conclusion) == (str(newer.run_id), "failure")
+    assert setup.records.check_run(older.run_id) is None
+    assert setup.records.omission(older.run_id) == newer.run_id
+
+
+def test_a_run_already_shown_on_github_is_completed_after_a_newer_run(setup: Setup) -> None:
+    older = create(setup.store).run
+    repository = setup.publisher.github.repository(INSTALLATION, REPOSITORY)
+    # GitHub accepted the older run's check run, but the publisher crashed before recording it.
+    orphan = repository.create_check_run(
+        {"name": CHECK_NAME, "head_sha": HEAD_SHA, "external_id": str(older.run_id)}
+        | {"status": "queued"}
+    )
+    newer = create(setup.store, run_inputs(config_digest="c" * 64), trigger=RunTrigger.MANUAL)
+    assert setup.store.cancel(older.run_id, actor="user:maintainer")
+
+    setup.publisher.publish_pending()
+    assert (setup.github.check_runs[orphan].status, setup.github.check_runs[orphan].conclusion) == (
+        "completed",
+        "cancelled",
+    ), "a check run GitHub shows is never left open"
+    latest = setup.github.latest(HEAD_SHA)
+    assert latest is not None
+    assert latest.external_id == str(newer.run.run_id)
+
+
+def test_check_runs_on_one_commit_are_published_one_at_a_time(setup: Setup) -> None:
+    run_id = create(setup.store).run.run_id
+    elsewhere = create(setup.store, run_inputs(head_sha=NEW_HEAD_SHA, pull_request=8)).run.run_id
+    with setup.records.publishing(REPOSITORY, HEAD_SHA) as held:
+        assert held
+        assert not setup.publisher.publish(run_id), "another publisher holds the commit"
+        assert setup.publisher.publish(elsewhere), "other commits are not held up"
+    assert setup.publisher.publish(run_id)
 
 
 def test_a_check_run_created_before_a_crash_is_found_not_duplicated(setup: Setup) -> None:

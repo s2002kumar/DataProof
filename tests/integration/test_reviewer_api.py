@@ -239,6 +239,12 @@ def test_a_run_shows_its_history_author_and_check_run(stack: Stack) -> None:
     assert detail["report"] is None
     assert detail["decisions"] == []
     assert detail["check_run"] is None
+    assert detail["check_run_omitted_for"] is None
+
+    newer = create(stack.store, run_inputs(pull_request=8)).run.run_id
+    stack.records.record_omission(run_id, newer)
+    detail = viewer.get(f"/api/runs/{run_id}").json()
+    assert (detail["check_run"], detail["check_run_omitted_for"]) == (None, str(newer))
 
 
 def awaiting_binding(stack: Stack, run_id: UUID, head: str = HEAD_SHA) -> CandidateBinding:
