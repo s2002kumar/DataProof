@@ -11,7 +11,7 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -24,7 +24,8 @@ HOLD = 2500
 STARTS = 30_000
 """Milliseconds to allow a decision that starts a run, which can take longer than a page."""
 """Milliseconds to hold on each thing worth reading."""
-FOOTER = "Local rehearsal · GitHub is simulated · DataProof is real · nothing is sped up"
+REHEARSAL = "Local rehearsal · GitHub is simulated · DataProof is real · nothing is sped up"
+LIVE = "Live run · a real GitHub pull request · DataProof on one machine · nothing is sped up"
 CARD = """<!doctype html><html><body style="margin:0;height:100vh;display:flex;
 flex-direction:column;justify-content:center;padding:0 96px;background:#0f172a;color:#f8fafc;
 font:20px/1.5 system-ui,sans-serif"><p style="color:#93c5fd;margin:0">{kicker}</p>
@@ -87,12 +88,25 @@ def short(run_id: UUID) -> str:
 
 
 class Walkthrough:
-    def __init__(self, video_dir: Path | None, size: dict[str, int]) -> None:
+    """The walk-through. ``state`` is a dashboard session made before recording (the live demo
+    signs in with real GitHub off camera); without it, step 1 signs in on camera."""
+
+    def __init__(
+        self,
+        video_dir: Path | None,
+        size: dict[str, int],
+        *,
+        footer: str = REHEARSAL,
+        state: StorageState | None = None,
+        reviewer: str = "maintainer",
+    ) -> None:
         self._playwright = sync_playwright().start()
         self._browser: Browser = self._playwright.chromium.launch()
-        self._state: StorageState | None = None
+        self._state = state
         self._video_dir = video_dir
         self._size = size
+        self._footer = footer
+        self._reviewer = reviewer
         self.segments: list[Path] = []
 
     def close(self) -> None:
@@ -114,7 +128,7 @@ class Walkthrough:
                 kicker=html.escape(kicker),
                 title=html.escape(title),
                 text=html.escape(text),
-                footer=html.escape(FOOTER),
+                footer=html.escape(self._footer),
             )
         )
         page.wait_for_timeout(3000)
@@ -126,6 +140,12 @@ class Walkthrough:
             context.close()
             if video is not None:
                 self.segments.append(Path(video.path()))
+
+    def _github(self, page: Page, url: str, text: str, hold: int = 4000) -> None:
+        """One of GitHub's own pages, as anyone can see it: the demo repository is public."""
+        page.goto(url, wait_until="domcontentloaded")
+        page.wait_for_timeout(1500)
+        caption(page, text, hold)
 
     def _open_run(self, page: Page, run_id: UUID, verdict: str) -> None:
         page.goto(f"{DASHBOARD}/runs/{run_id}")
@@ -164,7 +184,7 @@ class Walkthrough:
             reviews = page.locator("section.binding")
         return count
 
-    def binding_review(self, run_id: UUID, waited: float) -> None:
+    def binding_review(self, run_id: UUID, waited: float, pull_request: str | None = None) -> None:
         with self._step(
             "Step 1 of 4",
             "A pull request rewrites the payments ledger",
@@ -172,10 +192,33 @@ class Walkthrough:
             "exact commits, migrated isolated copies of the database, built previews of both "
             f"commits and ran the protected contracts: {waited:.0f} s, off camera.",
         ) as page:
+            if pull_request is not None:
+                self._github(
+                    page,
+                    pull_request,
+                    "The pull request, on GitHub: a migration that moves legacy payment events "
+                    "into a new per-order ledger.",
+                )
+                self._github(
+                    page,
+                    f"{pull_request}/checks",
+                    "DataProof's check on the pull request's head commit, published by the "
+                    "DataProof GitHub App.",
+                    hold=4500,
+                )
             page.goto(f"{DASHBOARD}/")
-            page.get_by_role("link", name="Sign in with GitHub").click()
-            expect(page.get_by_text("Signed in as maintainer")).to_be_visible()
-            caption(page, "The reviewer signs in with GitHub (simulated here).", hold=1500)
+            if self._state is None:
+                page.get_by_role("link", name="Sign in with GitHub").click()
+                expect(page.get_by_text(f"Signed in as {self._reviewer}")).to_be_visible()
+                caption(page, "The reviewer signs in with GitHub (simulated here).", hold=1500)
+            else:
+                expect(page.get_by_text(f"Signed in as {self._reviewer}")).to_be_visible()
+                caption(
+                    page,
+                    f"The reviewer signed in with GitHub as {self._reviewer} before recording, "
+                    "so no credentials are on screen.",
+                    hold=2500,
+                )
             page.get_by_role("link", name=short(run_id)).click()
             expect(page.locator("h1")).to_contain_text("INCOMPLETE")
             caption(
@@ -231,8 +274,8 @@ class Walkthrough:
             scroll_to(page.get_by_role("heading", name="Findings"))
             caption(
                 page,
-                "The diagnosis cites its evidence: here the rule-based, model-off one, since no "
-                "AI model is called in this rehearsal. Only the checks decide the verdict.",
+                "The diagnosis cites its evidence: the rule-based, model-off one, since no AI "
+                "model is called in this demo. Only the checks decide the verdict.",
                 hold=4500,
             )
             page.get_by_label("Correction commit").fill(correction)
@@ -256,7 +299,8 @@ class Walkthrough:
                 "INCOMPLETE again: the reviewer approves the corrected commit's {count} bindings.",
             )
 
-    def checked(self, run_id: UUID, waited: float) -> None:
+    def checked(self, run_id: UUID, waited: float, github: Sequence[tuple[str, str]] = ()) -> None:
+        """The CHECKED run, then each ``(url, caption)`` of GitHub's own pages."""
         with self._step(
             "Step 4 of 4",
             "The corrected migration is checked",
@@ -269,6 +313,8 @@ class Walkthrough:
                 "result is published as that commit's GitHub check.",
                 hold=4000,
             )
+            for url, text in github:
+                self._github(page, url, text, hold=4500)
 
     def join(self, out: Path) -> Path:
         """One MP4 of every step, in order: needs ffmpeg on the path, or ``FFMPEG``.
