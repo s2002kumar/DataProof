@@ -1,5 +1,7 @@
 # DEMO — 90-Second Walkthrough
 
+*The narrated six-minute version, with what to show and what not to claim, is [DEMO_NARRATION.md](DEMO_NARRATION.md).*
+
 ## One-line pitch
 
 > DataProof tests migrations in isolated copies of an application, catches silent data corruption, and shows evidence-backed checks and rule-based explanations for human review.

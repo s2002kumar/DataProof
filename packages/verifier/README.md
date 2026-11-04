@@ -17,6 +17,8 @@ Every exit is a typed outcome, never an exception or a silent pass:
 
 Comparators: `EXACT` is typed equality, and NULL equals only NULL. `DECIMAL` compares exact numbers within the declared tolerance; floats are rejected. `INSTANT` compares timestamps as UTC instants. A binding cannot narrow the oracle's key universe: missing keys are mismatches.
 
+**The type check (C8).** A data comparison proves only what the fixture exercises: a money column declared `numeric(12, 0)` passes a fixture of whole-unit amounts and rounds the first real refund. `type_check(contract, verification)` therefore judges what PostgreSQL declared the candidate's result columns to be, from the same query the data check ran: a `DECIMAL` column needs `numeric` with a declared scale at least the contract's (or an integer type when the scale is zero), an `INSTANT` column needs `timestamp with time zone`, and floating-point types never qualify. It is a check of its own, `types.<contract>`, required when the contract is, `FAIL` with one keyed example per unfit column (what the contract needs, what the candidate declared), and `NOT_RUN: PREREQUISITE_FAILED` when the candidate query never ran. A column read through an expression carries no declared scale, so only its type family is judged; that limit is stated in the example text. The GitHub Action runs it on every contract ([docs/ACTION.md](../../docs/ACTION.md)); the App's pipeline does not yet.
+
 `derive_verdict()` turns check results into a report verdict. A required `FAIL` or `ERROR` gives `BLOCKED`. A required `NOT_RUN`, or no required checks at all, gives `INCOMPLETE`. Optional failures give `CHECKED_WITH_WARNINGS`. Otherwise the verdict is `CHECKED`.
 
 ## Query safety

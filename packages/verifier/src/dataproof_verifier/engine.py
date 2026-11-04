@@ -13,6 +13,7 @@ The order is fixed and every exit is a typed outcome (docs/VERIFICATION.md, ADR-
 5. Otherwise a keyed comparison: ``PASS`` with zero mismatches, or ``FAIL`` with evidence.
 """
 
+import hashlib
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -34,10 +35,12 @@ from dataproof_verifier.binding_review import BindingRejectedError, analyze_bind
 from dataproof_verifier.compare import Key, Row, compare_keyed
 from dataproof_verifier.queries import (
     DEFAULT_LIMITS,
+    ColumnType,
     QueryError,
     QueryLimits,
     QueryResult,
     run_read_only,
+    sql_digest,
 )
 
 MAX_EXAMPLES = 20
@@ -63,6 +66,9 @@ class Verification:
     """What the binding reads, for the reviewer; present whenever the binding could be analyzed."""
     binding_problem: str | None = None
     """Why the binding is unacceptable, if it is; shown to the reviewer before any approval."""
+    candidate_types: tuple[ColumnType, ...] | None = None
+    """The column types of the candidate's result, once its query ran (even if its values could
+    not be compared); what the type check (C8) reads."""
 
 
 class _CheckError(Exception):
@@ -76,6 +82,7 @@ class _Run:
         self.contract = contract
         self.limits = limits
         self.evidence: list[QueryEvidence] = []
+        self.candidate_types: tuple[ColumnType, ...] | None = None
 
     def query(
         self, connection: psycopg.Connection[Any], environment: Environment, kind: str, sql: str
@@ -83,7 +90,25 @@ class _Run:
         try:
             result = run_read_only(connection, sql, self.limits)
         except QueryError as exc:
+            if exc.types:
+                # The statement ran and described its columns, but its result could not be
+                # taken (too many rows, or values with no exact encoding). That is evidence
+                # too: the query, and an empty result digest for what could not be read.
+                self.evidence.append(
+                    QueryEvidence(
+                        evidence_id=f"{self.contract.contract_id}:{environment.value.lower()}:{kind}",
+                        environment=environment,
+                        query_sql=sql,
+                        sql_sha256=sql_digest(sql),
+                        result_sha256=hashlib.sha256(b"").hexdigest(),
+                        row_count=0,
+                    )
+                )
+                if environment is Environment.CANDIDATE:
+                    self.candidate_types = exc.types
             raise _CheckError(exc.code, str(exc)) from exc
+        if environment is Environment.CANDIDATE:
+            self.candidate_types = result.types
         self.evidence.append(
             QueryEvidence(
                 evidence_id=f"{self.contract.contract_id}:{environment.value.lower()}:{kind}",
@@ -222,7 +247,11 @@ def verify_contract(
             elapsed_ms=elapsed(),
         )
         return Verification(
-            check, tuple(run.evidence), binding_analysis=analysis, binding_problem=problem
+            check,
+            tuple(run.evidence),
+            binding_analysis=analysis,
+            binding_problem=problem,
+            candidate_types=run.candidate_types,
         )
 
     check = CheckResult(
@@ -236,5 +265,9 @@ def verify_contract(
         elapsed_ms=elapsed(),
     )
     return Verification(
-        check, tuple(run.evidence), binding_analysis=analysis, binding_problem=problem
+        check,
+        tuple(run.evidence),
+        binding_analysis=analysis,
+        binding_problem=problem,
+        candidate_types=run.candidate_types,
     )

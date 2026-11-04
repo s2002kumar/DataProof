@@ -34,10 +34,27 @@ class QueryLimits:
 DEFAULT_LIMITS = QueryLimits()
 
 
+@dataclass(frozen=True)
+class ColumnType:
+    """What PostgreSQL declared a result column to be (``RowDescription``).
+
+    ``precision`` and ``scale`` are known only for a column read directly from a table or view
+    with a type modifier (for example ``numeric(12, 2)``); an expression carries none.
+    """
+
+    name: str
+    oid: int
+    type_display: str
+    precision: int | None = None
+    scale: int | None = None
+
+
 class QueryError(Exception):
-    def __init__(self, code: ErrorCode, message: str) -> None:
+    def __init__(self, code: ErrorCode, message: str, types: tuple[ColumnType, ...] = ()) -> None:
         super().__init__(message)
         self.code = code
+        self.types = types
+        """The result's column types when the statement ran and its result was the problem."""
 
 
 @dataclass(frozen=True)
@@ -46,6 +63,7 @@ class QueryResult:
     rows: tuple[Row, ...]
     sql_sha256: str
     result_sha256: str
+    types: tuple[ColumnType, ...] = ()
 
 
 def sql_digest(query: str) -> str:
@@ -96,9 +114,25 @@ def run_read_only(
             if cursor.description is None:
                 raise QueryError(ErrorCode.QUERY_FAILED, "statement returned no result set")
             columns = tuple(column.name for column in cursor.description)
+            types = tuple(
+                ColumnType(
+                    name=column.name,
+                    oid=int(column.type_code),
+                    type_display=str(column.type_display),
+                    precision=column.precision,
+                    scale=column.scale,
+                )
+                for column in cursor.description
+            )
             rows = tuple(cursor.fetchmany(limits.max_rows + 1))
     except psycopg.Error as exc:
         raise QueryError(ErrorCode.QUERY_FAILED, str(exc).splitlines()[0]) from exc
     if len(rows) > limits.max_rows:
-        raise QueryError(ErrorCode.RESULT_LIMIT_EXCEEDED, f"more than {limits.max_rows} rows")
-    return QueryResult(columns, rows, sql_digest(query), _result_digest(rows))
+        raise QueryError(
+            ErrorCode.RESULT_LIMIT_EXCEEDED, f"more than {limits.max_rows} rows", types
+        )
+    try:
+        digest = _result_digest(rows)
+    except QueryError as exc:
+        raise QueryError(exc.code, str(exc), types) from exc
+    return QueryResult(columns, rows, sql_digest(query), digest, types)

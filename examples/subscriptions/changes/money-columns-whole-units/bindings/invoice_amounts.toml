@@ -1,0 +1,12 @@
+# Proposed by the pull request: how to read the new money columns. Untrusted until a maintainer
+# adds its digest to approved_bindings on the base branch.
+contract_id = "subscriptions.invoice_amounts"
+query_sql = """
+SELECT invoice_id, subtotal, tax, total FROM invoices
+"""
+
+[column_mapping]
+invoice_id = "invoice_id"
+subtotal = "subtotal"
+tax = "tax"
+total = "total"
