@@ -111,8 +111,12 @@ dataproof/
   packages/verifier/       # Pure typed contracts and SQL verification
   packages/investigator/   # Structured AI tool-calling
   packages/contracts/      # Shared result schemas
+  packages/report/         # The report as Markdown: check summaries and job summaries
+  packages/action/         # The GitHub Action: database tier over the same engine (ADR-0007)
+  action.yml               # The Action's composite definition
   sample-app/              # Real FastAPI/Next.js commerce app
   scenarios/commerce/      # Baselines, migrations, declared invariants
+  examples/subscriptions/  # A second, independently designed profile for the Action
   benchmarks/              # Faults, clean controls, baselines, evaluations
   tests/                   # Unit, PG integration, e2e, security
   infra/docker/            # Local containers

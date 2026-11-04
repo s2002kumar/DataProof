@@ -1,0 +1,19 @@
+# The DataProof Action's configuration for this repository (.github/workflows/dataproof.yml):
+# the subscriptions example, verified on every pull request. Read from the base branch only.
+version = 1
+
+[alembic]
+config = "examples/subscriptions/alembic.ini"
+timeout_seconds = 300
+
+[fixture]
+sql = "examples/subscriptions/dataproof/fixture.sql"
+
+[contracts]
+oracle_dir = "examples/subscriptions/dataproof/oracles/"
+binding_dir = "examples/subscriptions/dataproof/bindings/"
+approved_bindings = []
+rejected_bindings = []
+
+[policy]
+forks = "run"
