@@ -1,6 +1,6 @@
 # DataProof
 
-**Catch dangerous database changes before they reach production.**
+**Detect silent PostgreSQL migration regressions before merging a pull request.**
 
 DataProof is a pull-request review system for PostgreSQL application migrations. For each pull request it does the following:
 
@@ -10,6 +10,12 @@ DataProof is a pull-request review system for PostgreSQL application migrations.
 - reports exactly which checks ran, which failed and why, as a GitHub check bound to the commit.
 
 Merge and deployment decisions stay with people.
+
+**Demonstrated scope:** One documented Commerce Orders & Refunds application profile
+on local Docker. This is a real GitHub-integrated demonstration, not a hosted,
+general-purpose migration service. The recorded diagnosis is deterministic and
+rule-based. Bounded AI advisory tools are implemented and tested with scripted
+models; improvement from a paid live model is not yet established.
 
 ## Demo
 
