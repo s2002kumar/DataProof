@@ -5,9 +5,10 @@ diagnosis, built from trusted results only."""
 from typing import Any
 
 from conftest import ExampleLoader
-from dataproof_api.checks import MAX_CELL_CHARS, MAX_EXAMPLE_ROWS, check_status
+from dataproof_api.checks import check_status
 from dataproof_contracts import GitHubCheckConclusion, ReportVerdict, ReviewRun
 from dataproof_control import ReportRecord
+from dataproof_report import MAX_CELL_CHARS, MAX_EXAMPLE_ROWS
 
 GITHUB_SUMMARY_LIMIT = 65_535
 
@@ -86,7 +87,7 @@ def test_candidate_values_are_escaped_and_bounded(example: ExampleLoader) -> Non
     row = next(line for line in summary.splitlines() if line.startswith("| 7 |"))
     assert "`memo`" in row
     assert "'fine'" in row
-    assert "x \\| y 'code' <img src=x>" in row, "pipes escaped, backticks neutralized"
+    assert "x \\| y 'code' &lt;img src=x&gt;" in row, "pipes, backticks and HTML neutralized"
     assert "\n" not in row
     assert "AAAA…" in row
     cells = [c.strip() for c in row.strip("|").split(" | ")]

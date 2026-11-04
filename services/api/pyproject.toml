@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "dataproof-contracts",
     "dataproof-control",
+    "dataproof-report",
     "dataproof-runner",
     "cryptography>=44",  # RS256 signing of GitHub App JWTs
     "docker>=7.1",  # the local execution backend, for the worker and gateway
@@ -19,6 +20,7 @@ dependencies = [
 [tool.uv.sources]
 dataproof-contracts = { workspace = true }
 dataproof-control = { workspace = true }
+dataproof-report = { workspace = true }
 dataproof-runner = { workspace = true }
 
 [build-system]

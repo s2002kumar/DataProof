@@ -1,0 +1,20 @@
+# Protected: read from the base branch only. Every invoice's amounts, to the cent.
+# The oracle states the intended transformation: integer cents become exact decimal money.
+contract_id = "subscriptions.invoice_amounts"
+version = 1
+description = "Every invoice keeps its subtotal, tax and total, exact to the cent."
+required = true
+severity = "CRITICAL"
+key_columns = ["invoice_id"]
+query_sql = """
+SELECT invoice_id,
+       (subtotal_cents::numeric / 100)::numeric(12, 2) AS subtotal,
+       (tax_cents::numeric / 100)::numeric(12, 2)      AS tax,
+       (total_cents::numeric / 100)::numeric(12, 2)    AS total
+FROM invoices
+"""
+
+[expected_columns]
+subtotal = { kind = "DECIMAL", decimal_scale = 2 }
+tax = { kind = "DECIMAL", decimal_scale = 2 }
+total = { kind = "DECIMAL", decimal_scale = 2 }

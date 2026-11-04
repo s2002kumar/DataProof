@@ -29,6 +29,7 @@
 | 10 | Fault benchmark, clean cases, baseline comparison and AI ablation | Results regenerated from frozen seeds; per-category coverage, fair baselines and limitations |
 | 11 | Restricted cloud hosting, infrastructure as code, logs and independent task TTL cleanup. **Approval-gated (ADR-0006):** first present a measured cost estimate, security implications and the lowest-cost viable options; provision nothing until approved | Owner approval recorded; then a real cloud run with no runner credentials, isolation and actual spend/cleanup evidence |
 | 12 | Release hardening: e2e/security sweeps, demo, README and runbook | Clean-checkout walkthrough; failures and unsupported cases documented honestly |
+| 13 | GitHub Action for the database tier over the same engine, with trusted inputs from the base branch and the migration isolated (ADR-0007). Added 2026-11-04, beside the App, not in its place | Adversarial security tests green in CI; a second, independently designed schema verified; real runs on this repository's pull requests; then a clean installation outside this repository with timings recorded before any tag (#79, #80) |
 
 Task order may overlap only when contracts are stable; do not begin speculative UI/API integration before run/evidence schemas have tests.
 
@@ -61,8 +62,9 @@ Planning estimate: **20–26 focused solo weeks at 15–20 genuinely available h
 12. `test(benchmark): neutral-label clean/fault corpus and ablations`.
 13. `infra: isolated Fargate execution backend, Terraform, independent TTL reconciler` (approval-gated, ADR-0006).
 14. `docs: publish verified demo, benchmark, cost and limitations`.
+15. `feat(action): the GitHub Action for the database tier, over the same engine` (work package 13, pull request #86).
 
-These are suggested **future** commits, not actions already taken.
+These are suggested **future** commits, not actions already taken, except where a pull request number is given.
 
 ## Release checklist
 

@@ -1,0 +1,23 @@
+# DataProof reads this file from the base branch only: a pull request cannot change what it is
+# held to. Oracles, the fixture and binding approvals live on the base branch for the same reason.
+version = 1
+
+[alembic]
+config = "alembic.ini"
+# env.py takes the database URL from DATABASE_URL, which is all a migration step receives.
+timeout_seconds = 300
+
+[fixture]
+# Loaded into both databases after the base branch's migrations; its SHA-256 pins the dataset.
+sql = "dataproof/fixture.sql"
+
+[contracts]
+oracle_dir = "dataproof/oracles/"
+binding_dir = "dataproof/bindings/"
+# Digests of bindings a maintainer approved (dataproof_action.binding_approval_digest). A
+# pull request whose binding is not listed is INCOMPLETE until a reviewed change adds it here.
+approved_bindings = []
+rejected_bindings = []
+
+[policy]
+forks = "run"

@@ -1,0 +1,70 @@
+# The DataProof GitHub Action: database-tier verification of a PostgreSQL/Alembic pull request.
+#
+# Use it from a workflow triggered by pull_request (never pull_request_target) with
+# permissions: contents: read, pinned to a commit of this repository:
+#
+#   - uses: actions/checkout@<sha>
+#     with:
+#       persist-credentials: false   # the Action fetches what it needs from origin
+#   - uses: s2002kumar/DataProof@<commit sha>
+#
+# What it does, what it isolates and what it does not do: docs/ACTION.md and ADR-0007.
+name: DataProof
+description: >-
+  Runs the pull request's Alembic migration in disposable PostgreSQL databases, isolated from
+  the job's secrets and token, and verifies the migrated data against protected contracts read
+  from the base branch. Fails for every verdict but CHECKED.
+author: DataProof
+branding:
+  icon: database
+  color: blue
+
+inputs:
+  config:
+    description: Path of the DataProof configuration, read from the base branch.
+    required: false
+    default: dataproof/config.toml
+  report-dir:
+    description: Where the JSON report and the database snapshots are written.
+    required: false
+    default: dataproof-report
+  postgres-image:
+    description: The PostgreSQL image, by digest.
+    required: false
+    default: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
+
+outputs:
+  verdict:
+    description: CHECKED, CHECKED_WITH_WARNINGS, BLOCKED, INCOMPLETE, NOT_EXECUTED or ERROR.
+    value: ${{ steps.verify.outputs.verdict }}
+  report:
+    description: Path of the JSON report.
+    value: ${{ steps.verify.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      with:
+        version: "0.12.1"
+    - name: Install DataProof at this action's commit
+      shell: bash
+      env:
+        UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/dataproof-venv
+      run: uv sync --frozen --no-dev --package dataproof-action --project "$GITHUB_ACTION_PATH"
+    - name: Verify the pull request
+      id: verify
+      shell: bash
+      env:
+        UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/dataproof-venv
+        DATAPROOF_CONFIG: ${{ inputs.config }}
+        DATAPROOF_REPORT_DIR: ${{ inputs.report-dir }}
+        DATAPROOF_POSTGRES_IMAGE: ${{ inputs.postgres-image }}
+      run: >-
+        uv run --frozen --no-sync --project "$GITHUB_ACTION_PATH"
+        python -m dataproof_action run
+        --workspace "$GITHUB_WORKSPACE"
+        --config "$DATAPROOF_CONFIG"
+        --report-dir "$DATAPROOF_REPORT_DIR"
+        --postgres-image "$DATAPROOF_POSTGRES_IMAGE"

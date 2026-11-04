@@ -1,0 +1,23 @@
+# Protected: read from the base branch only. Every invoice keeps its subscription and the exact
+# instants of its billing period, across daylight-saving transitions.
+contract_id = "subscriptions.billing_periods"
+version = 1
+description = "Every invoice keeps its subscription and its exact billing-period instants."
+required = true
+severity = "CRITICAL"
+key_columns = ["invoice_id"]
+query_sql = """
+SELECT invoice_id, subscription_id, period_start, period_end, issued_at, paid_at
+FROM invoices
+"""
+# Reference-first rule: a period that ends before it starts is a fixture defect, not a finding.
+reference_precondition_sql = """
+SELECT invoice_id FROM invoices WHERE period_end <= period_start
+"""
+
+[expected_columns]
+subscription_id = { kind = "EXACT" }
+period_start = { kind = "INSTANT" }
+period_end = { kind = "INSTANT" }
+issued_at = { kind = "INSTANT" }
+paid_at = { kind = "INSTANT" }

@@ -8,11 +8,13 @@ dependencies = []
 [dependency-groups]
 dev = [
     "alembic>=1.16",
+    "dataproof-action",
     "dataproof-api",
     "dataproof-benchmark",
     "dataproof-contracts",
     "dataproof-control",
     "dataproof-investigator",
+    "dataproof-report",
     "dataproof-runner",
     "dataproof-scenario-commerce",
     "dataproof-verifier",
@@ -44,11 +46,13 @@ members = ["packages/*", "scenarios/*", "services/*", "benchmarks"]
 exclude = ["sample-app", "services/dashboard"]
 
 [tool.uv.sources]
+dataproof-action = { workspace = true }
 dataproof-api = { workspace = true }
 dataproof-benchmark = { workspace = true }
 dataproof-contracts = { workspace = true }
 dataproof-control = { workspace = true }
 dataproof-investigator = { workspace = true }
+dataproof-report = { workspace = true }
 dataproof-runner = { workspace = true }
 dataproof-scenario-commerce = { workspace = true }
 dataproof-verifier = { workspace = true }
@@ -75,11 +79,14 @@ known-first-party = [
     "docker_env",
     "github_env",
     "sample_app_env",
+    "subscriptions_env",
+    "dataproof_action",
     "dataproof_api",
     "dataproof_benchmark",
     "dataproof_contracts",
     "dataproof_control",
     "dataproof_investigator",
+    "dataproof_report",
     "dataproof_runner",
     "dataproof_verifier",
 ]
@@ -100,10 +107,15 @@ strict = true
 plugins = ["pydantic.mypy"]
 files = [
     "benchmarks/src",
+    # The example's migrations/env.py mirrors sample-app/migrations/env.py (checked below);
+    # two top-level modules named env cannot be checked in one mypy run.
+    "examples/subscriptions/scripts",
     "scripts",
+    "packages/action/src",
     "packages/contracts/src",
     "packages/control/src",
     "packages/investigator/src",
+    "packages/report/src",
     "packages/verifier/src",
     "services/api/src",
     "services/runner/src",

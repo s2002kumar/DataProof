@@ -54,6 +54,16 @@ As of 2026-11-04.
 | G4, product | Met live: PR → preview → failure → diagnosis → evidence → human review, without the terminal |
 | G5, release | **Not met:** no AWS demo |
 
+## Beyond the original contract: the GitHub Action
+
+Added on 2026-11-04 ([ADR-0007](adr/0007-github-action-database-tier.md), [docs/ACTION.md](ACTION.md)): the database tier of the review as a GitHub Action over the same verifier, backend and report, with trusted inputs read from the base branch and the pull request's migration isolated in a container.
+
+| Item | Status | Evidence | Shortfall |
+| --- | --- | --- | --- |
+| The Action verifies a PostgreSQL/Alembic pull request on a second, independently designed schema | **Verified locally and in CI** | `tests/integration/test_action.py` on `examples/subscriptions`: a correct cents-to-money migration is `CHECKED`, integer division is `BLOCKED` with the exact amounts, an unapproved binding fails closed | Not yet installed on a repository outside this one (#80) |
+| Security gate: migrations isolated from secrets, tokens, the Docker socket and the runner | **Verified by adversarial tests** | A hostile migration's probes are all denied and the job's canary secrets reach nothing; self-approval and oracle weakening are ignored; `pull_request_target` is refused | A pull request can still edit the workflow that calls the Action; branch protection and code-owner review are the control (ADR-0007) |
+| Real GitHub Actions results | **Running on this repository's pull requests** | [`.github/workflows/dataproof.yml`](../.github/workflows/dataproof.yml) | No external user has run it; no version tag is published |
+
 ## Decisions that remain the owner's
 
 - **Model budget:** decided on 2026-11-03. At most 10 USD for the AI ablation (pilot 1 USD, then 9 USD) and 5.10 USD for the Change Analyst's live run, 15.10 USD in all, under the frozen [protocol](AI_EVALUATION.md). Spending against it is reported with the results.

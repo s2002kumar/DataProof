@@ -1,0 +1,23 @@
+# Protected: read from the base branch only. Every subscription keeps its customer, plan, state,
+# seats, discount and instants; a cancelled subscription keeps its cancellation instant.
+contract_id = "subscriptions.subscription_state"
+version = 1
+description = "Every subscription keeps its customer, plan, status, seats, discount and instants."
+required = true
+severity = "CRITICAL"
+key_columns = ["subscription_id"]
+query_sql = """
+SELECT s.subscription_id, s.customer_id, p.code AS plan_code, s.status, s.seats, s.discount_bp,
+       s.started_at, s.cancelled_at
+FROM subscriptions AS s
+JOIN plans AS p ON p.plan_id = s.plan_id
+"""
+
+[expected_columns]
+customer_id = { kind = "EXACT" }
+plan_code = { kind = "EXACT" }
+status = { kind = "EXACT" }
+seats = { kind = "EXACT" }
+discount_bp = { kind = "EXACT" }
+started_at = { kind = "INSTANT" }
+cancelled_at = { kind = "INSTANT" }

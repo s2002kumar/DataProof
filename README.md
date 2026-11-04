@@ -86,7 +86,9 @@ DataProof is a GitHub App with its own control plane, dashboard and worker. It r
 uv run python scripts/demo/rehearse.py --image <runtime image ID>
 ```
 
-[Local rehearsal](docs/DEMO.md#local-rehearsal) explains the prerequisites and what the rehearsal shows; [Live setup](docs/DEMO.md#live-setup) explains how the live run on real GitHub was made, for an owner who registers their own App. A lighter GitHub Action for the database tier alone is being built; the README will say so when it exists and has been run.
+[Local rehearsal](docs/DEMO.md#local-rehearsal) explains the prerequisites and what the rehearsal shows; [Live setup](docs/DEMO.md#live-setup) explains how the live run on real GitHub was made, for an owner who registers their own App.
+
+The database tier alone is also a **GitHub Action** ([docs/ACTION.md](docs/ACTION.md)): the same verifier, backend and report, inside a repository's own CI, with the pull request's migration isolated from the job's token and secrets and the contracts read from the base branch. It is built, covered by adversarial tests, and runs on this repository's own pull requests. It has **no version tag and no adoption recommendation yet**: that waits for a clean installation outside this repository, by someone other than the author, with the timings recorded ([#80](https://github.com/s2002kumar/DataProof/issues/80)).
 
 ## Status
 
@@ -98,6 +100,7 @@ uv run python scripts/demo/rehearse.py --image <runtime image ID>
 | Evidence-grounded diagnosis | Before the migration runs, change analysis: static risk rules on every run, and a bounded AI Change Analyst that may only read the changed source. After the checks, rule-based diagnosis on every failing run, and a bounded AI investigator with five read-only tools. Both AI roles have citation checks and a per-investigation cost cap, and neither decides anything | Rule-based diagnosis in the live run. The AI evaluation [protocol](docs/AI_EVALUATION.md) is frozen and dry-run on all 18 failing cases; the rules name the root cause in 9 of them. The static risk rules anticipate 21 of 22 faults but alarm on 6 of 12 clean controls ([report](benchmarks/results/CHANGE_ANALYSIS.md)). The live model runs have an approved budget and are next |
 | Reviewer decisions | GitHub sign-in, binding approval and rejection, correction replay, cancellation, and reproduction on a subset | In the live run: GitHub sign-in, binding approval and correction replay |
 | Cleanup | Per-run cleanup, plus an independent reaper that works without the control plane | 15 of 15 pipeline-tier runs and the live run left nothing behind; reaper test |
+| GitHub Action (database tier) | Repository-owned configuration, oracles, fixture and approvals from the base branch; the migration isolated in a container; job summary, annotations and a JSON report; adversarial tests ([ADR-0007](docs/adr/0007-github-action-database-tier.md)) | On a second, independently designed schema in CI: a correct cents-to-money migration `CHECKED`, integer division `BLOCKED` with the exact amounts, an unapproved binding failing closed. Runs on this repository's own pull requests. Not yet run by anyone else |
 | Hosted deployment | Not built: a cloud deployment needs an approved cost and security review | — |
 
 [Status](docs/STATUS.md) compares every product requirement with what has been verified, with the evidence and every shortfall.
@@ -141,7 +144,10 @@ Everything DataProof claims is bounded by the following. None of it is hidden el
 | [AI evaluation](docs/AI_EVALUATION.md) | The protocol for comparing the AI investigator with the rule-based diagnosis, fixed before any live run |
 | [Implementation](docs/IMPLEMENTATION.md) | Repository standards, work packages, gates and pull-request plan |
 | [Demo](docs/DEMO.md) | Walkthrough script, live setup, the live run's evidence and the local rehearsal |
-| [Architecture decisions](docs/adr/) | ADR-0001 to ADR-0006 |
+| [GitHub Action](docs/ACTION.md) | Quickstart, configuration reference, the isolation guarantee and its limits, and what stays with the App |
+| [Architecture decisions](docs/adr/) | ADR-0001 to ADR-0007 |
+| [Report package](packages/report/README.md) | The report as Markdown: the App's check summaries and the Action's job summaries, from trusted results only |
+| [Subscriptions example](examples/subscriptions/README.md) | A second application profile, designed independently of commerce, as a repository that uses the Action |
 | [Contracts package](packages/contracts/README.md) | Typed result contracts, their enforced invariants, value encoding and JSON Schemas |
 | [Commerce scenario](scenarios/commerce/README.md) | Baseline fixture, its digest and edge cases, and candidate change sets |
 | [Verifier](packages/verifier/README.md) | Evaluation order, comparators, outcomes and query safety layers |
