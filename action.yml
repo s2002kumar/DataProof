@@ -48,6 +48,8 @@ runs:
       uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       with:
         version: "0.12.1"
+        # The cache is keyed on this action's lockfile, not on the caller's repository.
+        cache-dependency-glob: ${{ github.action_path }}/uv.lock
     - name: Install DataProof at this action's commit
       shell: bash
       env:
