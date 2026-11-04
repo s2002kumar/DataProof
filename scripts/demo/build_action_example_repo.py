@@ -104,6 +104,8 @@ def base_files(*, owner: str, action_ref: str) -> dict[str, str]:
         relative = path.relative_to(EXAMPLE).as_posix()
         if relative.startswith(("changes/", "scripts/")) or relative == "README.md":
             continue
+        if "__pycache__" in path.parts:
+            continue
         files[relative] = path.read_text("utf-8")
     files["README.md"] = README
     files[".github/CODEOWNERS"] = CODEOWNERS.format(owner=owner)

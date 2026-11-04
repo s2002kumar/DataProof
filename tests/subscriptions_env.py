@@ -63,6 +63,8 @@ def example_files() -> dict[str, str]:
         relative = path.relative_to(EXAMPLE).as_posix()
         if relative.startswith(("changes/", "scripts/")) or relative == "README.md":
             continue
+        if "__pycache__" in path.parts:
+            continue
         files[relative] = path.read_text("utf-8")
     return files
 

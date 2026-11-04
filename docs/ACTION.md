@@ -2,7 +2,7 @@
 
 The Action verifies a PostgreSQL/Alembic migration on a pull request, inside the repository's own GitHub Actions, with nothing to host. It runs the base branch's migrations and a fixture into two disposable PostgreSQL databases, runs the pull request's migration in one of them with the pull request's code isolated in a container, compares the data against contracts the pull request cannot edit, and reports the verdict as the job's result with a summary, annotations and a JSON report. The design and its limits are [ADR-0007](adr/0007-github-action-database-tier.md).
 
-**Status:** built and tested in this repository ([`tests/integration/test_action.py`](../tests/integration/test_action.py)); it runs on this repository's own pull requests ([`.github/workflows/dataproof.yml`](../.github/workflows/dataproof.yml)). **There is no version tag and no recommendation to adopt it yet.** The remaining gate is a clean installation on a repository outside this one, run by someone other than the author, with the timings recorded ([#80](https://github.com/s2002kumar/DataProof/issues/80)).
+**Status:** built and tested in this repository ([`tests/integration/test_action.py`](../tests/integration/test_action.py)); it runs on this repository's own pull requests ([`.github/workflows/dataproof.yml`](../.github/workflows/dataproof.yml)) and on the public example repository, [dataproof-example-subscriptions](https://github.com/s2002kumar/dataproof-example-subscriptions), where its [pull request #1](https://github.com/s2002kumar/dataproof-example-subscriptions/pull/1) went `INCOMPLETE` then `CHECKED` once the binding was approved on `main`, and [#2](https://github.com/s2002kumar/dataproof-example-subscriptions/pull/2) went `BLOCKED` with the exact amounts, 40 s from opening to verdict ([field results](ACTION_FIELD_RESULTS.md)). **There is no version tag and no recommendation to adopt it yet.** The remaining gate is a clean installation on a repository outside this one, run by someone other than the author, with the timings recorded ([#80](https://github.com/s2002kumar/DataProof/issues/80)).
 
 It is the database tier of DataProof. API behaviour checks (C6) against live previews, previews of both commits, the AI Change Analyst and Failure Investigator, reproduction on a subset and interactive binding approval are capabilities of the [GitHub App](../README.md#try-it), not of the Action.
 
@@ -46,7 +46,7 @@ The repository needs an Alembic project whose `env.py` takes the database URL fr
          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
            with:
              persist-credentials: false
-         - uses: s2002kumar/DataProof@<commit sha>   # pin a commit; there is no tag yet
+         - uses: s2002kumar/DataProof@2cabbc16ffa9581d14186b89cc2db9a99430af71 # pin a commit; no tag yet
            id: dataproof
          - uses: actions/upload-artifact@<sha>
            if: always()
@@ -55,9 +55,11 @@ The repository needs an Alembic project whose `env.py` takes the database URL fr
              path: dataproof-report
    ```
 
-   `pull_request`, not `pull_request_target`: the Action refuses the latter. `persist-credentials: false` is right for a public repository; a private repository needs the token to fetch, and the migration container never sees the checkout either way.
+   `pull_request`, not `pull_request_target`: the Action refuses the latter. `persist-credentials: false` is right for a public repository; a private repository needs the token to fetch, and the migration container never sees the checkout either way. The commit above is the one the public example repository, [dataproof-example-subscriptions](https://github.com/s2002kumar/dataproof-example-subscriptions), pins; its pull requests are real runs of exactly this workflow.
 
-4. **Open a pull request** that adds a migration. The job's summary shows the verdict and what to do next.
+4. **Merge the configuration, fixture, oracles and workflow to the base branch first.** The Action reads all four from the base branch, so the pull request that introduces them cannot be verified by them: its job ends `Not verified (ERROR)` saying the configuration does not exist on the base branch (exit 4), which is the design working, not a fault. From the next pull request on, every run is real.
+
+5. **Open a pull request** that adds a migration. The job's summary shows the verdict and what to do next.
 
 ### When the pull request proposes a binding
 
@@ -118,6 +120,24 @@ The reference and candidate are provisioned identically: the base commit's migra
 - **Resources.** A hostile migration can spend the step's CPU, memory and time until the timeout; it cannot exceed them.
 - **The trusted supply chain.** The migration image installs the base branch's pinned requirements with network access at build time, before any pull-request code is in the job. What the base branch trusts, the Action trusts.
 - **What a verdict means.** A run establishes that specific checks passed for an exact commit, fixture, contracts and PostgreSQL version. It proves nothing about production-scale locking, concurrency, performance or paths no oracle covers ([Verification](VERIFICATION.md#honest-limits)).
+
+## Testing it on your repository
+
+This is the guide for someone outside this project who agrees to try the Action on a repository of theirs. Field results, including failed installations and false positives, are recorded in [ACTION_FIELD_RESULTS.md](ACTION_FIELD_RESULTS.md); please add yours through a pull request or in [#80](https://github.com/s2002kumar/DataProof/issues/80).
+
+**What you need:** a PostgreSQL/Alembic repository whose `env.py` can take the database URL from `DATABASE_URL`; a GitHub-hosted `ubuntu-24.04` runner (Docker is present) or an ephemeral self-hosted one; a maintainer who can merge to the base branch.
+
+**Steps, with what to time:**
+
+1. On a branch, add `dataproof/config.toml`, a `dataproof/fixture.sql` that loads a few hundred representative rows into the base schema (plain SQL statements), one to three oracles under `dataproof/oracles/`, and the workflow from the quickstart pinned to a commit. Note how long this took and what was unclear.
+2. Merge that branch. The pull request that introduces the configuration cannot be verified by it (its job ends `Not verified (ERROR)`): expected.
+3. Open a pull request with a migration you already know is correct. Record the job's duration from the Actions page and the verdict. If the migration changes the schema the oracles read, the run is `INCOMPLETE` until you add the binding digest from the summary to `approved_bindings` and re-run; record that too.
+4. If you can, open a pull request with a migration you know is wrong (an old bug of yours, re-applied) and record whether DataProof blocks it, and on which check.
+5. Send back, in the issue or a pull request to the field-results file: the repository (or a description if it is private), PostgreSQL and Alembic versions, the four timings (setup, first job, verdict, approval round trip), the verdicts, the job summary text if you can share it (it holds values from your fixture only), and anything that was wrong, confusing or slow. A false positive, a crash and a clean install are all equally useful.
+
+**What we do not need:** access to your repository, your data, or your secrets. The Action never sends anything anywhere; its only network use is pulling the pinned images and installing the pinned packages on the runner.
+
+**What to expect:** no version tag yet, so pin a commit; the Action may change between commits; breaking changes will be listed in the field-results file.
 
 ## Not in the Action
 

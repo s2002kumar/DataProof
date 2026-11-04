@@ -1,9 +1,10 @@
 """Alembic environment for the subscriptions example.
 
-The database URL comes from ``DATABASE_URL`` (``postgresql+psycopg://...``), which is the only
-thing a DataProof migration step receives. Revisions are plain SQL, so there is no metadata
-target. Each revision runs in its own transaction, so ``alembic_version`` only records revisions
-that committed.
+The connection comes from the caller (``config.attributes["connection"]``, as tests and tools
+pass one) or from the ``DATABASE_URL`` environment variable (``postgresql+psycopg://...``), which
+is the only thing a DataProof migration step receives. Revisions are plain SQL, so there is no
+metadata target. Each revision runs in its own transaction, so ``alembic_version`` only records
+revisions that committed.
 """
 
 import os
@@ -19,13 +20,17 @@ def _run(connection: Connection) -> None:
 
 
 def run_migrations_online() -> None:
+    connection = context.config.attributes.get("connection")
+    if connection is not None:
+        _run(connection)
+        return
     url = os.environ.get("DATABASE_URL")
     if not url:
         raise RuntimeError("set DATABASE_URL (postgresql+psycopg://...) to run migrations")
     engine = create_engine(url)
     try:
-        with engine.connect() as connection:
-            _run(connection)
+        with engine.connect() as engine_connection:
+            _run(engine_connection)
     finally:
         engine.dispose()
 
