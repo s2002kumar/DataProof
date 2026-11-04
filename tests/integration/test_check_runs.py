@@ -66,9 +66,40 @@ BLOCKED = ReportRecord(
                 "outcome": "FAIL",
                 "reason": None,
                 "mismatch_count": 1,
+                "expected_key_count": 1207,
+                "observed_key_count": 1207,
+                "examples": [
+                    {
+                        "key": [{"type": "integer", "value": 1002}],
+                        "column": "amount",
+                        "expected": {"type": "decimal", "value": "49.99"},
+                        "observed": {"type": "decimal", "value": "99.98"},
+                    }
+                ],
             },
         ],
-        "investigations": [{"model": "model-off", "status": "COMPLETED"}],
+        "investigations": [
+            {
+                "model": "dataproof:rules-v1",
+                "status": "COMPLETED",
+                "hypotheses": [
+                    {
+                        "statement": "commerce.c1_event_preservation: Every changed value is "
+                        "an exact multiple (2x) of the reference value: consistent with a join "
+                        "that repeats each row before it is summed or copied.",
+                        "cited_evidence_ids": ["commerce.c1_event_preservation:candidate:binding"],
+                        "confidence": "MEDIUM",
+                    }
+                ],
+            }
+        ],
+        "evidence": {
+            "manifest_sha256": "a" * 64,
+            "snapshots": {
+                "REFERENCE": {"sha256": "b" * 64, "restore_verified": True},
+                "CANDIDATE": {"sha256": "c" * 64, "restore_verified": True},
+            },
+        },
     },
 )
 
@@ -177,7 +208,16 @@ def test_a_check_run_follows_the_run_on_its_exact_head_commit(setup: Setup) -> N
     assert (check.status, check.conclusion) == ("completed", "failure")
     assert check.output["title"] == "BLOCKED: 1 required check failed or errored"
     summary = check.output["summary"]
-    assert "| `commerce.c1_event_preservation` | yes | FAIL |  | 1 |" in summary
+    assert summary.startswith("## BLOCKED (`failure`)")
+    assert "1 required check failed" in summary
+    assert "**Next:** Open the run for every mismatch" in summary
+    assert "| 1002 | `amount` | 49.99 | 99.98 |" in summary, "expected versus observed"
+    assert "| `commerce.c1_event_preservation` | yes | FAIL |  | 1,207 | 1 |" in summary
+    assert "Required: 1 passed, 1 failed, 0 errored, 0 not run." in summary
+    assert "evidence manifest `aaaaaaaaaaaa`" in summary
+    assert "reference snapshot `bbbbbbbbbbbb` (restore verified)" in summary
+    assert "### Rule-based diagnosis (advisory)" in summary
+    assert "exact multiple (2x)" in summary
     assert "never change a check or the verdict" in summary
     assert HEAD_SHA in summary
     assert check.history == [("queued", None), ("in_progress", None), ("completed", "failure")]

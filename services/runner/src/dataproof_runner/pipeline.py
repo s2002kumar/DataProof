@@ -117,6 +117,8 @@ from dataproof_verifier import (
 
 MIGRATION_CHECK = "migration.execute"
 MIGRATION_CONTRACT = "dataproof.migration_executes"
+REPORT_EXAMPLES = 5
+"""Mismatch examples carried per check in the report, for the GitHub check summary."""
 MIGRATION_STEP = "candidate.migration"
 PREVIEW_CHECK = "preview.candidate"
 PREVIEW_CONTRACT = "dataproof.preview_serves"
@@ -1088,6 +1090,13 @@ class Pipeline:
                         if (reason := c.not_run_reason or c.error_code)
                         else None,
                         "mismatch_count": c.mismatch_count,
+                        "expected_key_count": c.expected_key_count,
+                        "observed_key_count": c.observed_key_count,
+                        # Bounded, typed examples for the check summary (expected versus
+                        # observed); the check record keeps the full bounded list.
+                        "examples": [
+                            m.model_dump(mode="json") for m in c.mismatch_examples[:REPORT_EXAMPLES]
+                        ],
                     }
                     for c in results
                 ],
