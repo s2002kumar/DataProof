@@ -46,7 +46,7 @@ The repository needs an Alembic project whose `env.py` takes the database URL fr
          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
            with:
              persist-credentials: false
-         - uses: s2002kumar/DataProof@<commit sha>   # pin a commit; there is no tag yet
+         - uses: s2002kumar/DataProof@2cabbc16ffa9581d14186b89cc2db9a99430af71 # pin a commit; no tag yet
            id: dataproof
          - uses: actions/upload-artifact@<sha>
            if: always()
@@ -55,7 +55,7 @@ The repository needs an Alembic project whose `env.py` takes the database URL fr
              path: dataproof-report
    ```
 
-   `pull_request`, not `pull_request_target`: the Action refuses the latter. `persist-credentials: false` is right for a public repository; a private repository needs the token to fetch, and the migration container never sees the checkout either way.
+   `pull_request`, not `pull_request_target`: the Action refuses the latter. `persist-credentials: false` is right for a public repository; a private repository needs the token to fetch, and the migration container never sees the checkout either way. The commit above is the one the public example repository, [dataproof-example-subscriptions](https://github.com/s2002kumar/dataproof-example-subscriptions), pins; its pull requests are real runs of exactly this workflow.
 
 4. **Merge the configuration, fixture, oracles and workflow to the base branch first.** The Action reads all four from the base branch, so the pull request that introduces them cannot be verified by them: its job ends `Not verified (ERROR)` saying the configuration does not exist on the base branch (exit 4), which is the design working, not a fault. From the next pull request on, every run is real.
 
