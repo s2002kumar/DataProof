@@ -24,7 +24,7 @@ Many migrations execute successfully while damaging values, relationships or app
 - Migration review with static analysis and explicit `unsupported/unknown` handling.
 - Real preview of a PostgreSQL + FastAPI + frontend application, reference and candidate.
 - Approved deterministic seed data of nontrivial size and diverse edge cases; reproducible snapshot versioning.
-- Schema, key, relationship, null, decimal, timestamp, duplicate, transformation-invariant and selected API response checks.
+- Schema, key, relationship, null, decimal, timestamp, duplicate, transformation-invariant and selected API response checks. *Narrowed in [ADR-0008](adr/0008-invariants-c4-to-c8.md): schema means the type fitness of every compared column (C8), reprocessing means a second upgrade changes nothing (C7, in the Action), and relationships and instants are verified through the keyed contracts (C4, C5), not by separate invariants.*
 - AI change analyst and AI failure investigator (with a correction-advice mode), strictly bounded.
 - Evidence reports with affected-row samples, query/query-result provenance, migration step IDs and commit binding.
 - Reproducer extraction where technically possible, with automatic replay verification; approved correction rerun.

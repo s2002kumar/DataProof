@@ -24,7 +24,13 @@ from subscriptions_env import (
 pytestmark = [pytest.mark.integration, pytest.mark.docker]
 
 BILLING, STATE = "subscriptions.billing_periods", "subscriptions.subscription_state"
-ALL_CHECKS = ("migration.execute", INVOICE_AMOUNTS, BILLING, STATE)
+CONTRACTS = (INVOICE_AMOUNTS, BILLING, STATE)
+ALL_CHECKS = (
+    "migration.execute",
+    "migration.rerun",
+    *CONTRACTS,
+    *(f"types.{c}" for c in CONTRACTS),
+)
 
 
 @pytest.fixture(scope="module")
@@ -59,7 +65,7 @@ def test_a_correct_migration_with_an_approved_binding_is_checked(
     assert outcome.report["pull_request"]["base_sha"] == approved
     assert outcome.report["bindings"][INVOICE_AMOUNTS]["approval_digest"] == approval_digest()
     assert "## CHECKED (`success`)" in outcome.summary
-    assert "Every required check passed (4 required checks, 0 optional)" in outcome.summary
+    assert "Every required check passed (8 required checks, 0 optional)" in outcome.summary
     assert "### Not in this Action" in outcome.summary
     snapshots = outcome.report["evidence"]["snapshots"]
     assert set(snapshots) == {"REFERENCE", "CANDIDATE"}
@@ -70,8 +76,39 @@ def test_a_correct_migration_with_an_approved_binding_is_checked(
         "reference.base-migration",
         "candidate.base-migration",
         "candidate.migration",
+        "candidate.migration-rerun",
     ]
     _no_secret_leaked([outcome.report, outcome.summary])
+
+
+def test_work_outside_the_revisions_fails_the_rerun_check(
+    repo: SubscriptionsRepo, approved: str
+) -> None:
+    """C7: ``env.py`` that writes on every invocation is not idempotent; the second
+    ``upgrade head`` changes the database, and the run is BLOCKED although every contract
+    passes on the first pass."""
+    env = repo.upstream.joinpath("migrations/env.py").read_text("utf-8")
+    hostile_env = env.replace(
+        "def _run(connection: Connection) -> None:\n",
+        "def _run(connection: Connection) -> None:\n"
+        "    from sqlalchemy import text\n"
+        '    connection.execute(text("UPDATE subscriptions SET seats = seats + 1 '
+        'WHERE subscription_id = 1001"))\n'
+        "    connection.commit()\n",
+    )
+    assert hostile_env != env
+    head = repo.head({"migrations/env.py": hostile_env})
+    outcome = repo.run(head)
+    assert outcome.report["verdict"] == "BLOCKED"
+    rerun = outcome.coverage("migration.rerun")
+    assert rerun["outcome"] == "FAIL"
+    (example,) = rerun["examples"]
+    assert example["key"][0]["value"] == "database_digest"
+    assert example["expected"]["value"] != example["observed"]["value"]
+    assert outcome.coverage("migration.execute")["outcome"] == "PASS"
+    # The first pass already moved seats on subscription 1001; the state contract sees it.
+    assert outcome.coverage(STATE)["outcome"] == "FAIL"
+    assert outcome.coverage(f"types.{STATE}")["outcome"] == "PASS"
 
 
 def test_integer_division_is_blocked_with_the_exact_amounts(

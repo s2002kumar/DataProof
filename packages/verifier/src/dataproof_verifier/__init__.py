@@ -7,6 +7,7 @@ from dataproof_verifier.binding_review import (
     analyze_binding,
     check_read_query,
 )
+from dataproof_verifier.column_types import type_check, type_problems
 from dataproof_verifier.compare import compare_keyed, values_match
 from dataproof_verifier.engine import QueryEvidence, Verification, verify_contract
 from dataproof_verifier.files import (
@@ -18,7 +19,13 @@ from dataproof_verifier.files import (
     parse_binding,
     parse_oracle,
 )
-from dataproof_verifier.queries import QueryError, QueryLimits, QueryResult, run_read_only
+from dataproof_verifier.queries import (
+    ColumnType,
+    QueryError,
+    QueryLimits,
+    QueryResult,
+    run_read_only,
+)
 from dataproof_verifier.verdict import derive_verdict
 
 __all__ = [
@@ -27,6 +34,7 @@ __all__ = [
     "ApiRequestError",
     "BindingFile",
     "BindingRejectedError",
+    "ColumnType",
     "OracleFile",
     "QueryError",
     "QueryEvidence",
@@ -43,6 +51,8 @@ __all__ = [
     "parse_binding",
     "parse_oracle",
     "run_read_only",
+    "type_check",
+    "type_problems",
     "values_match",
     "verify_api_contract",
     "verify_contract",

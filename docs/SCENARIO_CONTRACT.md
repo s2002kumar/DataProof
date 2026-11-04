@@ -28,6 +28,8 @@ Every `legacy_payment_events` record of an approved kind maps to exactly **one**
 - **C7 Reprocessing:** Use **Alembic** revisions; the runner consults `alembic_version` to prevent reapplying an already successful revision. Retry tests prove there is no duplicate ledger effect after a completed revision; interrupted/non-transactional revision semantics are reported explicitly rather than assumed idempotent. Source digest records each Alembic revision file.
 - **C8 Schema:** Candidate ledger PK/FK/uniqueness and required `NUMERIC` scale exist; intentionally retired legacy fields aren't flagged merely for disappearing.
 
+*What is built of C4 to C8, and what each claim is narrowed to, is recorded in [ADR-0008](adr/0008-invariants-c4-to-c8.md): C8 is the type check (declared scale and instant-capable types, not a constraint audit); C7 is the rerun check in the Action (a second upgrade changes nothing); C4 and C5 are established through C1's keyed comparison of reference columns and instants, with no separate contracts.*
+
 For any missing comparator input, fail closed as `ERROR`/`NOT_RUN`, not `PASS`.
 
 ## Safe and faulty PRs

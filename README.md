@@ -111,7 +111,7 @@ Everything DataProof claims is bounded by the following. None of it is hidden el
 
 **What a verdict means.** A run establishes only that specific checks passed for an exact commit, fixture, configuration and engine version. No verdict is a universal safety guarantee. Snapshots do not prove production-scale locking, traffic race conditions, isolation edge cases, performance or untested application paths ([Verification](docs/VERIFICATION.md#honest-limits)).
 
-**What is checked.** The protected contracts are C1 (every event preserved: order, kind, exact amount, exact instant), C2 (refund totals per order and currency), C3 (capture totals) and C6 (selected API responses). Relationship (C4), temporal-policy (C5), idempotent-rerun (C7) and schema-constraint (C8) contracts from the specification are **not built**; C1 covers part of C4 and C5 today. There is no schema diff. NULL and empty-string confusion is invisible to the declared contracts, which is why 2 of the 20 benchmark faults are missed.
+**What is checked.** The protected contracts are C1 (every event preserved: order, kind, exact amount, exact instant), C2 (refund totals per order and currency), C3 (capture totals) and C6 (selected API responses). Of the specification's other invariants, C8 is built as a type check (every compared column's declared type can hold its comparator: scale for money, a time zone for an instant), C7 as a rerun check in the Action (a second upgrade must change nothing), and C4 and C5 are established through C1's keyed comparison of references and instants; none is a constraint audit, a relational-invariant language or a timestamp policy, and the claims are narrowed to exactly that in [ADR-0008](docs/adr/0008-invariants-c4-to-c8.md). No schema-diff tool has been run. NULL and empty-string confusion is invisible to the declared contracts, which is why 2 of the 20 benchmark faults are missed.
 
 **The benchmark.** The corpus is generated from templates with a frozen seed by the author of the system under test. It is not independently authored, and no third party has verified any result. The static risk rules' recall is optimistic for the same reason: they were written with the corpus in view. The AI investigator and Change Analyst have been run only with scripted models so far; their live evaluation is prepared and budgeted, not done.
 
@@ -144,8 +144,10 @@ Everything DataProof claims is bounded by the following. None of it is hidden el
 | [AI evaluation](docs/AI_EVALUATION.md) | The protocol for comparing the AI investigator with the rule-based diagnosis, fixed before any live run |
 | [Implementation](docs/IMPLEMENTATION.md) | Repository standards, work packages, gates and pull-request plan |
 | [Demo](docs/DEMO.md) | Walkthrough script, live setup, the live run's evidence and the local rehearsal |
-| [GitHub Action](docs/ACTION.md) | Quickstart, configuration reference, the isolation guarantee and its limits, and what stays with the App |
-| [Architecture decisions](docs/adr/) | ADR-0001 to ADR-0007 |
+| [Narrated demonstration](docs/DEMO_NARRATION.md) | A six-minute script in four acts: the failure, the protected oracle, the approval, the verdicts; with what not to claim |
+| [Defense](docs/DEFENSE.md) | Architecture in review order, the difficult bugs, alternatives rejected, other tools, security limitations and benchmark weaknesses |
+| [GitHub Action](docs/ACTION.md) | Quickstart, configuration reference, the isolation guarantee and its limits, field results, and what stays with the App |
+| [Architecture decisions](docs/adr/) | ADR-0001 to ADR-0008 |
 | [Report package](packages/report/README.md) | The report as Markdown: the App's check summaries and the Action's job summaries, from trusted results only |
 | [Subscriptions example](examples/subscriptions/README.md) | A second application profile, designed independently of commerce, as a repository that uses the Action |
 | [Contracts package](packages/contracts/README.md) | Typed result contracts, their enforced invariants, value encoding and JSON Schemas |

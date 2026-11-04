@@ -19,13 +19,24 @@ from alembic.config import Config
 from sqlalchemy import create_engine
 
 from commerce_env import DatabaseFactory
-from dataproof_contracts import CheckOutcome, DataContract, DecimalValue, NullValue, TextValue
+from dataproof_contracts import (
+    BindingReviewStatus,
+    CheckOutcome,
+    CheckResult,
+    DataContract,
+    DecimalValue,
+    ErrorCode,
+    NotRunReason,
+    NullValue,
+    TextValue,
+)
 from dataproof_verifier import (
     QueryLimits,
     Verification,
     assemble_contract,
     load_binding,
     load_oracle,
+    type_check,
     verify_contract,
 )
 from subscriptions_env import CHANGES, EXAMPLE, INVOICE_AMOUNTS
@@ -89,6 +100,10 @@ def reference(postgres_dsn: str) -> Iterator[str]:
         yield baseline(create)
 
 
+TYPE_CHECKS: dict[str, dict[str, CheckResult]] = {}
+"""The C8 type check of every contract, by change set, kept beside the data verifications."""
+
+
 def verify(change: str, reference: str, new_database: DatabaseFactory) -> dict[str, Verification]:
     candidate = baseline(new_database)
     migrate(candidate, change)
@@ -96,10 +111,14 @@ def verify(change: str, reference: str, new_database: DatabaseFactory) -> dict[s
         psycopg.connect(reference, autocommit=True) as ref,
         psycopg.connect(candidate, autocommit=True) as cand,
     ):
-        return {
+        results = {
             c.contract_id: verify_contract(c, ref, cand, "0" * 64, QueryLimits())
             for c in contracts(change)
         }
+    TYPE_CHECKS[change] = {
+        c.contract_id: type_check(c, results[c.contract_id]) for c in contracts(change)
+    }
+    return results
 
 
 def scalar(dsn: str, query: str) -> Any:
@@ -132,6 +151,78 @@ def _only(results: dict[str, Verification], failing: set[str]) -> None:
             verification.check.outcome,
             verification.check.error_code,
         )
+
+
+@pytest.mark.parametrize("change", ["money-columns", "invoice-index-and-comment", "plan-catalog"])
+def test_clean_controls_pass_the_type_check_too(
+    change: str, reference: str, new_database: DatabaseFactory
+) -> None:
+    verify(change, reference, new_database)
+    assert {k: v.outcome for k, v in TYPE_CHECKS[change].items()} == {
+        INVOICE_AMOUNTS: PASS,
+        BILLING: PASS,
+        STATE: PASS,
+    }
+
+
+def test_money_declared_without_cents_fails_the_type_check(
+    reference: str, new_database: DatabaseFactory
+) -> None:
+    """Authored (C8): numeric(12, 0) cannot hold cents whatever the fixture holds."""
+    results = verify("money-columns-whole-units", reference, new_database)
+    _only(results, {INVOICE_AMOUNTS})
+    types = TYPE_CHECKS["money-columns-whole-units"][INVOICE_AMOUNTS]
+    assert types.outcome is FAIL
+    assert {(m.key[0].value, m.observed.value) for m in types.mismatch_examples} == {  # type: ignore[union-attr]
+        ("subtotal", "numeric(12, 0)"),
+        ("tax", "numeric(12, 0)"),
+        ("total", "numeric(12, 0)"),
+    }
+    assert types.evidence_ids == (f"{INVOICE_AMOUNTS}:candidate:binding",)
+
+
+def test_a_naive_timestamp_column_has_no_instant(
+    reference: str, new_database: DatabaseFactory
+) -> None:
+    """Authored (C8): timestamp without time zone. The values cannot even be compared, which
+    the data check reports as an error; the type check names the column and the type."""
+    results = verify("period-naive-timestamp", reference, new_database)
+    billing = results[BILLING].check
+    assert billing.outcome is CheckOutcome.ERROR
+    assert billing.error_code is ErrorCode.UNSUPPORTED_VALUE_TYPE
+    types = TYPE_CHECKS["period-naive-timestamp"][BILLING]
+    assert types.outcome is FAIL
+    assert {(m.key[0].value, m.observed.value) for m in types.mismatch_examples} == {  # type: ignore[union-attr]
+        ("period_start", "timestamp without time zone"),
+        ("period_end", "timestamp without time zone"),
+    }
+    for contract_id in (INVOICE_AMOUNTS, STATE):
+        assert results[contract_id].check.outcome is PASS
+        assert TYPE_CHECKS["period-naive-timestamp"][contract_id].outcome is PASS
+
+
+def test_the_type_check_waits_for_the_data_check(
+    reference: str, new_database: DatabaseFactory
+) -> None:
+    """An unapproved binding runs no query, so there are no types to judge: NOT_RUN."""
+    candidate = baseline(new_database)
+    migrate(candidate, "money-columns")
+    (contract,) = [c for c in contracts("money-columns") if c.contract_id == INVOICE_AMOUNTS]
+    pending = contract.model_copy(
+        update={"binding_review": BindingReviewStatus.PENDING, "approved_binding_digest": None}
+    )
+    with (
+        psycopg.connect(reference, autocommit=True) as ref,
+        psycopg.connect(candidate, autocommit=True) as cand,
+    ):
+        verification = verify_contract(pending, ref, cand, "0" * 64, QueryLimits())
+    assert verification.check.not_run_reason is NotRunReason.AWAITING_BINDING_REVIEW
+    assert verification.candidate_types is None
+    types = type_check(pending, verification)
+    assert (types.outcome, types.not_run_reason) == (
+        CheckOutcome.NOT_RUN,
+        NotRunReason.PREREQUISITE_FAILED,
+    )
 
 
 def test_integer_division_floors_most_invoices(
@@ -276,6 +367,8 @@ def test_every_change_set_is_covered_here() -> None:
         "plan-catalog-orphans",
         "invoices-copied-positionally",
         "import-not-idempotent",
+        "money-columns-whole-units",
+        "period-naive-timestamp",
     }
     assert {p.name for p in CHANGES.iterdir() if p.is_dir()} == covered
 

@@ -51,8 +51,10 @@ from dataproof_contracts import (
     DataContract,
     Environment,
     Investigation,
+    Mismatch,
     NotRunReason,
     ReportVerdict,
+    TextValue,
     github_check_conclusion,
 )
 from dataproof_investigator import diagnose
@@ -67,6 +69,7 @@ from dataproof_verifier import (
     derive_verdict,
     parse_binding,
     parse_oracle,
+    type_check,
     verify_contract,
 )
 
@@ -75,6 +78,9 @@ log = logging.getLogger(__name__)
 VERSION = "0.1.0"
 MIGRATION_CHECK = "migration.execute"
 MIGRATION_CONTRACT = "dataproof.migration_executes"
+RERUN_CHECK = "migration.rerun"
+RERUN_CONTRACT = "dataproof.migration_rerun_is_noop"
+TYPES_PREFIX = "types."
 EXIT_SOURCE_DIGEST_MISMATCH = 65
 ENVIRONMENT_TTL = timedelta(hours=2)
 MAX_OUTPUT = 16 * 1024
@@ -221,6 +227,52 @@ def _step_entry(
     }
 
 
+def _rerun_check(rerun: tuple[StepResult, str, str] | None, dataset_digest: str) -> CheckResult:
+    """C7 as a check: the second ``upgrade head`` succeeded and changed nothing."""
+    common: dict[str, Any] = {
+        "check_id": RERUN_CHECK,
+        "contract_id": RERUN_CONTRACT,
+        "contract_version": 1,
+        "required": True,
+        "dataset_digest": dataset_digest,
+    }
+    if rerun is None:
+        return CheckResult(
+            **common,
+            outcome=CheckOutcome.NOT_RUN,
+            not_run_reason=NotRunReason.PREREQUISITE_FAILED,
+        )
+    result, before, after = rerun
+    evidence = (f"{RERUN_CHECK}:CANDIDATE:step",)
+    if result.succeeded and before == after:
+        return CheckResult(
+            **common,
+            outcome=CheckOutcome.PASS,
+            evidence_ids=evidence,
+            elapsed_ms=int(result.duration_seconds * 1000),
+        )
+    changed = (
+        []
+        if before == after
+        else [
+            Mismatch(
+                key=(TextValue(value="database_digest"),),
+                column="after_rerun",
+                expected=TextValue(value=before),
+                observed=TextValue(value=after),
+            )
+        ]
+    )
+    return CheckResult(
+        **common,
+        outcome=CheckOutcome.FAIL,
+        mismatch_count=len(changed),
+        mismatch_examples=tuple(changed),
+        evidence_ids=evidence,
+        elapsed_ms=int(result.duration_seconds * 1000),
+    )
+
+
 def _coverage_row(check: CheckResult) -> dict[str, Any]:
     reason = check.not_run_reason or check.error_code
     return {
@@ -325,8 +377,28 @@ class _Run:
         with psycopg.connect(access.conninfo(access.reader)) as connection:
             return database_digest(connection, user_tables(connection))
 
+    def rerun(self, source: StagedSource, timeout: int) -> tuple[StepResult, str, str]:
+        """C7: run ``alembic upgrade head`` once more on the migrated candidate.
+
+        A completed revision is not applied again, so the step must succeed and leave every
+        table byte for byte as it was. Work done outside the revision mechanism (in ``env.py``,
+        or by a revision Alembic did not record) shows up as a changed digest.
+        """
+        handle = self.handles[Environment.CANDIDATE]
+        access = handle.database
+        with psycopg.connect(access.conninfo(access.reader)) as connection:
+            before = database_digest(connection, user_tables(connection))
+        result = self._migrate(handle, source, "candidate.migration-rerun", timeout)
+        with psycopg.connect(access.conninfo(access.reader)) as connection:
+            after = database_digest(connection, user_tables(connection))
+        return result, before, after
+
     def verify(
-        self, contracts: list[DataContract], migration: StepResult, dataset_digest: str
+        self,
+        contracts: list[DataContract],
+        migration: StepResult,
+        rerun: tuple[StepResult, str, str] | None,
+        dataset_digest: str,
     ) -> tuple[list[CheckResult], list[Verification]]:
         checks = [
             CheckResult(
@@ -338,7 +410,8 @@ class _Run:
                 evidence_ids=(f"{MIGRATION_CHECK}:CANDIDATE:step",),
                 dataset_digest=dataset_digest,
                 elapsed_ms=int(migration.duration_seconds * 1000),
-            )
+            ),
+            _rerun_check(rerun, dataset_digest),
         ]
         verifications: list[Verification] = []
         reference, candidate = (
@@ -361,27 +434,31 @@ class _Run:
                     "required": contract.required,
                     "dataset_digest": dataset_digest,
                 }
+                types_common = {**common, "check_id": TYPES_PREFIX + contract.contract_id}
                 if not migration.succeeded:
-                    checks.append(
-                        CheckResult(
-                            **common,
-                            outcome=CheckOutcome.NOT_RUN,
-                            not_run_reason=NotRunReason.PREREQUISITE_FAILED,
+                    for fields in (common, types_common):
+                        checks.append(
+                            CheckResult(
+                                **fields,
+                                outcome=CheckOutcome.NOT_RUN,
+                                not_run_reason=NotRunReason.PREREQUISITE_FAILED,
+                            )
                         )
-                    )
                     continue
                 if contract.oracle.api_route is not None:
-                    checks.append(
-                        CheckResult(
-                            **common,
-                            outcome=CheckOutcome.NOT_RUN,
-                            not_run_reason=NotRunReason.UNSUPPORTED,
+                    for fields in (common, types_common):
+                        checks.append(
+                            CheckResult(
+                                **fields,
+                                outcome=CheckOutcome.NOT_RUN,
+                                not_run_reason=NotRunReason.UNSUPPORTED,
+                            )
                         )
-                    )
                     continue
                 verification = verify_contract(contract, ref, cand, dataset_digest, QueryLimits())
                 verifications.append(verification)
                 checks.append(verification.check)
+                checks.append(type_check(contract, verification))
         return checks, verifications
 
     def snapshots(self) -> dict[str, dict[str, Any]]:
@@ -554,8 +631,12 @@ def _run(inputs: Inputs, started: float) -> int:
             "candidate.migration",
             config.alembic.timeout_seconds,
         )
+        rerun = None
+        if migration.succeeded:
+            log.info("DataProof: running the migrations once more; nothing may change")
+            rerun = this_run.rerun(head, config.alembic.timeout_seconds)
         log.info("DataProof: verifying %d contracts", len(contracts))
-        checks, verifications = this_run.verify(contracts, migration, trusted.fixture_sha256)
+        checks, verifications = this_run.verify(contracts, migration, rerun, trusted.fixture_sha256)
         verdict = derive_verdict(checks)
         investigation = diagnose(this_run.run_id, {c.check_id: c for c in checks})
         snapshots = this_run.snapshots()
