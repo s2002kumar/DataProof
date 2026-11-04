@@ -121,6 +121,24 @@ The reference and candidate are provisioned identically: the base commit's migra
 - **The trusted supply chain.** The migration image installs the base branch's pinned requirements with network access at build time, before any pull-request code is in the job. What the base branch trusts, the Action trusts.
 - **What a verdict means.** A run establishes that specific checks passed for an exact commit, fixture, contracts and PostgreSQL version. It proves nothing about production-scale locking, concurrency, performance or paths no oracle covers ([Verification](VERIFICATION.md#honest-limits)).
 
+## Testing it on your repository
+
+This is the guide for someone outside this project who agrees to try the Action on a repository of theirs. Field results, including failed installations and false positives, are recorded in [ACTION_FIELD_RESULTS.md](ACTION_FIELD_RESULTS.md); please add yours through a pull request or in [#80](https://github.com/s2002kumar/DataProof/issues/80).
+
+**What you need:** a PostgreSQL/Alembic repository whose `env.py` can take the database URL from `DATABASE_URL`; a GitHub-hosted `ubuntu-24.04` runner (Docker is present) or an ephemeral self-hosted one; a maintainer who can merge to the base branch.
+
+**Steps, with what to time:**
+
+1. On a branch, add `dataproof/config.toml`, a `dataproof/fixture.sql` that loads a few hundred representative rows into the base schema (plain SQL statements), one to three oracles under `dataproof/oracles/`, and the workflow from the quickstart pinned to a commit. Note how long this took and what was unclear.
+2. Merge that branch. The pull request that introduces the configuration cannot be verified by it (its job ends `Not verified (ERROR)`): expected.
+3. Open a pull request with a migration you already know is correct. Record the job's duration from the Actions page and the verdict. If the migration changes the schema the oracles read, the run is `INCOMPLETE` until you add the binding digest from the summary to `approved_bindings` and re-run; record that too.
+4. If you can, open a pull request with a migration you know is wrong (an old bug of yours, re-applied) and record whether DataProof blocks it, and on which check.
+5. Send back, in the issue or a pull request to the field-results file: the repository (or a description if it is private), PostgreSQL and Alembic versions, the four timings (setup, first job, verdict, approval round trip), the verdicts, the job summary text if you can share it (it holds values from your fixture only), and anything that was wrong, confusing or slow. A false positive, a crash and a clean install are all equally useful.
+
+**What we do not need:** access to your repository, your data, or your secrets. The Action never sends anything anywhere; its only network use is pulling the pinned images and installing the pinned packages on the runner.
+
+**What to expect:** no version tag yet, so pin a commit; the Action may change between commits; breaking changes will be listed in the field-results file.
+
 ## Not in the Action
 
 | Capability | Where it is |
