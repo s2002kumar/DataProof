@@ -1,0 +1,19 @@
+# Proposed by the pull request: the plan code now lives in plan_catalog. Untrusted until a
+# maintainer adds its digest to approved_bindings on the base branch.
+contract_id = "subscriptions.subscription_state"
+query_sql = """
+SELECT s.subscription_id, s.customer_id, p.code AS plan_code, s.status, s.seats, s.discount_bp,
+       s.started_at, s.cancelled_at
+FROM subscriptions AS s
+LEFT JOIN plan_catalog AS p ON p.plan_id = s.plan_id
+"""
+
+[column_mapping]
+subscription_id = "subscription_id"
+customer_id = "customer_id"
+plan_code = "plan_code"
+status = "status"
+seats = "seats"
+discount_bp = "discount_bp"
+started_at = "started_at"
+cancelled_at = "cancelled_at"

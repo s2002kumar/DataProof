@@ -57,7 +57,9 @@ The repository needs an Alembic project whose `env.py` takes the database URL fr
 
    `pull_request`, not `pull_request_target`: the Action refuses the latter. `persist-credentials: false` is right for a public repository; a private repository needs the token to fetch, and the migration container never sees the checkout either way.
 
-4. **Open a pull request** that adds a migration. The job's summary shows the verdict and what to do next.
+4. **Merge the configuration, fixture, oracles and workflow to the base branch first.** The Action reads all four from the base branch, so the pull request that introduces them cannot be verified by them: its job ends `Not verified (ERROR)` saying the configuration does not exist on the base branch (exit 4), which is the design working, not a fault. From the next pull request on, every run is real.
+
+5. **Open a pull request** that adds a migration. The job's summary shows the verdict and what to do next.
 
 ### When the pull request proposes a binding
 
