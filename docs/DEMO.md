@@ -2,9 +2,14 @@
 
 ## One-line pitch
 
-> DataProof tests database migrations in isolated copies of an application, catches silent data corruption, and produces evidence-backed AI explanations before a developer approves the change.
+> DataProof tests migrations in isolated copies of an application, catches silent data corruption, and shows evidence-backed checks and rule-based explanations for human review.
 
 ## Script and artifacts
+
+**Recorded-versus-proposed boundary:** The published demonstration uses rule-based,
+model-off diagnosis. The AI investigator has scripted-model tests but its
+live-model comparative value is not established. Do not describe the video as
+showing an AI tool trace or a real-model improvement.
 
 **0–12s — Show the problem:** Open GitHub PR changing commerce orders/refunds SQL. Point at green SQL execution alone not proving data correctness.
 
@@ -14,13 +19,13 @@
 
 **50–72s — Silent corruption:** F1 grouped-join migration **successfully executes**, preserves row count and event key identity, but changes a $49.99 refund to a single $99.98 ledger entry. Show exact event ID, affected order, source SQL and failing C1/C2. Note that a configured amount-SUM baseline would also catch this particular fault; use F3 in benchmark to show more discriminating value-check benefits.
 
-**72–85s — AI investigation:** Open grounded analysis with cited query evidence and hypothesis. If a verified smaller fixture exists, show it replaying the same failure. Optionally demonstrate developer-selected correction replay in a recorded clip.
+**72–85s — Evidence-backed diagnosis:** Show rule-based mismatch diagnosis and its cited evidence. If a verified smaller fixture exists, show it replaying the same failure. Do not call this a live AI investigation.
 
 **85–90s — Developer decision:** Show GitHub commit-bound status and downloadable evidence report; remind that production merge/deploy remains human-controlled.
 
 ## Evidence the published video must contain
 
-A real uncropped path or code-commit link proving DB migration ran; actual preview app; deterministic mismatches; AI tool trace; check results; GitHub commit SHA; a clean rerun and resource cleanup. Clearly annotate any prerecorded steps or accelerated playback. Do not fabricate UI or metric screenshots.
+A real uncropped path or code-commit link proving DB migration ran; actual preview app; deterministic mismatches; evidence citations; check results; GitHub commit SHA; a clean rerun and resource cleanup. Clearly annotate any prerecorded steps or accelerated playback. Do not fabricate UI or metric screenshots.
 
 ## Live setup
 
