@@ -4,6 +4,8 @@
 
 DataProof runs a PostgreSQL/Alembic migration in disposable reference and candidate databases, compares the data against contracts the pull request cannot edit, and reports a GitHub check bound to the commit: `BLOCKED` with the exact rows that changed, or `CHECKED` with the exact list of what was verified. Merge and deployment decisions stay with people.
 
+**Demonstrated scope:** one documented application profile (Commerce Orders & Refunds) on local Docker, with a real GitHub App integration; not a hosted, general-purpose migration service. The recorded diagnosis is deterministic and rule-based; the bounded AI roles are tested with scripted models, and whether a live model improves on the rules is not yet established. Everything else that bounds the claims is in [Limitations](#limitations).
+
 ## The failure it catches
 
 This migration moves legacy payment events into a per-order ledger. It joins the events to the order's items before summing, so an order with two items counts each event twice:
