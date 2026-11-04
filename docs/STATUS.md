@@ -12,18 +12,18 @@ This compares the original product contract ([PRODUCT](PRODUCT.md)) with what ha
 
 Nothing here has been verified by a third party. The benchmark corpus was written by the author of the system it tests.
 
-As of 2026-11-03.
+As of 2026-11-04.
 
 ## Committed capabilities
 
 | # | Requirement (PRODUCT) | Status | Evidence | Shortfall |
 | --- | --- | --- | --- | --- |
-| 1 | GitHub PR integration: validated webhooks, run lifecycle, check runs | **Verified, live** | Real `pull_request` webhooks started runs on [PR #2](https://github.com/s2002kumar/dataproof-demo-commerce/pull/2), and the App published a check run per run. Check-run finality was probed under branch protection and fixed (#73) | Each commit has one latest `DataProof` check, shared by pull requests with the same head commit |
+| 1 | GitHub PR integration: validated webhooks, run lifecycle, check runs | **Verified, live** | Real `pull_request` webhooks started runs on [PR #2](https://github.com/s2002kumar/dataproof-demo-commerce/pull/2), and the App published a check run per run. GitHub's check-run finality rule was probed under branch protection, and the publisher fixed with regression tests against a simulated GitHub (#73) | **The fixed publisher has not run against real GitHub** (#78): the fix is tested, not demonstrated live. Each commit has one latest `DataProof` check, shared by pull requests with the same head commit |
 | 2 | Migration review with static analysis and explicit unsupported or unknown handling | **Verified** | Policy refusals (`NOT_EXECUTED` for forks, dependency and out-of-root changes) are tested. Static risk rules run in `ANALYZING` on every eligible run (#75), and the [change-analysis benchmark](../benchmarks/results/CHANGE_ANALYSIS.md) regenerates exactly | The rules are patterns, not proof: they alarm on 6 of 12 clean controls, and their recall is optimistic because they were written with the corpus in view |
 | 3 | Real reference and candidate previews (PostgreSQL, FastAPI, frontend) | **Verified, live and local** | Live run, rehearsal, and 15 pipeline-tier runs with previews of both commits through the signed gateway | Local Docker only |
 | 4 | Approved deterministic seed data and reproducible snapshots | **Verified** | The fixture digest is pinned in every run. Sealed `pg_dump` snapshots must restore to the same rows, and data contracts replay from them (tests) | — |
 | 5 | Schema, key, relationship, null, decimal, timestamp, duplicate, transformation-invariant and API checks | **Partly verified** | C1 (event preservation, per key and field, including amounts and instants), C2 (refunds), C3 (captures) and C6 (API through previews) are protected oracles, with 18 of 20 benchmark faults detected and 0 of 11 false positives | **Not built as contracts:** C4 relationships, C5 temporal policy, C7 reprocessing (an idempotent rerun) and C8 schema (constraints and scale), and there is no schema diff (#6). C1 covers part of C4 and C5 today: it compares each event's order ID and exact instant, which is how orphaned references and shifted timestamps are caught. NULL and empty-string confusion is invisible to the declared contracts (2 benchmark misses) |
-| 6 | AI Change Analyst and AI Failure Investigator, strictly bounded | **Bounds verified; value not measured** | Both run the same bounded loop: allowlisted read-only tools, citation validation, budgets, and injection negatives (tests, including Docker pipeline tests). A rejected answer is never shown | **No live model call has been made** (budget not approved). The rule-based arms are measured: the rules name the root cause in 9 of 18 failing cases ([protocol](AI_EVALUATION.md)). The correction-advice mode is only the `suggested_action` field |
+| 6 | AI Change Analyst and AI Failure Investigator, strictly bounded | **Bounds verified; value not measured** | Both run the same bounded loop: allowlisted read-only tools, citation validation, budgets, and injection negatives (tests, including Docker pipeline tests). A rejected answer is never shown | **No live model call has been made yet.** The owner approved the budget on 2026-11-03 (Failure Investigator 1 + 9 USD, Change Analyst 5.10 USD); the live runs follow the frozen protocol and are next. The rule-based arms are measured: the rules name the root cause in 9 of 18 failing cases ([protocol](AI_EVALUATION.md)). The correction-advice mode is only the `suggested_action` field |
 | 7 | Evidence reports: affected rows, query provenance, migration steps, commit binding | **Verified** | Report and evidence manifest (tests), and the live run's reports | — |
 | 8 | Verified reproducer and approved correction rerun | **Verified** | Subset reproduction is `REPRODUCED` or honestly `NOT_REPRODUCED` (benchmark, tests). Correction replay ran live, `BLOCKED` then `CHECKED` | Extra-row failures cannot be reproduced from a reference subset (documented) |
 | 9 | Reviewer UI, GitHub summary, coverage, explicit human review | **Verified** | Dashboard browser test (CI `e2e`). Live run: GitHub sign-in, binding approvals and correction replay. The five-step run page (#76) was driven through two full rehearsals on real runs. The check summary carries the coverage table | One person was both author and reviewer (procedural separation). An organizational second maintainer is untested live |
@@ -56,7 +56,7 @@ As of 2026-11-03.
 
 ## Decisions that remain the owner's
 
-- **Model budget:** approve at most 10 USD for the AI ablation (pilot 1 USD, then 9 USD), and say whether the Change Analyst's live run (at most 5.10 USD) is in or out.
+- **Model budget:** decided on 2026-11-03. At most 10 USD for the AI ablation (pilot 1 USD, then 9 USD) and 5.10 USD for the Change Analyst's live run, 15.10 USD in all, under the frozen [protocol](AI_EVALUATION.md). Spending against it is reported with the results.
 - **The missing invariants:** build C4, C5, C7 and C8 and the schema diff (#6), or narrow requirement 5.
 - **AWS:** a cost estimate and security review for the hosted demo, or descope it (#5, #10, #11).
 - **Name clearance** (#13).
