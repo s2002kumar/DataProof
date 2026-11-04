@@ -27,7 +27,7 @@ The pull request's author and head repository are recorded per head in `github_p
 | --- | --- |
 | queued | `queued` |
 | working | `in_progress` |
-| reported | `completed` with the report's conclusion, its title (failed and not-run required checks) and the coverage table |
+| reported | `completed` with the report's conclusion, a title that counts failed and not-run required checks, and a summary that reads top down: the verdict and what it means, what to do next, each failing check with bounded expected-versus-observed examples, the coverage table with a tally and any unsupported checks, the evidence digests, and the rule-based diagnosis |
 | error before reporting | `completed`, `failure` (with the error code) |
 | timed out | `completed`, `timed_out` |
 | cancelled or superseded | `completed`, `cancelled` |
@@ -39,7 +39,7 @@ Rules:
 - **Recorded once, then repeated only if missing.** Each status is recorded write-once (migration 0009) after GitHub accepted it. A status that failed to publish, for example during an outage, is published on the next pass.
 - **The newest run's check run is created last.** A required check reads only the check run created last with its name on a commit, whatever order check runs completed in ([probed on GitHub](../../docs/DEMO.md#check-run-finality)). So a run that has not reached GitHub when a newer pull request run exists on its commit gets no check run. A late one could otherwise hide the newer run's result, in either direction. The omission is recorded once (migration 0011), the reviewer API names the newer run, and the newer run reports. A check run GitHub already shows is always brought to completion.
 - **At most one check run per run, in order.** A lock per commit keeps concurrent publishers from creating two, or from creating a commit's check runs out of their runs' order. Before creating one, the publisher looks for an existing check run with the run's external ID on that commit, so a crash between GitHub accepting a check run and recording it does not duplicate it.
-- **Trusted content only.** The summary holds check IDs, outcomes, reasons and counts from the run's results, plus the run's commits and configuration digest. No text from the pull request appears in it.
+- **Trusted content only.** The summary holds check IDs, outcomes, reasons, counts, mismatch examples and evidence digests from the run's results, the deterministic (rule-based) diagnosis, and the run's commits and configuration digest. No text from the pull request and no model output appears in it. A mismatch example's values come from the candidate database, which the pull request's migration wrote, so each is escaped for Markdown, bounded to 60 characters, and at most 5 examples are shown per check; the whole summary stays within GitHub's limit however many checks fail.
 - **Scope.** Only runs of registered repositories with a pull request are published.
 
 ## Source fetching
