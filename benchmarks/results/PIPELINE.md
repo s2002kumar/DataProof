@@ -10,21 +10,21 @@ Labels speak for the contracts their case was built for: C1 to C3 for database-t
 
 | Case | Family | Variant | Verdict | Failing (labelled scope) | As labelled | Also failed | To review (s) | Left behind |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `case-101` | clean control | legacy table retired | CHECKED | none | yes | none | 157.8 | 0 |
-| `case-102` | NULL and empty confusion | NULL to empty | CHECKED | none | yes | none | 150.1 | 0 |
-| `case-103` | clean control | extra column and index | CHECKED | none | yes | none | 184.7 | 0 |
-| `case-104` | join multiplication | all events | BLOCKED | `c1_event_preservation`, `c2_refund_totals`, `c3_capture_totals` | yes | `c6_order_totals_api`, `c6_refund_events_api` | 212.6 | 0 |
-| `case-105` | retry effects | refunds inserted again | BLOCKED | `c1_event_preservation`, `c2_refund_totals` | yes | `c6_order_totals_api`, `c6_refund_events_api` | 125.7 | 0 |
-| `case-107` | balanced loss and duplication | equal amounts | BLOCKED | `c1_event_preservation` | yes | none | 152.6 | 0 |
-| `case-109` | wrong column mapping | time from the order | BLOCKED | `c1_event_preservation` | yes | `c6_refund_events_api` | 138.0 | 0 |
-| `case-110` | partial migration | batch boundary skipped | BLOCKED | `c1_event_preservation`, `c2_refund_totals`, `c3_capture_totals` | yes | `c6_order_totals_api`, `c6_refund_events_api` | 121.0 | 0 |
-| `case-111` | lossy numeric conversion | one currency floored | BLOCKED | `c1_event_preservation`, `c2_refund_totals`, `c3_capture_totals` | yes | `c6_order_totals_api`, `c6_refund_events_api` | 109.7 | 0 |
-| `case-112` | timestamp shift | one currency's zone | BLOCKED | `c1_event_preservation` | yes | `c6_refund_events_api` | 117.3 | 0 |
-| `case-124` | orphaned reference | one capture | BLOCKED | `c1_event_preservation`, `c3_capture_totals` | yes | `c6_order_totals_api` | 236.6 | 0 |
-| `case-125` | transposition | capture pair | BLOCKED | `c1_event_preservation` | yes | none | 173.2 | 0 |
-| `case-201` | API behaviour | refunded total over every entry | BLOCKED | `c6_order_totals_api` | yes | none | 179.3 | 0 |
-| `case-202` | clean control | totals from two subqueries | CHECKED | none | yes | none | 195.0 | 0 |
-| `case-203` | API behaviour | transaction amounts rounded | BLOCKED | `c6_refund_events_api` | yes | none | 332.8 | 0 |
+| `case-101` | clean control | legacy table retired | CHECKED | none | yes | none | 143.3 | 0 |
+| `case-102` | NULL and empty confusion | NULL to empty | CHECKED | none | yes | none | 194.5 | 0 |
+| `case-103` | clean control | extra column and index | CHECKED | none | yes | none | 145.0 | 0 |
+| `case-104` | join multiplication | all events | BLOCKED | `c1_event_preservation`, `c2_refund_totals`, `c3_capture_totals` | yes | `c6_order_totals_api`, `c6_refund_events_api` | 171.4 | 0 |
+| `case-105` | retry effects | refunds inserted again | BLOCKED | `c1_event_preservation`, `c2_refund_totals` | yes | `c6_order_totals_api`, `c6_refund_events_api` | 128.0 | 0 |
+| `case-107` | balanced loss and duplication | equal amounts | BLOCKED | `c1_event_preservation` | yes | none | 128.3 | 0 |
+| `case-109` | wrong column mapping | time from the order | BLOCKED | `c1_event_preservation` | yes | `c6_refund_events_api` | 189.4 | 0 |
+| `case-110` | partial migration | batch boundary skipped | BLOCKED | `c1_event_preservation`, `c2_refund_totals`, `c3_capture_totals` | yes | `c6_order_totals_api`, `c6_refund_events_api` | 140.6 | 0 |
+| `case-111` | lossy numeric conversion | one currency floored | BLOCKED | `c1_event_preservation`, `c2_refund_totals`, `c3_capture_totals` | yes | `c6_order_totals_api`, `c6_refund_events_api` | 116.2 | 0 |
+| `case-112` | timestamp shift | one currency's zone | BLOCKED | `c1_event_preservation` | yes | `c6_refund_events_api` | 149.0 | 0 |
+| `case-124` | orphaned reference | one capture | BLOCKED | `c1_event_preservation`, `c3_capture_totals` | yes | `c6_order_totals_api` | 181.4 | 0 |
+| `case-125` | transposition | capture pair | BLOCKED | `c1_event_preservation` | yes | none | 166.6 | 0 |
+| `case-201` | API behaviour | refunded total over every entry | BLOCKED | `c6_order_totals_api` | yes | none | 143.1 | 0 |
+| `case-202` | clean control | totals from two subqueries | CHECKED | none | yes | none | 133.6 | 0 |
+| `case-203` | API behaviour | transaction amounts rounded | BLOCKED | `c6_refund_events_api` | yes | none | 130.5 | 0 |
 
 ## Summary
 
@@ -32,20 +32,20 @@ Labels speak for the contracts their case was built for: C1 to C3 for database-t
 - Data faults that also failed an API contract: 7/10.
 - Failing checks as labelled: 15/15.
 - Cleanup: 15/15 runs left no container, network or volume behind. Final states: COMPLETE.
-- Median time to review: 157.8 s.
-- Previews: median frontend build 18.4 s, median time to ready 23.6 s, highest peak memory 696.7 MiB.
+- Median time to review: 143.3 s.
+- Previews: median frontend build 17.3 s, median time to ready 25.8 s, highest peak memory 685.2 MiB.
 
 ## Median seconds per stage
 
 | Stage | Median (s) | Runs |
 | --- | --- | --- |
-| `PROVISIONING` | 46.8 | 15 |
-| `VERIFYING` | 39.2 | 15 |
-| `MIGRATING` | 30.0 | 15 |
-| `REPORTING` | 20.0 | 15 |
-| `CLEANING` | 10.5 | 15 |
-| `FETCHING` | 0.3 | 15 |
+| `PROVISIONING` | 49.8 | 15 |
+| `VERIFYING` | 32.6 | 15 |
+| `MIGRATING` | 31.2 | 15 |
+| `REPORTING` | 15.7 | 15 |
+| `CLEANING` | 10.1 | 15 |
+| `FETCHING` | 0.2 | 15 |
+| `ANALYZING` | 0.2 | 15 |
 | `READY_FOR_REVIEW` | 0.2 | 15 |
 | `INVESTIGATING` | 0.2 | 11 |
 | `QUEUED` | 0.1 | 15 |
-| `ANALYZING` | 0.1 | 15 |

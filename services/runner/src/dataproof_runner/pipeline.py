@@ -45,6 +45,7 @@ from dataproof_contracts import (
     EvidenceManifest,
     EvidenceRecord,
     Investigation,
+    Mismatch,
     NotExecutedReason,
     NotRunReason,
     Oracle,
@@ -57,6 +58,7 @@ from dataproof_contracts import (
     SnapshotArtifact,
     SourceArtifact,
     SubsetTable,
+    TextValue,
     canonical_json,
     github_check_conclusion,
 )
@@ -111,12 +113,17 @@ from dataproof_verifier import (
     derive_verdict,
     parse_binding,
     parse_oracle,
+    type_check,
     verify_api_contract,
     verify_contract,
 )
 
 MIGRATION_CHECK = "migration.execute"
 MIGRATION_CONTRACT = "dataproof.migration_executes"
+RERUN_STEP = "candidate.migration-rerun"
+RERUN_CHECK = "migration.rerun"
+RERUN_CONTRACT = "dataproof.migration_rerun_is_noop"
+TYPES_PREFIX = "types."
 REPORT_EXAMPLES = 5
 """Mismatch examples carried per check in the report, for the GitHub check summary."""
 MIGRATION_STEP = "candidate.migration"
@@ -651,13 +658,23 @@ class Pipeline:
         }
         if self.settings.previews:
             checks.append(self._preview_check(run, migration.succeeded, evidence))
+        rerun_steps: list[StepRecord] = []
+        checks.append(self._rerun_check(run, migration.succeeded, evidence, rerun_steps))
         if migration.succeeded:
             checks += self._contract_checks(run, evidence)
         else:
-            checks += [
-                CheckRecord(self._not_run(spec, NotRunReason.PREREQUISITE_FAILED, dataset))
-                for spec in self._oracle_specs(run)
-            ]
+            for spec in self._oracle_specs(run):
+                checks.append(
+                    CheckRecord(self._not_run(spec, NotRunReason.PREREQUISITE_FAILED, dataset))
+                )
+                if spec[1].api_route is None:
+                    checks.append(
+                        CheckRecord(
+                            self._not_run(
+                                spec, NotRunReason.PREREQUISITE_FAILED, dataset, types=True
+                            )
+                        )
+                    )
         summary = {c.result.check_id: c.result.outcome.value for c in checks}
         failed = any(
             c.result.required and c.result.outcome in (CheckOutcome.FAIL, CheckOutcome.ERROR)
@@ -667,12 +684,98 @@ class Pipeline:
             RunState.INVESTIGATING if failed else RunState.REPORTING,
             detail={"outcomes": summary},
             effects=_all(
+                self._steps(run.run_id, rerun_steps),
                 *(self._recorder(record_check, run.run_id, check) for check in checks),
                 *(
                     self._recorder(record_evidence, run.run_id, evidence_id, record)
                     for evidence_id, record in sorted(evidence.items())
                 ),
             ),
+        )
+
+    def _rerun_check(
+        self,
+        run: ReviewRun,
+        migrated: bool,
+        evidence: dict[str, Mapping[str, Any]],
+        steps: list[StepRecord],
+    ) -> CheckRecord:
+        """C7 (ADR-0008): a second ``upgrade head`` on the migrated candidate changes nothing.
+
+        A completed revision is not applied again, so the step must succeed and every table must
+        digest exactly as before. Work outside the revision mechanism shows as a changed digest.
+        """
+        common: dict[str, Any] = {
+            "check_id": RERUN_CHECK,
+            "contract_id": RERUN_CONTRACT,
+            "contract_version": 1,
+            "required": True,
+            "dataset_digest": run.inputs.dataset_digest,
+        }
+        if not migrated:
+            return CheckRecord(
+                CheckResult(
+                    **common,
+                    outcome=CheckOutcome.NOT_RUN,
+                    not_run_reason=NotRunReason.PREREQUISITE_FAILED,
+                )
+            )
+        candidate = self._attached(run.run_id, Environment.CANDIDATE)
+        head = self._source(run.run_id, Environment.CANDIDATE)
+        access = candidate.database
+        with psycopg.connect(access.conninfo(access.reader)) as conn:
+            before = database_digest(conn, user_tables(conn))
+        result = self.backend.run_step(
+            candidate,
+            image=self.project.runtime_image,
+            source=head,
+            arguments=self._migrate_arguments,
+            timeout=self._step_timeout,
+        )
+        step = _step_record(RERUN_STEP, Environment.CANDIDATE, head, result)
+        steps.append(step)
+        with psycopg.connect(access.conninfo(access.reader)) as conn:
+            after = database_digest(conn, user_tables(conn))
+        evidence_id = f"{RERUN_CHECK}:CANDIDATE:step"
+        evidence[evidence_id] = {
+            "kind": "step",
+            "step_id": step.step_id,
+            "exit_code": step.exit_code,
+            "timed_out": step.timed_out,
+            "source_sha256": step.source_sha256,
+            "database_digest_before": before,
+            "database_digest_after": after,
+        }
+        if result.succeeded and before == after:
+            return CheckRecord(
+                CheckResult(
+                    **common,
+                    outcome=CheckOutcome.PASS,
+                    evidence_ids=(evidence_id,),
+                    elapsed_ms=step.duration_ms,
+                )
+            )
+        changed = (
+            ()
+            if before == after
+            else (
+                Mismatch(
+                    key=(TextValue(value="database_digest"),),
+                    column="after_rerun",
+                    expected=TextValue(value=before),
+                    observed=TextValue(value=after),
+                ),
+            )
+        )
+        return CheckRecord(
+            CheckResult(
+                **common,
+                outcome=CheckOutcome.FAIL,
+                mismatch_count=len(changed),
+                mismatch_examples=changed,
+                evidence_ids=(evidence_id,),
+                elapsed_ms=step.duration_ms,
+            )
         )
 
     def _preview_check(
@@ -733,11 +836,17 @@ class Pipeline:
         ]
 
     def _not_run(
-        self, oracle: tuple[OracleFile, Oracle], reason: NotRunReason, dataset: str
+        self,
+        oracle: tuple[OracleFile, Oracle],
+        reason: NotRunReason,
+        dataset: str,
+        *,
+        types: bool = False,
     ) -> CheckResult:
+        """A contract's data check, or with ``types`` its type check, that did not run."""
         spec, _ = oracle
         return CheckResult(
-            check_id=spec.contract_id,
+            check_id=(TYPES_PREFIX if types else "") + spec.contract_id,
             contract_id=spec.contract_id,
             contract_version=spec.version,
             required=spec.required,
@@ -800,6 +909,17 @@ class Pipeline:
                     )
                     result = self._not_run(oracle, NotRunReason.AWAITING_BINDING_REVIEW, dataset)
                     records.append(CheckRecord(result, binding_problem=problem))
+                    if oracle_model.api_route is None:
+                        records.append(
+                            CheckRecord(
+                                self._not_run(
+                                    oracle,
+                                    NotRunReason.AWAITING_BINDING_REVIEW,
+                                    dataset,
+                                    types=True,
+                                )
+                            )
+                        )
                     continue
                 (_, binding) = bindings[0]
                 contract = assemble_contract(
@@ -839,6 +959,9 @@ class Pipeline:
                         binding_problem=verification.binding_problem,
                     )
                 )
+                if oracle_model.api_route is None:
+                    # C8 (ADR-0008): the candidate's declared column types, from the same query.
+                    records.append(CheckRecord(type_check(contract, verification)))
         if problems:
             # Unparseable binding files are reported on the report, not silently dropped.
             evidence["bindings:CANDIDATE:invalid"] = {"kind": "invalid_bindings", "files": problems}

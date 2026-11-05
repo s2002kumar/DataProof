@@ -63,6 +63,9 @@ Planning estimate: **20–26 focused solo weeks at 15–20 genuinely available h
 13. `infra: isolated Fargate execution backend, Terraform, independent TTL reconciler` (approval-gated, ADR-0006).
 14. `docs: publish verified demo, benchmark, cost and limitations`.
 15. `feat(action): the GitHub Action for the database tier, over the same engine` (work package 13, pull request #86).
+16. `feat(examples): nine migration faults on the subscriptions schema, seven sourced from documented OSS incidents` (#87), with the public example repository and the field-results log.
+17. `feat(verifier): C8 as the type check and C7 as the rerun check; C4 and C5 narrowed (ADR-0008)` (#88), with the release split in STATUS, the defense and the narrated demonstration.
+18. `feat(runner): the type and rerun checks in the App's pipeline, with regenerated pipeline-tier results` (#89).
 
 These are suggested **future** commits, not actions already taken, except where a pull request number is given.
 
