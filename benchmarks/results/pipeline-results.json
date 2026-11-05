@@ -1,7 +1,7 @@
 {
   "tier": "pipeline (the real worker on local Docker, with previews of both commits)",
   "machine": "Windows AMD64, 22 CPUs",
-  "runtime_image": "sha256:acd909e04803d275e496139148e6268777c85e2826a44bd882b9dc2d8135a343",
+  "runtime_image": "sha256:2814f0788c04bc198cfe55e7e2ff8b7b7e3f39216cfad71730fc0722f53a5978",
   "cases": [
     {
       "case_id": "case-101",
@@ -21,34 +21,38 @@
         "commerce.c6_order_totals_api": "PASS",
         "commerce.c6_refund_events_api": "PASS",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
-        "QUEUED": 0.6,
-        "FETCHING": 0.7,
-        "ANALYZING": 0.6,
-        "PROVISIONING": 41.0,
-        "MIGRATING": 22.4,
-        "VERIFYING": 58.2,
-        "REPORTING": 23.1,
-        "READY_FOR_REVIEW": 0.9,
-        "CLEANING": 10.5
+        "QUEUED": 0.1,
+        "FETCHING": 0.3,
+        "ANALYZING": 0.3,
+        "PROVISIONING": 56.8,
+        "MIGRATING": 31.2,
+        "VERIFYING": 30.0,
+        "REPORTING": 14.3,
+        "READY_FOR_REVIEW": 0.2,
+        "CLEANING": 10.1
       },
-      "seconds_to_review": 157.8,
+      "seconds_to_review": 143.3,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 10.1,
-          "ready_seconds": 16.1,
-          "peak_memory_mib": 549.3,
-          "cpu_seconds": 20.8
+          "build_seconds": 18.7,
+          "ready_seconds": 26.5,
+          "peak_memory_mib": 633.7,
+          "cpu_seconds": 39.5
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 13.4,
-          "ready_seconds": 20.1,
-          "peak_memory_mib": 696.7,
-          "cpu_seconds": 24.3
+          "build_seconds": 20.6,
+          "ready_seconds": 29.5,
+          "peak_memory_mib": 676.4,
+          "cpu_seconds": 43.5
         }
       },
       "left_behind": 0,
@@ -79,34 +83,38 @@
         "commerce.c6_order_totals_api": "PASS",
         "commerce.c6_refund_events_api": "PASS",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
-        "QUEUED": 0.4,
-        "FETCHING": 0.5,
+        "QUEUED": 0.2,
+        "FETCHING": 0.6,
         "ANALYZING": 0.4,
-        "PROVISIONING": 37.3,
-        "MIGRATING": 22.3,
-        "VERIFYING": 58.9,
-        "REPORTING": 20.3,
-        "READY_FOR_REVIEW": 1.1,
-        "CLEANING": 8.8
+        "PROVISIONING": 41.6,
+        "MIGRATING": 28.3,
+        "VERIFYING": 40.8,
+        "REPORTING": 46.2,
+        "READY_FOR_REVIEW": 0.3,
+        "CLEANING": 35.6
       },
-      "seconds_to_review": 150.1,
+      "seconds_to_review": 194.5,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 11.3,
-          "ready_seconds": 18.2,
-          "peak_memory_mib": 631.7,
-          "cpu_seconds": 22.7
+          "build_seconds": 17.4,
+          "ready_seconds": 23.7,
+          "peak_memory_mib": 627.1,
+          "cpu_seconds": 35.7
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 11.4,
-          "ready_seconds": 17.0,
-          "peak_memory_mib": 570.9,
-          "cpu_seconds": 25.0
+          "build_seconds": 16.6,
+          "ready_seconds": 23.4,
+          "peak_memory_mib": 635.7,
+          "cpu_seconds": 34.9
         }
       },
       "left_behind": 0,
@@ -137,34 +145,38 @@
         "commerce.c6_order_totals_api": "PASS",
         "commerce.c6_refund_events_api": "PASS",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
-        "QUEUED": 0.5,
-        "FETCHING": 0.8,
-        "ANALYZING": 0.6,
-        "PROVISIONING": 44.6,
-        "MIGRATING": 30.0,
-        "VERIFYING": 71.3,
-        "REPORTING": 24.6,
-        "READY_FOR_REVIEW": 0.9,
-        "CLEANING": 11.4
+        "QUEUED": 0.1,
+        "FETCHING": 0.3,
+        "ANALYZING": 0.9,
+        "PROVISIONING": 49.8,
+        "MIGRATING": 44.3,
+        "VERIFYING": 27.5,
+        "REPORTING": 12.9,
+        "READY_FOR_REVIEW": 0.2,
+        "CLEANING": 8.7
       },
-      "seconds_to_review": 184.7,
+      "seconds_to_review": 145.0,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 13.8,
-          "ready_seconds": 22.5,
-          "peak_memory_mib": 644.3,
-          "cpu_seconds": 28.3
+          "build_seconds": 15.9,
+          "ready_seconds": 22.7,
+          "peak_memory_mib": 672.2,
+          "cpu_seconds": 33.4
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 11.2,
-          "ready_seconds": 21.0,
-          "peak_memory_mib": 569.9,
-          "cpu_seconds": 26.6
+          "build_seconds": 20.5,
+          "ready_seconds": 28.4,
+          "peak_memory_mib": 671.0,
+          "cpu_seconds": 43.9
         }
       },
       "left_behind": 0,
@@ -199,35 +211,39 @@
         "commerce.c6_order_totals_api": "FAIL",
         "commerce.c6_refund_events_api": "FAIL",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
-        "QUEUED": 0.6,
-        "FETCHING": 0.8,
-        "ANALYZING": 0.7,
-        "PROVISIONING": 48.4,
-        "MIGRATING": 26.8,
-        "VERIFYING": 64.3,
-        "INVESTIGATING": 1.0,
-        "REPORTING": 59.5,
-        "READY_FOR_REVIEW": 1.0,
-        "CLEANING": 9.5
+        "QUEUED": 0.1,
+        "FETCHING": 0.2,
+        "ANALYZING": 0.8,
+        "PROVISIONING": 55.2,
+        "MIGRATING": 55.3,
+        "VERIFYING": 33.8,
+        "INVESTIGATING": 0.2,
+        "REPORTING": 15.6,
+        "READY_FOR_REVIEW": 0.2,
+        "CLEANING": 10.5
       },
-      "seconds_to_review": 212.6,
+      "seconds_to_review": 171.4,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 10.5,
-          "ready_seconds": 16.4,
-          "peak_memory_mib": 533.8,
-          "cpu_seconds": 22.0
+          "build_seconds": 29.2,
+          "ready_seconds": 38.5,
+          "peak_memory_mib": 637.6,
+          "cpu_seconds": 56.3
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 16.2,
-          "ready_seconds": 22.8,
-          "peak_memory_mib": 670.3,
-          "cpu_seconds": 33.3
+          "build_seconds": 22.8,
+          "ready_seconds": 32.1,
+          "peak_memory_mib": 685.2,
+          "cpu_seconds": 45.5
         }
       },
       "left_behind": 0,
@@ -264,35 +280,39 @@
         "commerce.c6_order_totals_api": "FAIL",
         "commerce.c6_refund_events_api": "FAIL",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
-        "QUEUED": 0.5,
-        "FETCHING": 0.6,
-        "ANALYZING": 0.3,
-        "PROVISIONING": 40.8,
-        "MIGRATING": 18.4,
-        "VERIFYING": 27.5,
-        "INVESTIGATING": 0.2,
-        "REPORTING": 24.5,
-        "READY_FOR_REVIEW": 0.4,
-        "CLEANING": 12.7
+        "QUEUED": 0.1,
+        "FETCHING": 0.2,
+        "ANALYZING": 0.2,
+        "PROVISIONING": 47.9,
+        "MIGRATING": 24.7,
+        "VERIFYING": 28.3,
+        "INVESTIGATING": 0.1,
+        "REPORTING": 14.2,
+        "READY_FOR_REVIEW": 0.2,
+        "CLEANING": 11.9
       },
-      "seconds_to_review": 125.7,
+      "seconds_to_review": 128.0,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 11.5,
-          "ready_seconds": 15.6,
-          "peak_memory_mib": 610.2,
-          "cpu_seconds": 24.3
+          "build_seconds": 13.1,
+          "ready_seconds": 18.6,
+          "peak_memory_mib": 681.6,
+          "cpu_seconds": 28.8
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 10.0,
-          "ready_seconds": 14.4,
-          "peak_memory_mib": 609.6,
-          "cpu_seconds": 20.8
+          "build_seconds": 14.6,
+          "ready_seconds": 20.6,
+          "peak_memory_mib": 673.6,
+          "cpu_seconds": 29.4
         }
       },
       "left_behind": 0,
@@ -328,35 +348,39 @@
         "commerce.c6_order_totals_api": "PASS",
         "commerce.c6_refund_events_api": "PASS",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
         "QUEUED": 0.1,
-        "FETCHING": 0.3,
-        "ANALYZING": 0.2,
-        "PROVISIONING": 68.4,
-        "MIGRATING": 33.5,
-        "VERIFYING": 27.4,
-        "INVESTIGATING": 0.2,
-        "REPORTING": 13.4,
+        "FETCHING": 0.2,
+        "ANALYZING": 0.3,
+        "PROVISIONING": 41.0,
+        "MIGRATING": 27.2,
+        "VERIFYING": 33.6,
+        "INVESTIGATING": 0.1,
+        "REPORTING": 15.7,
         "READY_FOR_REVIEW": 0.2,
-        "CLEANING": 9.1
+        "CLEANING": 9.8
       },
-      "seconds_to_review": 152.6,
+      "seconds_to_review": 128.3,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 19.9,
-          "ready_seconds": 24.6,
-          "peak_memory_mib": 604.7,
-          "cpu_seconds": 39.3
+          "build_seconds": 15.6,
+          "ready_seconds": 22.8,
+          "peak_memory_mib": 625.9,
+          "cpu_seconds": 33.3
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 35.3,
-          "ready_seconds": 44.5,
-          "peak_memory_mib": 689.2,
-          "cpu_seconds": 69.7
+          "build_seconds": 16.3,
+          "ready_seconds": 23.2,
+          "peak_memory_mib": 510.9,
+          "cpu_seconds": 33.7
         }
       },
       "left_behind": 0,
@@ -389,35 +413,39 @@
         "commerce.c6_order_totals_api": "PASS",
         "commerce.c6_refund_events_api": "FAIL",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
         "QUEUED": 0.1,
-        "FETCHING": 0.3,
-        "ANALYZING": 0.1,
-        "PROVISIONING": 48.1,
-        "MIGRATING": 30.7,
-        "VERIFYING": 31.6,
+        "FETCHING": 0.2,
+        "ANALYZING": 0.3,
+        "PROVISIONING": 55.4,
+        "MIGRATING": 33.9,
+        "VERIFYING": 33.5,
         "INVESTIGATING": 0.2,
-        "REPORTING": 16.6,
-        "READY_FOR_REVIEW": 0.2,
-        "CLEANING": 10.2
+        "REPORTING": 19.7,
+        "READY_FOR_REVIEW": 0.3,
+        "CLEANING": 45.9
       },
-      "seconds_to_review": 138.0,
+      "seconds_to_review": 189.4,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 18.9,
-          "ready_seconds": 25.2,
-          "peak_memory_mib": 615.9,
-          "cpu_seconds": 40.0
+          "build_seconds": 17.2,
+          "ready_seconds": 27.9,
+          "peak_memory_mib": 557.0,
+          "cpu_seconds": 37.0
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 22.8,
+          "build_seconds": 22.2,
           "ready_seconds": 30.0,
-          "peak_memory_mib": 557.5,
-          "cpu_seconds": 46.3
+          "peak_memory_mib": 607.9,
+          "cpu_seconds": 44.7
         }
       },
       "left_behind": 0,
@@ -454,35 +482,39 @@
         "commerce.c6_order_totals_api": "FAIL",
         "commerce.c6_refund_events_api": "FAIL",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
         "QUEUED": 0.1,
-        "FETCHING": 0.2,
-        "ANALYZING": 0.1,
-        "PROVISIONING": 41.2,
-        "MIGRATING": 26.6,
-        "VERIFYING": 28.3,
+        "FETCHING": 0.3,
+        "ANALYZING": 0.2,
+        "PROVISIONING": 51.0,
+        "MIGRATING": 29.6,
+        "VERIFYING": 32.6,
         "INVESTIGATING": 0.2,
-        "REPORTING": 15.3,
+        "REPORTING": 15.5,
         "READY_FOR_REVIEW": 0.2,
-        "CLEANING": 8.8
+        "CLEANING": 11.3
       },
-      "seconds_to_review": 121.0,
+      "seconds_to_review": 140.6,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 14.9,
-          "ready_seconds": 22.1,
-          "peak_memory_mib": 659.6,
-          "cpu_seconds": 32.0
+          "build_seconds": 17.0,
+          "ready_seconds": 25.7,
+          "peak_memory_mib": 611.2,
+          "cpu_seconds": 38.6
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 18.9,
-          "ready_seconds": 24.3,
-          "peak_memory_mib": 559.0,
-          "cpu_seconds": 37.5
+          "build_seconds": 20.9,
+          "ready_seconds": 27.2,
+          "peak_memory_mib": 594.9,
+          "cpu_seconds": 42.2
         }
       },
       "left_behind": 0,
@@ -520,35 +552,39 @@
         "commerce.c6_order_totals_api": "FAIL",
         "commerce.c6_refund_events_api": "FAIL",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
         "QUEUED": 0.1,
-        "FETCHING": 0.2,
-        "ANALYZING": 0.1,
-        "PROVISIONING": 38.9,
-        "MIGRATING": 23.7,
-        "VERIFYING": 26.7,
+        "FETCHING": 0.3,
+        "ANALYZING": 0.2,
+        "PROVISIONING": 36.4,
+        "MIGRATING": 24.2,
+        "VERIFYING": 26.6,
         "INVESTIGATING": 0.2,
-        "REPORTING": 12.7,
-        "READY_FOR_REVIEW": 0.1,
-        "CLEANING": 7.0
+        "REPORTING": 18.6,
+        "READY_FOR_REVIEW": 0.2,
+        "CLEANING": 8.8
       },
-      "seconds_to_review": 109.7,
+      "seconds_to_review": 116.2,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 16.2,
-          "ready_seconds": 20.2,
-          "peak_memory_mib": 628.9,
-          "cpu_seconds": 31.5
+          "build_seconds": 13.5,
+          "ready_seconds": 19.8,
+          "peak_memory_mib": 503.5,
+          "cpu_seconds": 29.5
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 16.2,
-          "ready_seconds": 22.6,
-          "peak_memory_mib": 663.2,
-          "cpu_seconds": 33.4
+          "build_seconds": 13.2,
+          "ready_seconds": 18.6,
+          "peak_memory_mib": 611.4,
+          "cpu_seconds": 27.2
         }
       },
       "left_behind": 0,
@@ -584,35 +620,39 @@
         "commerce.c6_order_totals_api": "PASS",
         "commerce.c6_refund_events_api": "FAIL",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
         "QUEUED": 0.1,
-        "FETCHING": 0.2,
-        "ANALYZING": 0.1,
-        "PROVISIONING": 38.3,
-        "MIGRATING": 23.0,
-        "VERIFYING": 27.7,
+        "FETCHING": 0.3,
+        "ANALYZING": 0.2,
+        "PROVISIONING": 41.0,
+        "MIGRATING": 43.9,
+        "VERIFYING": 39.0,
         "INVESTIGATING": 0.2,
-        "REPORTING": 14.7,
-        "READY_FOR_REVIEW": 0.1,
-        "CLEANING": 12.8
+        "REPORTING": 15.9,
+        "READY_FOR_REVIEW": 0.2,
+        "CLEANING": 8.6
       },
-      "seconds_to_review": 117.3,
+      "seconds_to_review": 149.0,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 13.7,
-          "ready_seconds": 18.1,
-          "peak_memory_mib": 640.1,
-          "cpu_seconds": 28.3
+          "build_seconds": 28.6,
+          "ready_seconds": 38.0,
+          "peak_memory_mib": 678.2,
+          "cpu_seconds": 59.0
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 17.9,
-          "ready_seconds": 21.8,
-          "peak_memory_mib": 605.5,
-          "cpu_seconds": 35.4
+          "build_seconds": 15.6,
+          "ready_seconds": 21.1,
+          "peak_memory_mib": 669.8,
+          "cpu_seconds": 32.6
         }
       },
       "left_behind": 0,
@@ -648,35 +688,39 @@
         "commerce.c6_order_totals_api": "FAIL",
         "commerce.c6_refund_events_api": "PASS",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
         "QUEUED": 0.1,
         "FETCHING": 0.2,
-        "ANALYZING": 0.1,
-        "PROVISIONING": 78.9,
-        "MIGRATING": 97.9,
-        "VERIFYING": 33.6,
+        "ANALYZING": 0.2,
+        "PROVISIONING": 68.7,
+        "MIGRATING": 46.0,
+        "VERIFYING": 37.5,
         "INVESTIGATING": 0.2,
-        "REPORTING": 16.1,
+        "REPORTING": 18.7,
         "READY_FOR_REVIEW": 0.2,
-        "CLEANING": 9.1
+        "CLEANING": 9.9
       },
-      "seconds_to_review": 236.6,
+      "seconds_to_review": 181.4,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 41.9,
-          "ready_seconds": 60.7,
-          "peak_memory_mib": 670.6,
-          "cpu_seconds": 85.0
+          "build_seconds": 31.5,
+          "ready_seconds": 40.8,
+          "peak_memory_mib": 630.3,
+          "cpu_seconds": 63.8
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 35.3,
-          "ready_seconds": 49.8,
-          "peak_memory_mib": 619.2,
-          "cpu_seconds": 71.1
+          "build_seconds": 32.9,
+          "ready_seconds": 41.5,
+          "peak_memory_mib": 641.2,
+          "cpu_seconds": 65.3
         }
       },
       "left_behind": 0,
@@ -711,35 +755,39 @@
         "commerce.c6_order_totals_api": "PASS",
         "commerce.c6_refund_events_api": "PASS",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
         "QUEUED": 0.1,
-        "FETCHING": 0.3,
-        "ANALYZING": 0.2,
-        "PROVISIONING": 46.8,
-        "MIGRATING": 49.8,
-        "VERIFYING": 45.2,
+        "FETCHING": 0.2,
+        "ANALYZING": 0.1,
+        "PROVISIONING": 64.2,
+        "MIGRATING": 35.9,
+        "VERIFYING": 34.5,
         "INVESTIGATING": 0.2,
-        "REPORTING": 20.0,
+        "REPORTING": 16.9,
         "READY_FOR_REVIEW": 0.2,
-        "CLEANING": 10.6
+        "CLEANING": 14.2
       },
-      "seconds_to_review": 173.2,
+      "seconds_to_review": 166.6,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 24.6,
-          "ready_seconds": 42.3,
-          "peak_memory_mib": 615.6,
-          "cpu_seconds": 53.8
+          "build_seconds": 22.3,
+          "ready_seconds": 32.3,
+          "peak_memory_mib": 665.4,
+          "cpu_seconds": 48.6
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 24.0,
-          "ready_seconds": 30.3,
-          "peak_memory_mib": 656.0,
-          "cpu_seconds": 47.3
+          "build_seconds": 29.6,
+          "ready_seconds": 37.8,
+          "peak_memory_mib": 629.5,
+          "cpu_seconds": 57.0
         }
       },
       "left_behind": 0,
@@ -772,35 +820,39 @@
         "commerce.c6_order_totals_api": "FAIL",
         "commerce.c6_refund_events_api": "PASS",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
         "QUEUED": 0.1,
-        "FETCHING": 0.3,
-        "ANALYZING": 0.1,
-        "PROVISIONING": 61.2,
-        "MIGRATING": 34.1,
-        "VERIFYING": 49.3,
-        "INVESTIGATING": 0.3,
-        "REPORTING": 21.0,
+        "FETCHING": 0.2,
+        "ANALYZING": 0.2,
+        "PROVISIONING": 54.5,
+        "MIGRATING": 33.7,
+        "VERIFYING": 29.0,
+        "INVESTIGATING": 0.1,
+        "REPORTING": 13.7,
         "READY_FOR_REVIEW": 0.2,
-        "CLEANING": 12.8
+        "CLEANING": 11.9
       },
-      "seconds_to_review": 179.3,
+      "seconds_to_review": 143.1,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 20.7,
-          "ready_seconds": 28.2,
-          "peak_memory_mib": 672.7,
-          "cpu_seconds": 42.8
+          "build_seconds": 18.6,
+          "ready_seconds": 25.8,
+          "peak_memory_mib": 649.3,
+          "cpu_seconds": 38.8
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 22.8,
-          "ready_seconds": 30.5,
-          "peak_memory_mib": 574.9,
-          "cpu_seconds": 45.1
+          "build_seconds": 16.5,
+          "ready_seconds": 28.5,
+          "peak_memory_mib": 624.8,
+          "cpu_seconds": 37.4
         }
       },
       "left_behind": 0,
@@ -833,34 +885,38 @@
         "commerce.c6_order_totals_api": "PASS",
         "commerce.c6_refund_events_api": "PASS",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
         "QUEUED": 0.1,
-        "FETCHING": 0.2,
-        "ANALYZING": 0.1,
-        "PROVISIONING": 60.3,
-        "MIGRATING": 67.4,
-        "VERIFYING": 39.2,
-        "REPORTING": 16.7,
+        "FETCHING": 0.3,
+        "ANALYZING": 0.3,
+        "PROVISIONING": 46.7,
+        "MIGRATING": 29.7,
+        "VERIFYING": 30.0,
+        "REPORTING": 16.0,
         "READY_FOR_REVIEW": 0.2,
-        "CLEANING": 10.7
+        "CLEANING": 10.1
       },
-      "seconds_to_review": 195.0,
+      "seconds_to_review": 133.6,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 49.6,
-          "ready_seconds": 56.1,
-          "peak_memory_mib": 577.6,
-          "cpu_seconds": 86.2
+          "build_seconds": 17.1,
+          "ready_seconds": 25.0,
+          "peak_memory_mib": 568.4,
+          "cpu_seconds": 37.0
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 24.8,
-          "ready_seconds": 32.3,
-          "peak_memory_mib": 673.8,
-          "cpu_seconds": 49.4
+          "build_seconds": 17.8,
+          "ready_seconds": 25.0,
+          "peak_memory_mib": 615.6,
+          "cpu_seconds": 35.2
         }
       },
       "left_behind": 0,
@@ -895,35 +951,39 @@
         "commerce.c6_order_totals_api": "PASS",
         "commerce.c6_refund_events_api": "FAIL",
         "migration.execute": "PASS",
-        "preview.candidate": "PASS"
+        "migration.rerun": "PASS",
+        "preview.candidate": "PASS",
+        "types.commerce.c1_event_preservation": "PASS",
+        "types.commerce.c2_refund_totals": "PASS",
+        "types.commerce.c3_capture_totals": "PASS"
       },
       "stage_seconds": {
         "QUEUED": 0.1,
         "FETCHING": 0.2,
-        "ANALYZING": 0.1,
-        "PROVISIONING": 104.8,
-        "MIGRATING": 68.3,
-        "VERIFYING": 57.2,
-        "INVESTIGATING": 0.3,
-        "REPORTING": 52.8,
-        "READY_FOR_REVIEW": 0.2,
-        "CLEANING": 48.8
+        "ANALYZING": 0.2,
+        "PROVISIONING": 46.0,
+        "MIGRATING": 30.0,
+        "VERIFYING": 29.2,
+        "INVESTIGATING": 0.8,
+        "REPORTING": 15.2,
+        "READY_FOR_REVIEW": 0.1,
+        "CLEANING": 8.9
       },
-      "seconds_to_review": 332.8,
+      "seconds_to_review": 130.5,
       "previews": {
         "CANDIDATE": {
           "ready": true,
-          "build_seconds": 43.3,
-          "ready_seconds": 52.8,
-          "peak_memory_mib": 611.8,
-          "cpu_seconds": 83.2
+          "build_seconds": 15.7,
+          "ready_seconds": 24.6,
+          "peak_memory_mib": 522.8,
+          "cpu_seconds": 35.0
         },
         "REFERENCE": {
           "ready": true,
-          "build_seconds": 62.8,
-          "ready_seconds": 72.2,
-          "peak_memory_mib": 487.5,
-          "cpu_seconds": 87.0
+          "build_seconds": 16.3,
+          "ready_seconds": 25.4,
+          "peak_memory_mib": 563.2,
+          "cpu_seconds": 34.9
         }
       },
       "left_behind": 0,

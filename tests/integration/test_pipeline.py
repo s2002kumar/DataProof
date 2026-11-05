@@ -60,7 +60,13 @@ from dataproof_runner.broker import GitFetcher, GitRemote, SourceFetcher
 from dataproof_runner.configured import ConfiguredPipelines
 from dataproof_runner.decisions import NotAwaitingReviewError, awaiting_review, decide_binding
 from dataproof_runner.local_docker import LocalDockerBackend
-from dataproof_runner.pipeline import MIGRATION_CHECK, PREVIEW_CHECK, Pipeline, PipelineSettings
+from dataproof_runner.pipeline import (
+    MIGRATION_CHECK,
+    PREVIEW_CHECK,
+    RERUN_CHECK,
+    Pipeline,
+    PipelineSettings,
+)
 from dataproof_runner.project import ProjectConfig
 from dataproof_runner.reproducer import Reproducer
 from dataproof_runner.source import archive_commit
@@ -245,9 +251,19 @@ def test_a_safe_change_is_checked_survives_a_retry_and_is_cleaned_up(harness: Ha
         ReportVerdict.CHECKED,
         GitHubCheckConclusion.SUCCESS,
     )
-    assert [row["check_id"] for row in report.report["coverage"]] == [C1, C2, C3, MIGRATION_CHECK]
-    assert harness.outcomes(run_id) == dict.fromkeys(
-        [C1, C2, C3, MIGRATION_CHECK], CheckOutcome.PASS
+    every_check = [
+        C1,
+        C2,
+        C3,
+        MIGRATION_CHECK,
+        RERUN_CHECK,
+        f"types.{C1}",
+        f"types.{C2}",
+        f"types.{C3}",
+    ]
+    assert sorted(row["check_id"] for row in report.report["coverage"]) == sorted(every_check)
+    assert harness.outcomes(run_id) == dict.fromkeys(every_check, CheckOutcome.PASS), (
+        "the data checks, the rerun check (C7) and the type checks (C8) all pass"
     )
     assert report.report["head_sha"] == head
     assert report.report["backend"] == "local-docker"
@@ -257,6 +273,7 @@ def test_a_safe_change_is_checked_survives_a_retry_and_is_cleaned_up(harness: Ha
         "reference.base-migration",
         "candidate.base-migration",
         "candidate.migration",
+        "candidate.migration-rerun",
     }
     assert all(step.succeeded for step in steps.values())
     sources = harness.results.sources(run_id)
@@ -365,8 +382,11 @@ def test_f1_is_blocked_with_the_refund_evidence_and_reproduces_exactly(harness: 
     # Replaying from the sealed snapshots alone reproduces every data contract exactly.
     sealed = pipeline.replay(harness.store.get_run(first))
     assert sealed.matches, sealed.differences
-    assert set(sealed.replayed) == {C1, C2, C3}
+    assert set(sealed.replayed) == {C1, C2, C3, f"types.{C1}", f"types.{C2}", f"types.{C3}"}, (
+        "the data checks and their type checks replay from the snapshots alone"
+    )
     assert MIGRATION_CHECK in sealed.skipped
+    assert RERUN_CHECK in sealed.skipped, "a step cannot be replayed from a snapshot"
     assert harness.backend.resources(first) == [], "replay environments are destroyed"
     assert harness.store.get_run(first).state is S.COMPLETE, "a replay never changes the run"
 

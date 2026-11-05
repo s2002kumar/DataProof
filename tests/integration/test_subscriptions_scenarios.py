@@ -221,8 +221,8 @@ def test_the_type_check_waits_for_the_data_check(
     types = type_check(pending, verification)
     assert (types.outcome, types.not_run_reason) == (
         CheckOutcome.NOT_RUN,
-        NotRunReason.PREREQUISITE_FAILED,
-    )
+        NotRunReason.AWAITING_BINDING_REVIEW,
+    ), "the type check waits for the same review"
 
 
 def test_integer_division_floors_most_invoices(

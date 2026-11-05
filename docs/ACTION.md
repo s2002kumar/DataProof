@@ -46,7 +46,7 @@ The repository needs an Alembic project whose `env.py` takes the database URL fr
          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
            with:
              persist-credentials: false
-         - uses: s2002kumar/DataProof@2cabbc16ffa9581d14186b89cc2db9a99430af71 # pin a commit; no tag yet
+         - uses: s2002kumar/DataProof@a0789aa9529737153f2171f0ba0acaa545660006 # pin a commit; no tag yet
            id: dataproof
          - uses: actions/upload-artifact@<sha>
            if: always()

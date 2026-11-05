@@ -124,10 +124,12 @@ def type_check(contract: DataContract, verification: Verification) -> CheckResul
     }
     types = verification.candidate_types
     if types is None:
+        # The candidate query never ran: for the data check's own reason (a binding awaiting
+        # review, a rejected binding) or because something before it failed.
         return CheckResult(
             **common,
             outcome=CheckOutcome.NOT_RUN,
-            not_run_reason=NotRunReason.PREREQUISITE_FAILED,
+            not_run_reason=verification.check.not_run_reason or NotRunReason.PREREQUISITE_FAILED,
         )
     binding = contract.candidate_binding
     names = binding.column_mapping if binding is not None else {}

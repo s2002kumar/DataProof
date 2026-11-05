@@ -62,6 +62,7 @@ Labels are read only after every case has run. The results hold nothing that var
 - **Scoring:** each label is held to the contracts it was written for. Database-tier labels cover C1 to C3; API behaviour labels cover every contract. A data fault that also fails an API contract (C6), because the API serves the migrated data, is listed as *also failed* and is not scored.
 - **Results (one local run):** 11 of 12 faults were detected; the miss is the one fault the declared contracts cannot observe. No clean control was flagged (0 of 3), every failing set matched its label, and 7 of the 10 data faults also failed through the API previews. Every run left nothing behind. See [`results/PIPELINE.md`](results/PIPELINE.md) for timings.
 - **Variation:** timings vary between machines and runs, but outcomes must not. `tests/integration/test_benchmark_pipeline.py` reruns the first API case in CI and requires the committed outcomes, a complete cleanup, and C6 failing while the data contracts pass.
+- **A case that stalls in a batch** (a stage that does not finish within the tier's one-hour wait, for a reason outside the run) is rerun alone with full logs. If the rerun reproduces the outcomes with nothing left behind, its record replaces the stalled one in the committed results, and the pull request that commits them says which case, what stalled and for how long. If the stall reproduces, it is a bug to fix before any result is committed. This happened once, for `case-109` on 2026-11-04 (#89).
 
 ## AI ablation (B3)
 
