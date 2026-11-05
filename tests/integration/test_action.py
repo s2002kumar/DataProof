@@ -160,7 +160,10 @@ def test_an_unapproved_binding_fails_closed_and_names_its_digest(
     assert "### Proposed bindings awaiting review" in outcome.summary
     assert pending["digest"] in outcome.summary
     assert "a pull request cannot approve its own binding" in outcome.summary
-    assert "1 check waits for a proposed binding to be reviewed" in outcome.summary
+    # The data check and its type check both wait for the same review (ADR-0008).
+    assert "2 checks wait for a proposed binding to be reviewed" in outcome.summary
+    types = outcome.coverage(f"types.{INVOICE_AMOUNTS}")
+    assert (types["outcome"], types["reason"]) == ("NOT_RUN", "AWAITING_BINDING_REVIEW")
 
 
 def test_a_pull_request_cannot_approve_its_own_binding_or_weaken_an_oracle(
