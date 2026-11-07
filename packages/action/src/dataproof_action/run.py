@@ -348,6 +348,7 @@ class _Run:
             source=source,
             arguments=["migrate", "--config", self.config.alembic.config, "--target", "head"],
             timeout=timedelta(seconds=timeout),
+            variables=self.config.alembic.environment,
         )
         self.steps.append(_step_entry(step_id, handle.role, source, result))
         if result.exit_code == EXIT_SOURCE_DIGEST_MISMATCH:

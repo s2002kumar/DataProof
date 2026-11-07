@@ -524,6 +524,72 @@ def test_a_malformed_configuration_on_the_base_branch_is_an_error(
     assert "## Not verified (`ERROR`)" in outcome.summary
 
 
+SETTINGS_ENV_PY = '''"""An env.py that builds its URL from its own settings, as many apps do."""
+
+import os
+
+from alembic import context
+from sqlalchemy import create_engine
+
+
+def url() -> str:
+    if os.environ.get("APP_SECRET_KEY") != "dataproof-test-only":
+        raise RuntimeError("the application refuses to start without its settings")
+    user = os.getenv("POSTGRES_USER", "postgres")
+    password = os.getenv("POSTGRES_PASSWORD", "")
+    server = os.getenv("POSTGRES_SERVER", "db")
+    port = os.getenv("POSTGRES_PORT", "5432")
+    db = os.getenv("POSTGRES_DB", "app")
+    print("connecting with password", password, flush=True)
+    return f"postgresql+psycopg://{user}:{password}@{server}:{port}/{db}"
+
+
+engine = create_engine(url())
+with engine.connect() as connection:
+    context.configure(connection=connection, transaction_per_migration=True)
+    with context.begin_transaction():
+        context.run_migrations()
+engine.dispose()
+'''
+
+SETTINGS_VARIABLES = (
+    'environment = { POSTGRES_SERVER = "{host}", POSTGRES_PORT = "{port}", '
+    'POSTGRES_USER = "{user}", POSTGRES_PASSWORD = "{password}", '
+    'POSTGRES_DB = "{dbname}", APP_SECRET_KEY = "dataproof-test-only" }'
+)
+
+
+def test_an_env_py_that_reads_its_own_settings_needs_them_from_the_base_branch(
+    repo: SubscriptionsRepo, approved: str
+) -> None:
+    """Without the variables, the pull request's env.py cannot reach its database: the
+    migration fails and the run is BLOCKED. With them declared on the base branch, it runs, the
+    run is CHECKED, and the database password never appears in the step's output."""
+    head = repo.change("money-columns", {"migrations/env.py": SETTINGS_ENV_PY})
+    without = repo.run(head)
+    assert without.report["verdict"] == "BLOCKED"
+    assert without.coverage("migration.execute")["outcome"] == "FAIL"
+
+    config = repo.upstream.joinpath("dataproof/config.toml").read_text("utf-8")
+    declared = config.replace(
+        "timeout_seconds = 300", "timeout_seconds = 300\n" + SETTINGS_VARIABLES
+    )
+    assert declared != config
+    repo.base = repo.commit(
+        repo.base, {"dataproof/config.toml": declared}, "Declare the settings", branch="main"
+    )
+    try:
+        outcome = repo.run(repo.change("money-columns", {"migrations/env.py": SETTINGS_ENV_PY}))
+    finally:
+        repo.base = repo.commit(
+            repo.base, {"dataproof/config.toml": config}, "Restore", branch="main"
+        )
+    assert outcome.report["verdict"] == "CHECKED", outcome.summary
+    (step,) = [s for s in outcome.report["steps"] if s["step_id"] == "candidate.migration"]
+    assert "connecting with password [REDACTED]" in step["output"]
+    assert '"variables": ["APP_SECRET_KEY", "POSTGRES_DB"' in step["output"]
+
+
 def test_nothing_is_left_behind(repo: SubscriptionsRepo) -> None:
     import docker
 

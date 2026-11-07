@@ -12,10 +12,11 @@ import json
 import tomllib
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, PositiveInt, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError, model_validator
 
 from dataproof_contracts import CandidateBinding, sha256_digest
 from dataproof_contracts._base import Sha256Hex
+from dataproof_runner.backend import step_variable_problems
 from dataproof_runner.project import RelativeDir, RelativeFile
 
 DEFAULT_CONFIG_PATH = "dataproof/config.toml"
@@ -37,9 +38,23 @@ class AlembicSection(_Section):
     requirements: RelativeFile | None = None
     """A pinned requirements file for what ``env.py`` imports beyond Alembic, SQLAlchemy and
     psycopg, read from the base branch and installed into the migration image before any
-    pull-request code runs. A pull request cannot add a dependency to its own run."""
+    pull-request code runs. A pull request cannot add a dependency to its own run. A package it
+    names replaces DataProof's own pin for that package (an app pinned to an older SQLAlchemy
+    keeps it)."""
     timeout_seconds: PositiveInt = 600
     """How long one migration step may run before it is killed."""
+    environment: dict[str, str] = Field(default_factory=dict)
+    """Variables for an ``env.py`` that reads its own settings rather than ``DATABASE_URL``.
+    A value is literal text or names the disposable database: ``{host}``, ``{port}``,
+    ``{user}``, ``{password}``, ``{dbname}`` or ``{database_url}``. Read from the base branch
+    only, like everything here, and passed to the base branch's migration and the pull
+    request's. **This file is public: a value is a test value, never a real secret.**"""
+
+    @model_validator(mode="after")
+    def _acceptable_environment(self) -> Self:
+        if problems := step_variable_problems(self.environment):
+            raise ValueError("; ".join(problems))
+        return self
 
 
 class FixtureSection(_Section):

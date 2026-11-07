@@ -9,6 +9,7 @@ workspace is never in it. The image is referenced by its ID, so a step cannot be
 different image than the one that was built.
 """
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -21,8 +22,35 @@ UV_IMAGE = (
     "ghcr.io/astral-sh/uv:0.13.6"
     "@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0"
 )
-PINNED_REQUIREMENTS = "alembic==1.20.1\nsqlalchemy==2.1.6\npsycopg[binary]==3.3.6\n"
-"""What every migration image has, at the versions this repository is locked to."""
+PINNED = {
+    "alembic": "alembic==1.20.1",
+    "sqlalchemy": "sqlalchemy==2.1.6",
+    "psycopg": "psycopg[binary]==3.3.6",
+}
+"""What every migration image has, at the versions this repository is locked to, unless the
+base branch's requirements file names the package itself."""
+_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+
+
+def requirement_names(requirements: str) -> set[str]:
+    """The normalized package names a requirements file declares (PEP 503 normalization)."""
+    names = set()
+    for line in requirements.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line or line.startswith("-"):
+            continue
+        if match := _NAME.match(line):
+            names.add(re.sub(r"[-_.]+", "-", match.group(1)).lower())
+    return names
+
+
+def merged_requirements(requirements: str | None) -> str:
+    """DataProof's pins for what the file does not name, then the file itself."""
+    extra = requirements.strip() if requirements else ""
+    named = requirement_names(extra)
+    pins = [pin for name, pin in PINNED.items() if name not in named]
+    return "\n".join([*pins, *([extra] if extra else [])]) + "\n"
+
 
 DOCKERFILE = f"""\
 FROM {UV_IMAGE} AS uv
@@ -50,8 +78,9 @@ def write_context(directory: Path, *, requirements: str | None) -> None:
     """Lay out the build context: Dockerfile, requirements and the trusted entrypoint."""
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "Dockerfile").write_text(DOCKERFILE, "utf-8", newline="\n")
-    extra = requirements.strip() + "\n" if requirements and requirements.strip() else ""
-    (directory / "requirements.txt").write_text(PINNED_REQUIREMENTS + extra, "utf-8", newline="\n")
+    (directory / "requirements.txt").write_text(
+        merged_requirements(requirements), "utf-8", newline="\n"
+    )
     shutil.copyfile(ENTRYPOINT, directory / "entrypoint.py")
 
 
