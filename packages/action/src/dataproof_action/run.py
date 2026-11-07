@@ -591,7 +591,7 @@ def _run(inputs: Inputs, started: float) -> int:
     if event.from_fork and config.policy.forks == "refuse":
         return _finish(inputs, _not_executed(inputs, event, trusted, "FORK_PULL_REQUEST"))
 
-    changed = repository.changed_paths(trusted.base_sha, event.head_sha)
+    changed, merge_base = repository.pull_request_paths(trusted.base_sha, event.head_sha)
     bindings = _read_bindings(repository, event.head_sha, config.contracts.binding_dir)
     contracts = []
     approval_digests: dict[str, str] = {}
@@ -723,6 +723,7 @@ def _run(inputs: Inputs, started: float) -> int:
         "exit_code": EXIT_CODES[verdict.value],
         "database_digest": digests[Environment.REFERENCE],
         "changed_paths": changed,
+        "changed_since": merge_base,
         "migration_files_changed": _migration_files(changed),
         "trusted_files_changed": _trusted_files_changed(changed, trusted, inputs.config_path),
         "bindings": {

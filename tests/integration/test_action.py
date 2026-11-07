@@ -18,6 +18,7 @@ from subscriptions_env import (
     INVOICE_AMOUNTS,
     SubscriptionsRepo,
     approval_digest,
+    change_files,
     revision,
 )
 
@@ -221,6 +222,35 @@ def test_a_pull_request_cannot_approve_its_own_binding_or_weaken_an_oracle(
         assert outcome.report["verdict"] == "CHECKED", outcome.summary
     else:
         assert outcome.report["verdict"] == "INCOMPLETE", outcome.summary
+
+
+def test_a_branch_behind_its_base_is_held_only_to_its_own_changes(
+    repo: SubscriptionsRepo, approved: str
+) -> None:
+    """main moves on after the pull request branches: a maintainer edits an oracle and adds a
+    file. Counted from main's tip, the pull request would appear to have changed both; GitHub's
+    diff, and DataProof's, count from the merge base."""
+    branched_from = repo.base
+    head = repo.change("money-columns")
+    oracle = "dataproof/oracles/billing_periods.toml"
+    original = repo.upstream.joinpath(oracle).read_text("utf-8")
+    repo.base = repo.commit(
+        repo.base,
+        {oracle: "# Reviewed again; unchanged.\n" + original, "NOTES.md": "main moved on\n"},
+        "main moves on after the pull request branched",
+        branch="main",
+    )
+    try:
+        outcome = repo.run(head)
+    finally:
+        repo.base = repo.commit(
+            repo.base, {oracle: original, "NOTES.md": None}, "Restore", branch="main"
+        )
+    assert outcome.report["changed_since"] == branched_from
+    assert outcome.report["changed_paths"] == sorted(change_files("money-columns"))
+    assert outcome.report["trusted_files_changed"] == []
+    assert "### Trusted files this pull request changed" not in outcome.summary
+    assert outcome.report["verdict"] == "CHECKED", outcome.summary
 
 
 def test_a_hostile_migration_reaches_no_secret_network_socket_or_workspace(

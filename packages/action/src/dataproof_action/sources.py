@@ -12,7 +12,12 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 from dataproof_runner.backend import StagedSource
-from dataproof_runner.source import archive_commit, changed_paths
+from dataproof_runner.source import archive_commit, changed_paths, merge_base, pull_request_paths
+
+#: How much history of the base and head to fetch, in turn, until their merge base is found. A
+#: pull request more than the last step behind or ahead of its base has its changed paths
+#: counted from the base's tip.
+DEEPEN_STEPS = (50, 500, 5000)
 
 
 class SourceError(RuntimeError):
@@ -92,3 +97,32 @@ class Repository:
 
     def changed_paths(self, base_sha: str, head_sha: str) -> list[str]:
         return changed_paths(self.path, base_sha, head_sha)
+
+    def is_shallow(self) -> bool:
+        shallow = self._git("rev-parse", "--is-shallow-repository", check=False)
+        return shallow.stdout.decode().strip() != "false"
+
+    def pull_request_paths(self, base_sha: str, head_sha: str) -> tuple[list[str], str | None]:
+        """The paths the pull request changes since its merge base, and that merge base.
+
+        The checkout and the Action's own fetches are shallow, so the merge base is usually
+        missing at first: fetch more history of both commits, in widening steps, until it is
+        found or the history is complete (``DEEPEN_STEPS``). Without it, the paths are counted
+        from the base's tip (``pull_request_paths`` in ``dataproof_runner.source``).
+        """
+        for depth in (None, *DEEPEN_STEPS):
+            if depth is not None:
+                if not self.is_shallow():
+                    break
+                self._git(
+                    "fetch",
+                    "--no-tags",
+                    f"--depth={depth}",
+                    "origin",
+                    base_sha,
+                    head_sha,
+                    check=False,
+                )
+            if merge_base(self.path, base_sha, head_sha) is not None:
+                break
+        return pull_request_paths(self.path, base_sha, head_sha)
