@@ -466,7 +466,8 @@ def test_an_optional_contract_that_errors_is_checked_with_warnings(
     assert optional_row["outcome"] == "ERROR", "the migration dropped the column it reads"
     assert outcome.coverage(INVOICE_AMOUNTS)["outcome"] == "PASS"
     assert "## CHECKED_WITH_WARNINGS (`success`)" in outcome.summary
-    assert "optional check warned" in outcome.summary
+    # Two warnings: the optional data check errored, and its type check could not run.
+    assert "2 optional checks warned" in outcome.summary
 
 
 def test_an_api_contract_is_unsupported_and_the_run_is_never_green(
