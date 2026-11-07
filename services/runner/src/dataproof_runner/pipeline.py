@@ -103,7 +103,7 @@ from dataproof_runner.broker import SourceFetcher
 from dataproof_runner.preview_client import PreviewApi
 from dataproof_runner.project import ProjectConfig
 from dataproof_runner.signature import failure_signature, seeds, verdict
-from dataproof_runner.source import archive_commit, changed_paths
+from dataproof_runner.source import archive_commit, pull_request_paths
 from dataproof_runner.subset import Catalog, closure, export, load
 from dataproof_runner.worker import StageContext, StageHandler, StageOutcome
 from dataproof_verifier import (
@@ -392,7 +392,9 @@ class Pipeline:
                 NotExecutedReason.FORK_PULL_REQUEST,
                 {"head_repository": run.inputs.head_repository},
             )
-        paths = changed_paths(self.clone, run.inputs.base_sha, run.inputs.head_sha)
+        # Counted from the merge base, as GitHub's diff is: a change its base branch made
+        # after the head branched is not this pull request's (the mirror has full history).
+        paths, since = pull_request_paths(self.clone, run.inputs.base_sha, run.inputs.head_sha)
         violations = self.project.policy_violations(paths)
         if violations:
             return self._not_executed(
@@ -405,6 +407,7 @@ class Pipeline:
             RunState.PROVISIONING,
             detail={
                 "changed_paths": paths,
+                "changed_since": since,
                 "analyses": [{"model": a.model, "status": a.status.value} for a in analyses],
             },
             effects=_all(*(self._recorder(record_investigation, a) for a in analyses)),

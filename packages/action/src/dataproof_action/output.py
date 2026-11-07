@@ -92,7 +92,9 @@ def _bindings_section(pending: Sequence[Mapping[str, Any]]) -> list[str]:
     return lines
 
 
-def _trusted_changes_section(paths: Sequence[str], base_ref: str) -> list[str]:
+def _trusted_changes_section(
+    paths: Sequence[str], base_ref: str, *, since_merge_base: bool = True
+) -> list[str]:
     if not paths:
         return []
     lines = ["### Trusted files this pull request changed", ""]
@@ -100,6 +102,12 @@ def _trusted_changes_section(paths: Sequence[str], base_ref: str) -> list[str]:
         f"DataProof read these from `{base_ref}`, not from the pull request. The change takes "
         "effect after it is merged, so it did not affect this result."
     )
+    if not since_merge_base:
+        lines.append(
+            f"The pull request's merge base with `{base_ref}` was not found in the history "
+            f"fetched, so these are the files that differ from `{base_ref}`'s tip: they may "
+            f"include changes made on `{base_ref}` after the pull request branched."
+        )
     lines.append("")
     lines += [f"- {code(path, 200)}" for path in paths]
     return [*lines, ""]
@@ -142,7 +150,9 @@ def job_summary(report: Mapping[str, Any]) -> str:
     sections = [
         *_bindings_section(report.get("bindings_awaiting_review") or []),
         *_trusted_changes_section(
-            report.get("trusted_files_changed") or [], pull_request["base_ref"]
+            report.get("trusted_files_changed") or [],
+            pull_request["base_ref"],
+            since_merge_base=report.get("changed_since") is not None,
         ),
         "### Not in this Action",
         "",

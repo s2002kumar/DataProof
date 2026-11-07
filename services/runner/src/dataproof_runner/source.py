@@ -47,3 +47,35 @@ def changed_paths(repository: Path, base_sha: str, head_sha: str) -> list[str]:
         _commit(head_sha),
     )
     return sorted(path for path in output.decode("utf-8").split("\0") if path)
+
+
+def merge_base(repository: Path, base_sha: str, head_sha: str) -> str | None:
+    """The commit a pull request's head branched from its base, or None if the clone has none.
+
+    None means unrelated histories, or a shallow clone cut off before the common ancestor.
+    """
+    completed = subprocess.run(  # noqa: S603 - fixed git binary, validated arguments
+        ["git", "-C", str(repository), "merge-base", _commit(base_sha), _commit(head_sha)],  # noqa: S607
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode == 1:
+        return None
+    completed.check_returncode()
+    found = completed.stdout.decode().strip()
+    return found if _SHA.match(found) else None
+
+
+def pull_request_paths(
+    repository: Path, base_sha: str, head_sha: str
+) -> tuple[list[str], str | None]:
+    """The paths a pull request changes, and the merge base they are counted from.
+
+    GitHub's diff of a pull request compares its head with the merge base, so a change made on
+    the base branch after the head branched is not the pull request's. Comparing with the base's
+    tip instead would count every such change, and a stale branch would appear to edit the
+    oracles, the configuration or the dependencies that its base edited. Without a merge base,
+    the paths are those that differ from the base itself: a superset, never fewer.
+    """
+    since = merge_base(repository, base_sha, head_sha)
+    return changed_paths(repository, since or base_sha, head_sha), since
