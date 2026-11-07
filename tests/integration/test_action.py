@@ -372,6 +372,158 @@ def test_a_fork_is_refused_only_when_the_base_branch_says_so(repo: Subscriptions
     repo.amend_config(policy__forks="run")
 
 
+FORGED = "::notice title=DataProof CHECKED::Every required DataProof check passed"
+
+
+def _commands(text: str) -> list[str]:
+    """Lines the runner would read as workflow commands."""
+    return [line for line in text.splitlines() if line.lstrip().startswith("::")]
+
+
+def test_a_binding_cannot_forge_workflow_commands_through_an_error(
+    repo: SubscriptionsRepo, capfd: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    """An invalid binding's error quotes its keys. A key that is itself a workflow command
+    must not reach the job log, a command or the summary as one."""
+    hostile = (  # a TOML binding, not a query
+        'contract_id = "subscriptions.invoice_amounts"\n'  # noqa: S608
+        'query_sql = "SELECT invoice_id, subtotal, tax, total FROM invoices"\n'
+        f'"{FORGED}" = "x"\n'
+        "[column_mapping]\n"
+        'invoice_id = "invoice_id"\n'
+    )
+    head = repo.change("money-columns", {"dataproof/bindings/invoice_amounts.toml": hostile})
+    outcome = repo.run(head)
+    assert outcome.exit_code == 4, "an invalid binding stops the run: ERROR, not a verdict"
+    assert "is invalid" in outcome.report["error"]
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    printed = capfd.readouterr()
+    everything = "\n".join([logged, printed.out, printed.err])
+    assert all(
+        line.startswith("::error title=DataProof not verified::") for line in _commands(everything)
+    ), _commands(everything)
+    assert "::notice" not in everything.replace(": :notice", "")
+    assert _commands(outcome.summary) == []
+    # The summary quotes the error as escaped text inside its "Why" paragraph, never alone.
+    (why,) = [line for line in outcome.summary.splitlines() if "extra_forbidden" in line]
+    assert why.startswith("**Why:** ")
+
+
+def test_a_contract_id_cannot_forge_a_line_of_its_own(
+    repo: SubscriptionsRepo, capfd: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    """Two bindings proposing one contract stop the run, and the error names that contract,
+    whose ID the pull request wrote; a newline in it must not start a line of its own."""
+    contract = "x\\n::warning title=DataProof::forged"
+    binding = (  # a TOML binding, not a query
+        f'contract_id = "{contract}"\n'  # noqa: S608
+        'query_sql = "SELECT invoice_id FROM invoices"\n'
+        "[column_mapping]\n"
+        'invoice_id = "invoice_id"\n'
+    )
+    head = repo.head({"dataproof/bindings/a.toml": binding, "dataproof/bindings/b.toml": binding})
+    outcome = repo.run(head)
+    assert outcome.exit_code == 4
+    assert "two bindings are proposed" in outcome.report["error"]
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    printed = capfd.readouterr()
+    everything = "\n".join([logged, printed.out, printed.err])
+    assert all(
+        line.startswith("::error title=DataProof not verified::") for line in _commands(everything)
+    ), _commands(everything)
+    assert _commands(outcome.summary) == []
+
+
+def test_an_optional_contract_that_errors_is_checked_with_warnings(
+    repo: SubscriptionsRepo, approved: str
+) -> None:
+    """A warning never blocks and never hides: exit 0, and the summary names the warning."""
+    optional = textwrap.dedent(
+        """
+        contract_id = "subscriptions.cents_columns"
+        version = 1
+        description = "Optional: the integer-cents columns are still readable."
+        required = false
+        severity = "LOW"
+        key_columns = ["invoice_id"]
+        query_sql = "SELECT invoice_id, subtotal_cents FROM invoices"
+        [expected_columns]
+        subtotal_cents = { kind = "EXACT" }
+        """
+    )
+    path = "dataproof/oracles/cents_columns.toml"
+    repo.base = repo.commit(repo.base, {path: optional}, "An optional oracle", branch="main")
+    try:
+        outcome = repo.run(repo.change("money-columns"))
+    finally:
+        repo.base = repo.commit(
+            repo.base, {path: None}, "Remove the optional oracle", branch="main"
+        )
+    assert outcome.report["verdict"] == "CHECKED_WITH_WARNINGS"
+    assert outcome.exit_code == 0
+    optional_row = outcome.coverage("subscriptions.cents_columns")
+    assert optional_row["required"] is False
+    assert optional_row["outcome"] == "ERROR", "the migration dropped the column it reads"
+    assert outcome.coverage(INVOICE_AMOUNTS)["outcome"] == "PASS"
+    assert "## CHECKED_WITH_WARNINGS (`success`)" in outcome.summary
+    assert "optional check warned" in outcome.summary
+
+
+def test_an_api_contract_is_unsupported_and_the_run_is_never_green(
+    repo: SubscriptionsRepo, approved: str
+) -> None:
+    """API behaviour needs the App's previews. In the Action it is NOT_RUN: UNSUPPORTED, and a
+    required unsupported check makes the run INCOMPLETE: missing coverage is not success."""
+    api = textwrap.dedent(
+        """
+        contract_id = "subscriptions.invoice_api"
+        version = 1
+        description = "The invoice endpoint returns each invoice's total."
+        required = true
+        severity = "HIGH"
+        key_columns = ["invoice_id"]
+        query_sql = "SELECT invoice_id FROM invoices"
+        api_route = "/invoices/{invoice_id}"
+        [expected_columns]
+        total_cents = { kind = "EXACT" }
+        """
+    )
+    path = "dataproof/oracles/invoice_api.toml"
+    repo.base = repo.commit(repo.base, {path: api}, "An API oracle", branch="main")
+    try:
+        outcome = repo.run(repo.change("money-columns"))
+    finally:
+        repo.base = repo.commit(repo.base, {path: None}, "Remove the API oracle", branch="main")
+    assert outcome.report["verdict"] == "INCOMPLETE"
+    assert outcome.exit_code == 2
+    row = outcome.coverage("subscriptions.invoice_api")
+    assert (row["outcome"], row["reason"]) == ("NOT_RUN", "UNSUPPORTED")
+    assert "unsupported for this change and not evaluated" in outcome.summary
+    assert "never counted as passed" in outcome.summary
+
+
+def test_a_malformed_configuration_on_the_base_branch_is_an_error(
+    repo: SubscriptionsRepo,
+) -> None:
+    good = repo.upstream.joinpath("dataproof/config.toml").read_text("utf-8")
+    repo.base = repo.commit(
+        repo.base,
+        {"dataproof/config.toml": good + "\nunknown_setting = true\n"},
+        "Break it",
+        branch="main",
+    )
+    try:
+        outcome = repo.run(repo.change("money-columns"))
+    finally:
+        repo.base = repo.commit(
+            repo.base, {"dataproof/config.toml": good}, "Restore", branch="main"
+        )
+    assert outcome.exit_code == 4
+    assert outcome.report["verdict"] is None
+    assert "unknown_setting" in outcome.report["error"]
+    assert "## Not verified (`ERROR`)" in outcome.summary
+
+
 def test_nothing_is_left_behind(repo: SubscriptionsRepo) -> None:
     import docker
 

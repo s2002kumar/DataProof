@@ -22,6 +22,26 @@ SCHEMAS_DIR = CONTRACTS_DIR / "schemas"
 ExampleLoader = Callable[[str], dict[str, Any]]
 
 
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """With ``DATAPROOF_FORBID_SKIPS=1`` (every CI test job), a skipped test fails the run.
+
+    A required job must never be green because something it was meant to prove did not run.
+    The suite has no skip path for missing databases or Docker (they error), and the one
+    opt-in test, the browser test, runs in its own job with its switch on.
+    """
+    if os.environ.get("DATAPROOF_FORBID_SKIPS") != "1":
+        return
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    skipped = len(reporter.stats.get("skipped", [])) if reporter is not None else 0
+    if skipped and session.exitstatus == pytest.ExitCode.OK:
+        if reporter is not None:
+            reporter.write_line(
+                f"DATAPROOF_FORBID_SKIPS: {skipped} test(s) skipped; failing the run",
+                red=True,
+            )
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
 @pytest.fixture
 def example() -> ExampleLoader:
     """Load a committed example document (a known-valid baseline) as a mutable dict."""
