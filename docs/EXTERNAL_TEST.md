@@ -23,7 +23,7 @@ A short invitation, and the checklist for whoever accepts it. The owner sends th
 ### Set up (time this)
 
 - [ ] `dataproof/config.toml`: the path of your `alembic.ini`, a fixture, and the directories for oracles and bindings ([configuration reference](ACTION.md#configuration-reference)).
-- [ ] If your `env.py` reads its own settings instead of `DATABASE_URL`, list them under `[alembic.environment]`, using placeholders for the database's coordinates. If it imports your app's packages, list them in a pinned `alembic.requirements` file.
+- [ ] If your `env.py` reads its own settings instead of `DATABASE_URL`, list them under `[alembic.environment]`, using placeholders for the database's coordinates. If it imports your app's packages, list them in a pinned `alembic.requirements` file. The [field fork's configuration](https://github.com/s2002kumar/dataproof-field-fastapi-template/blob/main/dataproof/config.toml) does both, for `fastapi/full-stack-fastapi-template`.
 - [ ] `dataproof/fixture.sql`: a few hundred rows of fake data at your main branch's schema. Plain `INSERT` statements are enough.
 - [ ] One to three oracles under `dataproof/oracles/`: a query over today's schema, its key columns, and how each value is compared.
 - [ ] `.github/workflows/dataproof.yml` from the quickstart, pinned to the commit it names.

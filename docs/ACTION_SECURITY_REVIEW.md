@@ -21,7 +21,9 @@ The checks run before the Action gets a version tag, and what each one found. Th
 ## What is required before a tag
 
 1. Every row above holds on the release commit, with CI green on `action-tests`, which is now a required check on `main`, as is `dataproof`.
-2. A clean installation from the pinned commit on a fresh repository and runner, with genuine results. This exists: [dataproof-example-subscriptions](https://github.com/s2002kumar/dataproof-example-subscriptions), recorded in [ACTION_FIELD_RESULTS.md](ACTION_FIELD_RESULTS.md).
+2. A clean installation from the pinned commit on a fresh repository and runner, with genuine results. This exists at `ba733cfe`: [dataproof-example-subscriptions](https://github.com/s2002kumar/dataproof-example-subscriptions) and [a fork of an application DataProof's author did not write](https://github.com/s2002kumar/dataproof-field-fastapi-template), recorded in [ACTION_FIELD_RESULTS.md](ACTION_FIELD_RESULTS.md).
 3. The owner's explicit approval to publish the tag.
+
+These are the Action's gates. The full list for 1.0.0, which also covers the App, is in [RELEASE.md](RELEASE.md).
 
 Use by someone other than the author (#80) is not a precondition for the tag. It is the precondition for any claim of external adoption, and no such claim is made until it happens.
