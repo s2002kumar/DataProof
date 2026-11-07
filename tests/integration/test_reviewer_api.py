@@ -1,5 +1,6 @@
 """The reviewer API: GitHub sign-in, sessions, CSRF and per-repository read access."""
 
+import base64
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -202,7 +203,12 @@ def test_a_missing_tampered_or_expired_session_is_refused(stack: Stack) -> None:
     value = client.cookies[SESSION_COOKIE]
     forged = stack.client()
     payload, signature = value.split(".")
-    forged.cookies.set(SESSION_COOKIE, f"{payload}.{signature[:-2]}AA")
+    # Flip one bit of the signature itself. Editing its text is not enough: replacing the last
+    # characters can leave the decoded bytes unchanged (about once in a thousand runs).
+    tampered = bytearray(base64.urlsafe_b64decode(signature + "=" * (-len(signature) % 4)))
+    tampered[0] ^= 1
+    resigned = base64.urlsafe_b64encode(bytes(tampered)).rstrip(b"=").decode()
+    forged.cookies.set(SESSION_COOKIE, f"{payload}.{resigned}")
     assert forged.get("/api/runs").status_code == 401
     stack.clock.now += timedelta(hours=8, seconds=1)
     assert client.get("/api/runs").status_code == 401
