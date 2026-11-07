@@ -68,14 +68,24 @@ class Repository:
         return shown.stdout.decode("utf-8")
 
     def list_files(self, sha: str, directory: str) -> list[str]:
-        """Paths of the regular files directly in a directory at a commit (none if absent)."""
-        listed = self._git("ls-tree", "--name-only", f"{sha}:{directory}", check=False)
+        """Paths of the regular files directly in a directory at a commit (none if absent).
+
+        ``-z`` gives each name exactly, so a name with a newline or a quote is neither split
+        nor quoted; symbolic links, submodules and directories are left out.
+        """
+        listed = self._git("ls-tree", "-z", f"{sha}:{directory}", check=False)
         if listed.returncode != 0:
             return []
         prefix = PurePosixPath(directory)
-        return sorted(
-            str(prefix / name) for name in listed.stdout.decode("utf-8").split("\n") if name
-        )
+        names = []
+        for entry in listed.stdout.decode("utf-8").split("\0"):
+            if not entry:
+                continue
+            meta, _, name = entry.partition("\t")
+            mode, kind = meta.split(" ")[:2]
+            if kind == "blob" and mode in ("100644", "100755"):
+                names.append(str(prefix / name))
+        return sorted(names)
 
     def archive(self, sha: str) -> StagedSource:
         return archive_commit(self.path, sha)

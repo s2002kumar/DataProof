@@ -50,6 +50,7 @@ jobs:
           --health-retries 12
     env:
       DATAPROOF_TEST_DATABASE_URL: postgresql://postgres@localhost:5432/postgres
+      DATAPROOF_FORBID_SKIPS: "1" # a skipped test fails the job (tests/conftest.py)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -60,7 +61,8 @@ jobs:
           enable-cache: true
       - run: uv sync --frozen
       - name: Unit and PostgreSQL integration tests
-        run: uv run --frozen pytest --ignore=tests/integration/test_action.py
+        # The browser test and the Action's suite each run in their own job, never skipped.
+        run: uv run --frozen pytest --ignore=tests/integration/test_action.py --ignore=tests/e2e
 
   action-tests:
     name: action-tests
@@ -69,6 +71,8 @@ jobs:
     # tests (ADR-0007): a migration image is built, PostgreSQL containers are provisioned on the
     # local Docker backend, and hostile migrations are run. Its own job, with its own budget.
     timeout-minutes: 30
+    env:
+      DATAPROOF_FORBID_SKIPS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -120,6 +124,7 @@ jobs:
     env:
       DATAPROOF_TEST_DATABASE_URL: postgresql://postgres@localhost:5432/postgres
       DATAPROOF_E2E: "1"
+      DATAPROOF_FORBID_SKIPS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

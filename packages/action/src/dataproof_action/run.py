@@ -43,7 +43,14 @@ from dataproof_action.config import (
 )
 from dataproof_action.event import EventError, PullRequestEvent, load_event
 from dataproof_action.migrator import BuildError, build_image, remove_image
-from dataproof_action.output import annotations, job_summary, write_outputs, write_summary
+from dataproof_action.output import (
+    annotations,
+    job_summary,
+    one_line,
+    workflow_command,
+    write_outputs,
+    write_summary,
+)
 from dataproof_action.sources import Repository, SourceError
 from dataproof_contracts import (
     CheckOutcome,
@@ -58,6 +65,7 @@ from dataproof_contracts import (
     github_check_conclusion,
 )
 from dataproof_investigator import diagnose
+from dataproof_report import escape_cell
 from dataproof_runner.backend import EnvironmentHandle, StagedSource, StepResult
 from dataproof_runner.baselines import database_digest, user_tables
 from dataproof_runner.local_docker import POSTGRES_IMAGE, BackendError, LocalDockerBackend
@@ -84,6 +92,7 @@ TYPES_PREFIX = "types."
 EXIT_SOURCE_DIGEST_MISMATCH = 65
 ENVIRONMENT_TTL = timedelta(hours=2)
 MAX_OUTPUT = 16 * 1024
+MAX_ERROR_CHARS = 1500
 EXIT_CODES: Mapping[str, int] = {
     "CHECKED": 0,
     "CHECKED_WITH_WARNINGS": 0,
@@ -528,11 +537,13 @@ def _header(
 
 
 def _error_summary(inputs: Inputs, message: str) -> str:
+    # The message can quote text the pull request controls (an invalid binding's keys, a
+    # contract ID), so it is escaped like any untrusted value.
     return (
         "# DataProof\n\n## Not verified (`ERROR`)\n\n"
         "The run could not be made, so nothing about this pull request's migration is "
         "established, and this job is not green.\n\n"
-        f"**Why:** {message}\n\n"
+        f"**Why:** {escape_cell(message, MAX_ERROR_CHARS)}\n\n"
         f"**Next:** fix the cause and re-run. Configuration: `{inputs.config_path}` on the base "
         "branch.\n"
     )
@@ -547,8 +558,10 @@ def run(inputs: Inputs) -> int:
         return _run(inputs, started)
     except (EventError, ConfigError, SourceError, BuildError, RunError, BackendError) as error:
         message = str(error)
-        log.error("DataProof: not verified: %s", message)
+        line = one_line(message)
+        log.error("DataProof: not verified: %s", line)
         write_summary(inputs.summary_path, _error_summary(inputs, message))
+        # The report is data, not a page or a log: it keeps the message as it was.
         (inputs.report_dir / "report.json").write_text(
             json.dumps(
                 {"dataproof_action": VERSION, "verdict": None, "error": message, "exit_code": 4},
@@ -557,7 +570,7 @@ def run(inputs: Inputs) -> int:
             "utf-8",
         )
         write_outputs(inputs.output_path, {"verdict": "ERROR", "exit-code": "4"})
-        print(f"::error title=DataProof not verified::{message.splitlines()[0]}")
+        print(workflow_command("error", line, title="DataProof not verified"))
         return EXIT_CODES["ERROR"]
 
 
@@ -601,7 +614,9 @@ def _run(inputs: Inputs, started: float) -> int:
         )
     unmatched = sorted(set(bindings) - {spec.contract_id for _, spec, _ in trusted.oracles})
     if unmatched:
-        log.warning("bindings proposed for unknown contracts are ignored: %s", unmatched)
+        log.warning(
+            "bindings proposed for unknown contracts are ignored: %s", one_line(repr(unmatched))
+        )
 
     context = Path(tempfile.mkdtemp(prefix="dataproof-migrator-"))
     image: str | None = None

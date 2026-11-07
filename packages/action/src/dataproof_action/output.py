@@ -6,6 +6,14 @@ binding awaiting review and how a maintainer approves it, the trusted files the 
 changed (ignored until merged), what stays with the full App, and the digests of everything the
 run was pinned to. Annotations are workflow commands, so their text is escaped as GitHub
 requires; file paths in them come from ``git diff``, never from the pull request's text.
+
+**Untrusted text.** A pull request controls more than its migration: the names of the files it
+adds, the content of its bindings (and so the text of any error about them), and the names of
+the relations its migration creates. Each of those is escaped wherever it is shown: in the
+summary through ``escape_cell`` (Markdown and HTML neutralized, bounded) or ``code``; in a log
+line or a workflow command's message through ``one_line``, which collapses it onto one line and
+breaks ``::``, so that no text from the pull request can start a line the runner would read as
+a workflow command (a forged notice, a fake annotation, ``::stop-commands::``).
 """
 
 from collections.abc import Mapping, Sequence
@@ -20,6 +28,27 @@ NOT_IN_THE_ACTION = (
     "Analyst and Failure Investigator, reproduction on a subset, and interactive binding "
     "approval are capabilities of the DataProof GitHub App, not of this Action."
 )
+
+
+MAX_LINE_CHARS = 500
+
+
+def one_line(text: str, limit: int = MAX_LINE_CHARS) -> str:
+    """Untrusted text made safe for a log line or a workflow command's message.
+
+    Whitespace (newlines included) collapses to single spaces, so the text cannot begin a line
+    of its own, and ``::`` is broken up, so that it cannot read as a command even where a
+    runner would accept one mid-line. The text is bounded.
+    """
+    text = " ".join(text.split()).replace("::", ": :")
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return text
+
+
+def code(text: str, limit: int = 120) -> str:
+    """Untrusted text as an inline code span: backticks cannot close it early."""
+    return f"`{escape_cell(text, limit)}`"
 
 
 def approval_hint(config_path: str, base_ref: str) -> str:
@@ -38,7 +67,7 @@ def _bindings_section(pending: Sequence[Mapping[str, Any]]) -> list[str]:
     lines = ["### Proposed bindings awaiting review", ""]
     for binding in pending:
         lines.append(
-            f"**`{binding['contract_id']}`**, proposed in `{binding['source_path']}`, digest "
+            f"**`{binding['contract_id']}`**, proposed in {code(binding['source_path'])}, digest "
             f"`{binding['digest']}`."
         )
         problem = binding.get("problem")
@@ -54,8 +83,11 @@ def _bindings_section(pending: Sequence[Mapping[str, Any]]) -> list[str]:
                     if relation.get("flagged")
                     else ""
                 )
-                views = ", ".join(f"`{v}`" for v in relation.get("through_views") or []) or ""
-                lines.append(f"| `{relation['name']}` | {relation['provenance']}{flag} | {views} |")
+                # Relation names come from the candidate catalog: the migration chose them.
+                views = ", ".join(code(v) for v in relation.get("through_views") or []) or ""
+                lines.append(
+                    f"| {code(relation['name'])} | {relation['provenance']}{flag} | {views} |"
+                )
         lines.append("")
     return lines
 
@@ -69,7 +101,7 @@ def _trusted_changes_section(paths: Sequence[str], base_ref: str) -> list[str]:
         "effect after it is merged, so it did not affect this result."
     )
     lines.append("")
-    lines += [f"- `{path}`" for path in paths]
+    lines += [f"- {code(path, 200)}" for path in paths]
     return [*lines, ""]
 
 
