@@ -27,6 +27,7 @@ the expiry reconciler need: neither depends on the control plane being up.
 """
 
 import io
+import json
 import re
 import secrets
 import tarfile
@@ -34,7 +35,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -58,6 +59,7 @@ from dataproof_runner.backend import (
     ResourceLimits,
     StagedSource,
     StepResult,
+    resolve_step_variables,
 )
 
 POSTGRES_IMAGE = (
@@ -81,6 +83,8 @@ _MAX_DUMP = 256 * 1024 * 1024
 _RESTORE_DIR, _RESTORE_FILE = "/tmp", "snapshot.dump"  # noqa: S108 - inside a fresh container
 _SCOPE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,23}$")
 _STEP_USER = "10001:10001"
+STEP_VARIABLES = "DATAPROOF_STEP_VARIABLES"
+"""Carries a step's extra variables, resolved, to the trusted entrypoint as a JSON object."""
 _DATABASE = "app"
 _OWNER, _READER = "dataproof_owner", "dataproof_reader"
 _OWNER_PASSWORD, _READER_PASSWORD = "DATAPROOF_OWNER_PASSWORD", "DATAPROOF_READER_PASSWORD"
@@ -631,6 +635,7 @@ class LocalDockerBackend:
         arguments: Sequence[str],
         timeout: timedelta,
         limits: ResourceLimits | None = None,
+        variables: Mapping[str, str] | None = None,
     ) -> StepResult:
         if not _DIGEST_PINNED.match(image):
             raise ValueError("step images must be referenced by image ID or digest")
@@ -638,13 +643,30 @@ class LocalDockerBackend:
         database_url = (
             f"postgresql+psycopg://{owner.user}:{owner.password}@postgres:5432/{_DATABASE}"
         )
+        step_environment = {
+            "DATAPROOF_SOURCE_SHA256": source.sha256,
+            "DATABASE_URL": database_url,
+        }
+        if variables:
+            # The step reaches its database as ``postgres`` on the internal network.
+            coordinates = {
+                "host": "postgres",
+                "port": "5432",
+                "user": owner.user,
+                "password": owner.password,
+                "dbname": _DATABASE,
+                "database_url": database_url,
+            }
+            step_environment[STEP_VARIABLES] = json.dumps(
+                resolve_step_variables(variables, coordinates), sort_keys=True
+            )
         container = self._client.containers.create(
             image,
             command=list(arguments),
             name=f"{environment.isolation_id}-step-{uuid4().hex[:8]}",
             user=_STEP_USER,
             network=f"{environment.isolation_id}-int",
-            environment={"DATAPROOF_SOURCE_SHA256": source.sha256, "DATABASE_URL": database_url},
+            environment=step_environment,
             tmpfs={
                 "/work": f"rw,mode=1777,size={(limits or self._limits).workspace_bytes}",
                 "/tmp": "rw,mode=1777,size=67108864",  # noqa: S108 - container-private tmpfs

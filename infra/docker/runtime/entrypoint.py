@@ -19,9 +19,16 @@ and runs ``next build`` offline. A source that ships its own ``node_modules`` is
 frontend (``next start``, port 3000) and supervises them: when either exits, the other is
 stopped and the step ends. Only the trusted edge proxy can reach these ports.
 
-Exit codes: 64 bad arguments, 65 source digest mismatch (no pull-request code ran), 66 missing or
-unsafe source archive (no pull-request code ran), 67 the frontend build failed, 68 a preview
-server exited; otherwise the step's own exit code.
+``migrate`` passes the migration ``DATABASE_URL`` and a few fixed settings, nothing else of its
+own environment, plus the variables in ``DATAPROOF_STEP_VARIABLES``: a JSON object the trusted
+supervisor sets from a trusted configuration (for an ``env.py`` that reads its own settings).
+Their names are checked again here, so none can replace ``DATABASE_URL``, ``PATH`` or
+``HOME``, and their values are never printed.
+
+Exit codes: 64 bad arguments (an invalid ``DATAPROOF_STEP_VARIABLES`` included), 65 source
+digest mismatch (no pull-request code ran), 66 missing or unsafe source archive (no pull-request
+code ran), 67 the frontend build failed, 68 a preview server exited; otherwise the step's own
+exit code.
 
 This file uses only the standard library and is baked into the image; the pull request cannot
 change it.
@@ -51,6 +58,36 @@ EX_BUILD_FAILED, EX_SERVER_EXITED = 67, 68
 PYTHON = "/opt/venv/bin/python"
 API_PORT, WEB_PORT = "8000", "3000"
 _REVISION = re.compile(r"^(head|[A-Za-z0-9_]{1,64})$")
+#: The same rules as ``dataproof_runner.backend``; this file may import only the standard library.
+_VARIABLE = re.compile(r"^[A-Z_][A-Z0-9_]{0,63}$")
+_RESERVED = frozenset(
+    {"DATABASE_URL", "PATH", "HOME", "LANG", "PYTHONDONTWRITEBYTECODE", "PYTHONUNBUFFERED"}
+)
+_MAX_VARIABLES, _MAX_VALUE = 32, 2048
+
+
+def step_variables(raw: str | None) -> dict[str, str] | None:
+    """The extra variables for a migration, or None if ``raw`` is not an acceptable set."""
+    if not raw:
+        return {}
+    try:
+        variables = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(variables, dict) or len(variables) > _MAX_VARIABLES:
+        return None
+    for name, value in variables.items():
+        if (
+            not isinstance(name, str)
+            or not _VARIABLE.match(name)
+            or name in _RESERVED
+            or name.startswith("DATAPROOF_")
+            or not isinstance(value, str)
+            or len(value) > _MAX_VALUE
+            or "\0" in value
+        ):
+            return None
+    return variables
 
 
 def _report(event: str, **fields: object) -> None:
@@ -214,14 +251,19 @@ def main(argv: list[str]) -> int:
     if not config.is_file():
         _report("SOURCE_INVALID", reason=f"{args.config} is not a file in the source")
         return EX_SOURCE_INVALID
+    extra = step_variables(os.environ.get("DATAPROOF_STEP_VARIABLES"))
+    if extra is None:
+        _report("USAGE", reason="DATAPROOF_STEP_VARIABLES is not an acceptable set of variables")
+        return EX_USAGE
     environment = {
         key: value
         for key, value in os.environ.items()
         if key in {"DATABASE_URL", "PATH", "LANG", "PYTHONDONTWRITEBYTECODE", "PYTHONUNBUFFERED"}
     }
+    environment.update(extra)
     environment["HOME"] = "/tmp"  # noqa: S108 - a private tmpfs in the step container
     os.chdir(config.parent)
-    _report("STEP_STARTED", step="migrate", target=args.target)
+    _report("STEP_STARTED", step="migrate", target=args.target, variables=sorted(extra))
     os.execve(ALEMBIC, [ALEMBIC, "-c", str(config), "upgrade", args.target], environment)  # noqa: S606
     return 0  # pragma: no cover - execve does not return
 
