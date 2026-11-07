@@ -51,13 +51,21 @@ class Signer:
         return f"{_b64(body)}.{_b64(hmac.new(self._key, body, hashlib.sha256).digest())}"
 
     def verify(self, value: str | None, now: datetime) -> dict[str, Any] | None:
+        """The payload of a value this signer issued and that has not expired; otherwise None.
+
+        The value must be spelled exactly as ``sign`` spells it. Base64 decoders ignore the unused
+        low bits of a final character, so four spellings decode to the same signature; comparing
+        the canonical text, not the decoded bytes, leaves one.
+        """
         if not value or value.count(".") != 1:
             return None
         encoded, signature = value.split(".")
         try:
             body = _unb64(encoded)
-            expected = hmac.new(self._key, body, hashlib.sha256).digest()
-            if not hmac.compare_digest(expected, _unb64(signature)):
+            if _b64(body) != encoded:
+                return None
+            expected = _b64(hmac.new(self._key, body, hashlib.sha256).digest())
+            if not hmac.compare_digest(expected.encode(), signature.encode()):
                 return None
             payload = json.loads(body)
         except ValueError:
