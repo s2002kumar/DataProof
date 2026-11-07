@@ -13,7 +13,7 @@ name: DataProof
 description: >-
   Runs the pull request's Alembic migration in disposable PostgreSQL databases, isolated from
   the job's secrets and token, and verifies the migrated data against protected contracts read
-  from the base branch. Fails for every verdict but CHECKED.
+  from the base branch. Fails for every verdict but CHECKED and CHECKED_WITH_WARNINGS.
 author: DataProof
 branding:
   icon: database
