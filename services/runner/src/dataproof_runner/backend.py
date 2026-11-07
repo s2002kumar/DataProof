@@ -7,7 +7,8 @@ never call a backend-specific API.
 """
 
 import hashlib
-from collections.abc import Sequence
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Protocol
@@ -64,6 +65,57 @@ class DatabaseAccess:
             password=credentials.password,
             connect_timeout=10,
         )
+
+
+#: A step variable's name: what a POSIX shell would accept, upper case, bounded.
+STEP_VARIABLE = re.compile(r"^[A-Z_][A-Z0-9_]{0,63}$")
+#: Names a step's own environment already sets; a configuration cannot replace them.
+RESERVED_STEP_VARIABLES = frozenset(
+    {"DATABASE_URL", "PATH", "HOME", "LANG", "PYTHONDONTWRITEBYTECODE", "PYTHONUNBUFFERED"}
+)
+#: Placeholders a step variable's value may name: the environment's own database, as the step
+#: reaches it. Nothing else is substituted, and no other brace is accepted.
+STEP_PLACEHOLDERS = frozenset({"host", "port", "user", "password", "dbname", "database_url"})
+_PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
+MAX_STEP_VARIABLES = 32
+MAX_STEP_VALUE = 1024
+
+
+def step_variable_problems(variables: Mapping[str, str]) -> list[str]:
+    """Why a set of step variables is unacceptable; empty if it is acceptable.
+
+    The same rules hold wherever the set is declared (a trusted configuration) and wherever it
+    is applied (the trusted entrypoint checks them again).
+    """
+    problems = []
+    if len(variables) > MAX_STEP_VARIABLES:
+        problems.append(f"at most {MAX_STEP_VARIABLES} variables")
+    for name, value in variables.items():
+        if not STEP_VARIABLE.match(name):
+            problems.append(f"{name!r} is not an upper-case variable name")
+        elif name in RESERVED_STEP_VARIABLES or name.startswith("DATAPROOF_"):
+            problems.append(f"{name} is set by DataProof itself")
+        if len(value) > MAX_STEP_VALUE:
+            problems.append(f"{name} is longer than {MAX_STEP_VALUE} characters")
+        for placeholder in _PLACEHOLDER.findall(value):
+            if placeholder not in STEP_PLACEHOLDERS:
+                known = ", ".join(f"{{{p}}}" for p in sorted(STEP_PLACEHOLDERS))
+                problems.append(f"{name} names {{{placeholder}}}; the placeholders are {known}")
+        if value.count("{") != value.count("}"):
+            problems.append(f"{name} has an unmatched brace")
+    return problems
+
+
+def resolve_step_variables(
+    variables: Mapping[str, str], coordinates: Mapping[str, str]
+) -> dict[str, str]:
+    """Each value with its placeholders replaced by the step's database coordinates."""
+    if problems := step_variable_problems(variables):
+        raise ValueError("; ".join(problems))
+    return {
+        name: _PLACEHOLDER.sub(lambda match: coordinates[match.group(1)], value)
+        for name, value in variables.items()
+    }
 
 
 @dataclass(frozen=True)
@@ -186,8 +238,14 @@ class ExecutionBackend(Protocol):
         arguments: Sequence[str],
         timeout: timedelta,
         limits: ResourceLimits | None = None,
+        variables: Mapping[str, str] | None = None,
     ) -> StepResult:
         """Run one bounded step of the trusted runtime image against the staged source.
+
+        ``variables`` adds environment variables to the step beyond ``DATABASE_URL``, from a
+        trusted configuration only, with the placeholders ``STEP_PLACEHOLDERS`` resolved to the
+        environment's own database as the step reaches it (``resolve_step_variables``). The
+        trusted entrypoint applies them to a migration and checks them again.
 
         ``limits`` overrides the backend's default caps for this step, for example to give a
         frontend build the memory it needs.
