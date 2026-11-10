@@ -1,10 +1,10 @@
 # DataProof
 
-**A migration can run without a single error and still corrupt your data. DataProof catches that on the pull request.**
+**A migration can execute successfully and still corrupt critical data. DataProof verifies protected data contracts on the pull request.**
 
 DataProof runs a PostgreSQL/Alembic migration in disposable reference and candidate databases, compares the data against contracts the pull request cannot edit, and reports a GitHub check bound to the commit: `BLOCKED` with the exact rows that changed, or `CHECKED` with the exact list of what was verified. Merge and deployment decisions stay with people.
 
-**Demonstrated scope:** one documented application profile (Commerce Orders & Refunds) on local Docker, with a real GitHub App integration; not a hosted, general-purpose migration service. The recorded diagnosis is deterministic and rule-based; the bounded AI roles are tested with scripted models, and whether a live model improves on the rules is not yet established. Everything else that bounds the claims is in [Limitations](#limitations).
+**Public evidence:** A [live GitHub pull request](https://github.com/s2002kumar/dataproof-demo-commerce/pull/2) shows a corrupt migration blocked and its correction checked. The database-only [GitHub Action](docs/ACTION.md) was also exercised on a second schema and a fork of an upstream FastAPI template ([field results](docs/ACTION_FIELD_RESULTS.md)). The App currently runs on local Docker; [scope and validation boundaries](#limitations) are documented below.
 
 ## The failure it catches
 
@@ -107,7 +107,7 @@ The database tier alone is also a **GitHub Action** ([docs/ACTION.md](docs/ACTIO
 
 ## Limitations
 
-Everything DataProof claims is bounded by the following. None of it is hidden elsewhere.
+The following are verification boundaries, not claims about production adoption or universal coverage. The GitHub App has been demonstrated on one supported Commerce Orders & Refunds profile in local Docker; the database-only Action has additional self-operated field tests. The recorded demo uses rule-based diagnosis, while the AI roles have only scripted-model evaluations so far. A hosted general-purpose service has not been released.
 
 **What a verdict means.** A run establishes only that specific checks passed for an exact commit, fixture, configuration and engine version. No verdict is a universal safety guarantee. Snapshots do not prove production-scale locking, traffic race conditions, isolation edge cases, performance or untested application paths ([Verification](docs/VERIFICATION.md#honest-limits)).
 
