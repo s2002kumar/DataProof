@@ -4,7 +4,7 @@ What has to be true before `v1.0.0` is tagged, what is true now, and what the re
 
 1.0.0 covers both ways to use DataProof: **the GitHub App** with its control plane, and **the GitHub Action** for the database tier.
 
-As of 2026-11-07.
+As of 2026-11-16.
 
 ## Gates
 
@@ -15,15 +15,14 @@ A gate is met only by evidence on the release commit, or on a commit whose Actio
 | Every CI job is green on the release commit | All nine jobs, not only the required ones, with no test skipped (`DATAPROOF_FORBID_SKIPS` fails a job that skips one) | **Met on `ba733cfe`**, the commit the field repositories pin: all nine jobs green, 778 tests in `python-tests` and 20 in `action-tests`, none skipped. To be checked again on the release commit |
 | Every row of the [release security review](ACTION_SECURITY_REVIEW.md) holds | The review's tests run in `action-tests`, a required check | **Met on `ba733cfe`** (`action-tests` green) |
 | A clean installation from the pinned commit | Repositories with no DataProof history pin the commit and get the verdicts predicted before the run ([field results](ACTION_FIELD_RESULTS.md)) | **Met at `ba733cfe`** on 2026-11-07: the example repository (#1 `CHECKED`, #2 `BLOCKED`) and the field fork of an application DataProof's author did not write (#1 `CHECKED`, #2 `BLOCKED`), every verdict as predicted |
-| The App's check-run fix holds on real GitHub ([#78](https://github.com/s2002kumar/DataProof/issues/78)) | The live probe of superseded runs on one commit, with check-run links, in [DEMO.md](DEMO.md#check-run-finality) | **Not met.** The fix is tested against a simulated GitHub only. The probe is written (`scripts/demo/finality_probe.py`) and needs Docker on the owner's machine |
-| The claims match the evidence | README, STATUS, the Action's metadata and this file say what the tests and runs show, and no more | Checked on 2026-11-07; corrections are in the pull request that adds this file |
+| The App's check-run fix holds on real GitHub ([#78](https://github.com/s2002kumar/DataProof/issues/78)) | The live take of the fixed publisher on new commits, with check-run links, in [DEMO.md](DEMO.md#the-fixed-publisher-on-real-github) | **Met on `4f93f32`** on 2026-11-16: in a burst of five approvals, and with an older run turning green after a newer one existed, the required check read the newest run's check run, and the pull request was mergeable only when that run was `CHECKED`. To hold on the release commit, the App's code must be unchanged from `4f93f32` |
+| The claims match the evidence | README, STATUS, the Action's metadata and this file say what the tests and runs show, and no more | Checked on 2026-11-07; corrections are in the pull request that adds this file. The #78 claims were brought up to date on 2026-11-16 |
 | The owner approves the tag | A message from the owner | **Not given** |
 
 ## The open issues, classified
 
 | Issue | Class | Why |
 | --- | --- | --- |
-| [#78](https://github.com/s2002kumar/DataProof/issues/78) the fixed check-run publisher against real GitHub | **Release blocker** | A required check that reads a superseded run is the App's worst failure. It is fixed and tested against a simulated GitHub. 1.0.0 includes the App, so the fix must be seen on real GitHub first |
 | [#80](https://github.com/s2002kumar/DataProof/issues/80) external usability | **Documented limitation** | The Action ran on an application its author did not write ([field results](ACTION_FIELD_RESULTS.md)). Nobody but the author has installed it, so no adoption is claimed. The invitation is [EXTERNAL_TEST.md](EXTERNAL_TEST.md) |
 | [#7](https://github.com/s2002kumar/DataProof/issues/7) the Change Analyst's value, and the live AI ablation in [#58](https://github.com/s2002kumar/DataProof/issues/58) | **Documented limitation** | Both AI roles are advisory and never change a verdict. Their value is unmeasured until the frozen evaluation runs ([AI_EVALUATION.md](AI_EVALUATION.md)), so 1.0.0 claims nothing for them |
 | [#6](https://github.com/s2002kumar/DataProof/issues/6) the schema-diff comparator | **Documented limitation** | Optional, and not allowed to delay the release |

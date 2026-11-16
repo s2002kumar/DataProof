@@ -19,7 +19,7 @@ The first version to be tagged, once the gates in [RELEASE.md](docs/RELEASE.md) 
 ### The GitHub App and its control plane
 
 - Verified webhook intake, commit-bound check runs, GitHub sign-in for reviewers, binding decisions, a dashboard, a signed preview gateway on a separate origin per preview, and a deployment run from one configuration file (#49 to #57).
-- The newest run's check run is created last on each commit, so a superseded run cannot shadow it under branch protection (#71, #73). Not yet seen on real GitHub (#78).
+- The newest run's check run is created last on each commit, so a superseded run cannot shadow it under branch protection (#71, #73). Seen to hold on real GitHub on new commits, in a burst of approvals and with an older run turning green after a newer one (#78).
 - Correction replay as a child run, reproduction of failed checks on a subset, and queued reproduction (#46, #48, #59, #68).
 - A signed session is accepted only in the spelling it was issued in (#94).
 - A stale pull request is no longer refused for a dependency change its base made (#95).

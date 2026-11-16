@@ -102,7 +102,7 @@ Approvals are bound to a commit and a binding digest, so a second take on the sa
 | Carries the five approvals | `2e49a55` | `CHECKED` | 91 s | [`success`](https://github.com/s2002kumar/dataproof-demo-commerce/runs/126170290869) |
 
 - **What failed:** in the `BLOCKED` run, C1 found 300 mismatches, C2 79, C3 141, and the two C6 API checks 220 and 110. The migration itself and the candidate preview passed.
-- **The other check runs:** approval runs that a later approval superseded while queued are on GitHub as `cancelled`, "Superseded by a newer run". So is the one approval run a worker claimed before the remaining approvals arrived; the script released it ("Cancelled before it was verified"). One of the superseded runs' check runs is the one GitHub reads as the corrected commit's latest. That was a publisher bug, now fixed: see [Check-run finality](#check-run-finality).
+- **The other check runs:** approval runs that a later approval superseded while queued are on GitHub as `cancelled`, "Superseded by a newer run". So is the one approval run a worker claimed before the remaining approvals arrived; the script released it ("Cancelled before it was verified"). One of the superseded runs' check runs is the one GitHub reads as the corrected commit's latest. That was a publisher bug, now fixed and seen to hold on real GitHub: see [Check-run finality](#check-run-finality).
 - **One person:** the pull request's author is also the reviewer and the repository's only maintainer, so every approval is recorded with procedural separation.
 - **Cleanup:** after the run, no DataProof container, network or volume was left.
 - **The first take,** pull request #1, ran correctly through the `BLOCKED` run. Then the recording script, not DataProof, took an approval run that a later approval superseded. The script now takes each approval's run from the dashboard. #1 is closed with that explanation.
@@ -134,9 +134,37 @@ After the live run, GitHub's default (latest) check-run query on the corrected c
   - A run that has not reached GitHub when a newer pull request run exists on its commit gets no check run. That is recorded once, and the dashboard links the newer run in its place.
   - A commit's check runs are created one at a time, under a lock per commit.
   - A check run that GitHub already shows is still brought to completion. Every interrupted run is still never green.
-- **What has been validated, and what has not.** The probe ran on real GitHub. The fix is verified only by regression tests against the simulated GitHub (`FakeGitHub.latest`, which follows the rule as probed). **The fixed publisher has not run a live take**, so its behaviour under a real burst of approvals on real GitHub is not yet demonstrated (#78). Nothing here says otherwise.
-- **The demo commits keep their check runs:** GitHub cannot delete a check run, so `2e49a55` still reads as blocked. A new take would run on new commits with the fixed publisher, and would close #78.
-- **Not handled:** check runs belong to a commit, not to a pull request. Two pull requests with the same head commit, for example into two base branches, share one latest `DataProof` check, which is the newer run's. Whether a check per base branch is worth it is an open question.
+- **What has been validated:** the rule was probed on real GitHub. The fix is covered by regression tests against the simulated GitHub (`FakeGitHub.latest`, which follows the rule as probed), and it held on real GitHub in a live take on new commits ([below](#the-fixed-publisher-on-real-github), #78).
+- **The demo commits keep their check runs:** GitHub cannot delete a check run, so `2e49a55` still reads as blocked.
+- **Not handled:** check runs belong to a commit, not to a pull request. Two pull requests with the same head commit, for example into two base branches, share one latest `DataProof` check, which is the newer run's. The live take shows it: a pull request whose own run was `CHECKED` stayed blocked by another pull request's newer run on the same commit. Whether a check per base branch is worth it is an open question.
+
+### The fixed publisher on real GitHub
+
+**Run on 2026-11-16** by `scripts/demo/finality_probe.py`, from `main` at `4f93f32`, with the live run's setup: the App, its webhook through a temporary tunnel, the reviewer's GitHub sign-in, and local Docker. Each test used a new commit of the demo's correct ledger migration and five binding approvals made within two seconds, so approval runs superseded each other while queued. The pull requests stay open as the record. Times are UTC.
+
+**A burst of approvals** ([#9](https://github.com/s2002kumar/dataproof-demo-commerce/pull/9), commit `d97ba17`). The five approvals took 1.75 s; four of their runs were superseded while queued.
+
+| Check runs named `DataProof` on `d97ba17`, in the order created | Run | Conclusion |
+| --- | --- | --- |
+| [133697979242](https://github.com/s2002kumar/dataproof-demo-commerce/runs/133697979242) | The pull request's run, waiting for review (`INCOMPLETE`) | `action_required` |
+| [133698556521](https://github.com/s2002kumar/dataproof-demo-commerce/runs/133698556521) | The newest approval run (`CHECKED`) | `success` |
+
+- **Read by the required check:** the newest run's, `success`. The pull request is mergeable (`clean`).
+- **The superseded runs:** none of the four has a check run. The publisher recorded each omission once ("newer run … is on its commit").
+
+**An older run that turns green after a newer run exists** ([#10](https://github.com/s2002kumar/dataproof-demo-commerce/pull/10) into `main`, and [#11](https://github.com/s2002kumar/dataproof-demo-commerce/pull/11) into a second, unprotected base branch, both from commit `560ad3f`). #10's five approvals took 1.88 s. Its newest approval run was provisioning, with its check run `in_progress`, when #11 started a newer run, which waits for review.
+
+| Check runs named `DataProof` on `560ad3f`, in the order created | Run | Created | Completed | Conclusion |
+| --- | --- | --- | --- | --- |
+| [133699220317](https://github.com/s2002kumar/dataproof-demo-commerce/runs/133699220317) | #10's run, waiting for review (`INCOMPLETE`) | 23:42:38 | 23:43:40 | `action_required` |
+| [133699770169](https://github.com/s2002kumar/dataproof-demo-commerce/runs/133699770169) | #10's newest approval run, the older run (`CHECKED`) | 23:43:48 | 23:46:39 | `success` |
+| [133700346066](https://github.com/s2002kumar/dataproof-demo-commerce/runs/133700346066) | #11's run, the newer run, waiting for review (`INCOMPLETE`) | 23:45:02 | 23:48:05 | `action_required` |
+
+- **When the older run turned green:** the required check read the newer run's check run, still `queued`, and #10 stayed `blocked`. The older `success` completed after the newer check run was created, and did not count.
+- **Once both were done:** the required check reads the newer run's `action_required`, and #10 is `blocked`. #11's base branch requires no check, so GitHub shows #11 as `unstable`.
+- **The other approval runs:** three were superseded while queued. A worker claimed the fourth before the fifth approval arrived; it finished `INCOMPLETE` after the newest run's check run existed. None of the four has a check run, and each omission was recorded once.
+
+**Result:** in both directions, the required check read the newest run's check run, and the pull request was mergeable only when that run was `CHECKED`. This closed #78.
 
 ## Local rehearsal
 
