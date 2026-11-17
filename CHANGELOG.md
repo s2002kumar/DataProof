@@ -36,3 +36,7 @@ The first version to be tagged, once the gates in [RELEASE.md](docs/RELEASE.md) 
 ### Benchmark
 
 - A seeded fault corpus with clean controls, fair baselines and a pipeline tier, which a test regenerates exactly (#60, #61, #65, #87).
+
+### Dependencies
+
+- Next.js 16.4.5 in the dashboard and in the sample app's web front end, which fixes [GHSA-mfr8-8qww-v76h](https://github.com/advisories/GHSA-mfr8-8qww-v76h) (moderate: a `'use cache'` function called through `unstable_cache()` could leak data across root params). Neither app uses `'use cache'` or `unstable_cache`, so neither was exposed; the upgrade clears the advisory.
