@@ -12,7 +12,7 @@ This compares the original product contract ([PRODUCT](PRODUCT.md)) with what ha
 
 Nothing here has been verified by a third party. The benchmark corpus was written by the author of the system it tests.
 
-As of 2026-11-16.
+As of 2026-11-17.
 
 ## Committed capabilities
 
@@ -82,4 +82,4 @@ Added on 2026-11-04 ([ADR-0007](adr/0007-github-action-database-tier.md), [docs/
 - **The missing invariants:** build C4, C5, C7 and C8 and the schema diff (#6), or narrow requirement 5.
 - **AWS:** a cost estimate and security review for the hosted demo, or descope it (#5, #10, #11).
 - **Name clearance** (#13).
-- **Tagging 1.0.0:** once the gates in [RELEASE.md](RELEASE.md) are met. #78 was met on 2026-11-16; CI on the release commit and the owner's approval remain.
+- **Tagging 1.0.0:** once the gates in [RELEASE.md](RELEASE.md) are met. On the release candidate, `c6436b0` (2026-11-17), every gate is met except the owner's approval. The release pull request's version bump is checked again on its merge commit before the tag.

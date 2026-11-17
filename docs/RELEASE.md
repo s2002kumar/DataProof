@@ -4,7 +4,7 @@ What has to be true before `v1.0.0` is tagged, what is true now, and what the re
 
 1.0.0 covers both ways to use DataProof: **the GitHub App** with its control plane, and **the GitHub Action** for the database tier.
 
-As of 2026-11-16.
+As of 2026-11-17. The release candidate is `c6436b0`.
 
 ## Gates
 
@@ -12,11 +12,12 @@ A gate is met only by evidence on the release commit, or on a commit whose Actio
 
 | Gate | Evidence a reader can check | Status |
 | --- | --- | --- |
-| Every CI job is green on the release commit | All nine jobs, not only the required ones, with no test skipped (`DATAPROOF_FORBID_SKIPS` fails a job that skips one) | **Met on `ba733cfe`**, the commit the field repositories pin: all nine jobs green, 778 tests in `python-tests` and 20 in `action-tests`, none skipped. To be checked again on the release commit |
-| Every row of the [release security review](ACTION_SECURITY_REVIEW.md) holds | The review's tests run in `action-tests`, a required check | **Met on `ba733cfe`** (`action-tests` green) |
-| A clean installation from the pinned commit | Repositories with no DataProof history pin the commit and get the verdicts predicted before the run ([field results](ACTION_FIELD_RESULTS.md)) | **Met at `ba733cfe`** on 2026-11-07: the example repository (#1 `CHECKED`, #2 `BLOCKED`) and the field fork of an application DataProof's author did not write (#1 `CHECKED`, #2 `BLOCKED`), every verdict as predicted |
-| The App's check-run fix holds on real GitHub ([#78](https://github.com/s2002kumar/DataProof/issues/78)) | The live take of the fixed publisher on new commits, with check-run links, in [DEMO.md](DEMO.md#the-fixed-publisher-on-real-github) | **Met on `4f93f32`** on 2026-11-16: in a burst of five approvals, and with an older run turning green after a newer one existed, the required check read the newest run's check run, and the pull request was mergeable only when that run was `CHECKED`. To hold on the release commit, the App's code must be unchanged from `4f93f32` |
-| The claims match the evidence | README, STATUS, the Action's metadata and this file say what the tests and runs show, and no more | Checked on 2026-11-07; corrections are in the pull request that adds this file. The #78 claims were brought up to date on 2026-11-16 |
+| Every CI job is green on the release commit | All nine jobs, not only the required ones, with no test skipped (`DATAPROOF_FORBID_SKIPS` fails a job that skips one) | **Met on the release candidate, `c6436b0`**, on 2026-11-17: the eight jobs of [its push to `main`](https://github.com/s2002kumar/DataProof/actions/runs/44089439517) green, 778 tests in `python-tests` and 20 in `action-tests`, none skipped; the ninth, `dataproof`, runs on pull requests and was [green](https://github.com/s2002kumar/DataProof/actions/runs/44087680613/job/134054290058) on the head of #100, whose tree is identical. Met before on `ba733cfe`, the commit the field repositories pin. The release pull request changes version numbers, so this is checked again on its merge commit before the tag |
+| Every row of the [release security review](ACTION_SECURITY_REVIEW.md) holds | The review's tests run in `action-tests`, a required check | **Met on `c6436b0`** (`action-tests` green, 20 tests) |
+| A clean installation from the pinned commit | Repositories with no DataProof history pin the commit and get the verdicts predicted before the run ([field results](ACTION_FIELD_RESULTS.md)) | **Met at `ba733cfe`** on 2026-11-07: the example repository (#1 `CHECKED`, #2 `BLOCKED`) and the field fork of an application DataProof's author did not write (#1 `CHECKED`, #2 `BLOCKED`), every verdict as predicted. The Action's code (`action.yml` and `packages/`) is unchanged from `ba733cfe` to `c6436b0` |
+| No open security advisory against a dependency | The repository's Dependabot alerts, and `pnpm audit` on both lockfiles | **Met on `c6436b0`** on 2026-11-17: no open Dependabot alert, after #100 moved Next.js to 16.4.5 and fixed the four that GHSA-mfr8-8qww-v76h raised, and `pnpm audit` finds nothing in either lockfile |
+| The App's check-run fix holds on real GitHub ([#78](https://github.com/s2002kumar/DataProof/issues/78)) | The live take of the fixed publisher on new commits, with check-run links, in [DEMO.md](DEMO.md#the-fixed-publisher-on-real-github) | **Met on `4f93f32`** on 2026-11-16: in a burst of five approvals, and with an older run turning green after a newer one existed, the required check read the newest run's check run, and the pull request was mergeable only when that run was `CHECKED`. On `c6436b0` the App's Python code, the check-run publisher included, is unchanged from `4f93f32`; the one change to the App since is the dashboard's Next.js version (#100). That must still be true of the release commit |
+| The claims match the evidence | README, STATUS, the Action's metadata and this file say what the tests and runs show, and no more | Checked on 2026-11-07; corrections are in the pull request that adds this file. The #78 claims were brought up to date on 2026-11-16, and the release candidate's on 2026-11-17 |
 | The owner approves the tag | A message from the owner | **Not given** |
 
 ## The open issues, classified
@@ -49,7 +50,7 @@ These hold for 1.0.0 and go into its release notes.
 
 Only after every gate above reads met and the owner has approved:
 
-1. **A release pull request** sets the version to `1.0.0` (`VERSION` in `packages/action/src/dataproof_action/run.py`, which every report records, and each package's `pyproject.toml`), dates the changelog's next section, and re-pins the field repositories to its head. It merges on green CI like any other.
+1. **A release pull request** sets the version to `1.0.0` (`VERSION` in `packages/action/src/dataproof_action/run.py`, which every report records, and the ten workspace `pyproject.toml` files, then `uv lock`), dates the changelog's next section, and re-pins the field repositories to its head. It merges on green CI like any other, and every job is checked again on its merge commit, as the first gate requires.
 2. **Tag its merge commit:**
 
 ```bash
