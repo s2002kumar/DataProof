@@ -6,19 +6,19 @@ This compares the original product contract ([PRODUCT](PRODUCT.md)) with what ha
 
 - CI on every merged pull request;
 - the [live GitHub run](DEMO.md#live-run), whose check runs are public;
-- a [probe of GitHub's branch protection](DEMO.md#check-run-finality);
+- a [probe of GitHub's branch protection](DEMO.md#check-run-finality), and a [live take of the fixed check-run publisher](DEMO.md#the-fixed-publisher-on-real-github);
 - the [benchmark](../benchmarks/README.md), which a test regenerates exactly;
 - the [local rehearsal](DEMO.md#local-rehearsal) on real migrations.
 
 Nothing here has been verified by a third party. The benchmark corpus was written by the author of the system it tests.
 
-As of 2026-11-07.
+As of 2026-11-16.
 
 ## Committed capabilities
 
 | # | Requirement (PRODUCT) | Status | Evidence | Shortfall |
 | --- | --- | --- | --- | --- |
-| 1 | GitHub PR integration: validated webhooks, run lifecycle, check runs | **Verified, live** | Real `pull_request` webhooks started runs on [PR #2](https://github.com/s2002kumar/dataproof-demo-commerce/pull/2), and the App published a check run per run. GitHub's check-run finality rule was probed under branch protection, and the publisher fixed with regression tests against a simulated GitHub (#73) | **The fixed publisher has not run against real GitHub** (#78): the fix is tested, not demonstrated live. Each commit has one latest `DataProof` check, shared by pull requests with the same head commit |
+| 1 | GitHub PR integration: validated webhooks, run lifecycle, check runs | **Verified, live** | Real `pull_request` webhooks started runs on [PR #2](https://github.com/s2002kumar/dataproof-demo-commerce/pull/2), and the App published a check run per run. GitHub's check-run finality rule was probed under branch protection, and the publisher fixed with regression tests against a simulated GitHub (#73). The fixed publisher then held on real GitHub on new commits, in a burst of approvals and with an older run turning green after a newer one ([live take](DEMO.md#the-fixed-publisher-on-real-github), #78) | Each commit has one latest `DataProof` check, shared by pull requests with the same head commit: seen live, one pull request's newer run blocks another whose own run was `CHECKED` |
 | 2 | Migration review with static analysis and explicit unsupported or unknown handling | **Verified** | Policy refusals (`NOT_EXECUTED` for forks, dependency and out-of-root changes) are tested. Static risk rules run in `ANALYZING` on every eligible run (#75), and the [change-analysis benchmark](../benchmarks/results/CHANGE_ANALYSIS.md) regenerates exactly | The rules are patterns, not proof: they alarm on 6 of 12 clean controls, and their recall is optimistic because they were written with the corpus in view |
 | 3 | Real reference and candidate previews (PostgreSQL, FastAPI, frontend) | **Verified, live and local** | Live run, rehearsal, and 15 pipeline-tier runs with previews of both commits through the signed gateway | Local Docker only |
 | 4 | Approved deterministic seed data and reproducible snapshots | **Verified** | The fixture digest is pinned in every run. Sealed `pg_dump` snapshots must restore to the same rows, and data contracts replay from them (tests) | — |
@@ -62,7 +62,7 @@ Two different things are called "release" in the original plan, and they are kep
 
 **The AWS-hosted restricted demo** (PRODUCT's last committed capability, gate G5, work package 11) is **not built**, and this document does not mark it satisfied. It waits for the owner's approval of a measured cost and security review (ADR-0006, #5, #10, #11). Nothing in the local release stands in for it: local Docker is a trusted-development boundary, and no document may present it as the hosted one.
 
-**Not yet true either way:** an external user has not run the Action (#80); the fixed check-run publisher has not run a live take (#78); the two AI roles have not been measured with a live model (budget approved, key pending).
+**Not yet true either way:** an external user has not run the Action (#80); the two AI roles have not been measured with a live model (budget approved, key pending).
 
 ## Beyond the original contract: the GitHub Action
 
@@ -82,4 +82,4 @@ Added on 2026-11-04 ([ADR-0007](adr/0007-github-action-database-tier.md), [docs/
 - **The missing invariants:** build C4, C5, C7 and C8 and the schema diff (#6), or narrow requirement 5.
 - **AWS:** a cost estimate and security review for the hosted demo, or descope it (#5, #10, #11).
 - **Name clearance** (#13).
-- **Tagging 1.0.0:** once the gates in [RELEASE.md](RELEASE.md) are met; #78 is the one not met.
+- **Tagging 1.0.0:** once the gates in [RELEASE.md](RELEASE.md) are met. #78 was met on 2026-11-16; CI on the release commit and the owner's approval remain.
