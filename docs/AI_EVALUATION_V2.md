@@ -173,3 +173,11 @@ The sources for these figures, and what was verified on a fetched page against w
 - **Blinding removes help a real pull request might carry.** A migration's comments can be useful or misleading. The evaluation asks what the investigator finds without them.
 - **The old arm runs once** on each case, so its rates have wider intervals than the improved arm's.
 - **Not measured:** whether a reviewer, given the explanation, finds and fixes the fault faster. That needs people who are not the author.
+
+## Method sources
+
+- **Repeats, and reading transcripts before trusting a score:** Anthropic, "Demystifying evals for AI agents" (2026), <https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents>.
+- **Held-out sets against overfitting to a development set:** Anthropic, "Writing effective tools for agents" (2025), <https://www.anthropic.com/engineering/writing-tools-for-agents>.
+- **Comparing arms on the same cases, with intervals:** Miller, "Adding Error Bars to Evals: A Statistical Approach to Language Model Evaluations" (2024), <https://arxiv.org/abs/2411.00640>.
+- **Wilson intervals at small counts:** Brown, Cai and DasGupta, "Interval Estimation for a Binomial Proportion", Statistical Science 16(2), 2001.
+- **Why the usual error bars mislead at small counts:** "Position: Don't Use the CLT in LLM Evals With Fewer Than a Few Hundred Datapoints" (2025), <https://arxiv.org/abs/2503.01747>.
