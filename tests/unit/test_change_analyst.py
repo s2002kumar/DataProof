@@ -214,7 +214,7 @@ def test_the_analyst_reads_source_only_and_must_cite_its_reads() -> None:
 
     assert analysis.status is InvestigationStatus.COMPLETED, analysis.failure
     assert analysis.role is InvestigatorRole.CHANGE_ANALYST
-    assert analysis.prompt_version == "change-analyst/1"
+    assert analysis.prompt_version == "change-analyst/2"
     assert model.opened_with["tools"] == ["read_source"]
     assert [c.outcome for c in analysis.tool_calls] == [ToolCallOutcome.DENIED] * 4 + [
         ToolCallOutcome.OK

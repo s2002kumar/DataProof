@@ -51,12 +51,19 @@ class ModelTurn:
 
 
 class ModelSession(Protocol):
-    def send(self, tool_results: Sequence[ToolResult]) -> ModelTurn:
-        """Return the model's next turn. The first call has no tool results."""
+    def send(self, tool_results: Sequence[ToolResult], notice: str | None = None) -> ModelTurn:
+        """Return the model's next turn. The first call has no tool results.
+
+        ``notice`` is a line from the investigator itself (what is left of the budget, or that
+        an answer is due). It is the operator's, so an adapter sends it apart from the tool
+        results, which are the pull request's data: never inside one.
+        """
         ...
 
-    def ceiling_usd(self, tool_results: Sequence[ToolResult]) -> Decimal | None:
-        """The most the next ``send`` with these results could cost, or None if unknown."""
+    def ceiling_usd(
+        self, tool_results: Sequence[ToolResult], notice: str | None = None
+    ) -> Decimal | None:
+        """The most the next ``send`` with these could cost, or None if unknown."""
         ...
 
 
@@ -90,6 +97,8 @@ class ScriptedModel:
     turn_ceiling_usd: Decimal | None = None
     """What every session reports as the most its next turn could cost."""
     received: list[Sequence[ToolResult]] = field(default_factory=list)
+    notices: list[str | None] = field(default_factory=list)
+    """The investigator's notice with each turn's results, turn by turn (None for none)."""
     opened_with: dict[str, Any] = field(default_factory=dict)
 
     def open(
@@ -114,15 +123,18 @@ class _ScriptedSession:
         self._model = model
         self._next = 0
 
-    def send(self, tool_results: Sequence[ToolResult]) -> ModelTurn:
+    def send(self, tool_results: Sequence[ToolResult], notice: str | None = None) -> ModelTurn:
         self._model.received.append(tuple(tool_results))
+        self._model.notices.append(notice)
         if self._next >= len(self._model.steps):
             return ModelTurn(stop="end", text="")
         step = self._model.steps[self._next]
         self._next += 1
         return step(tool_results) if callable(step) else step
 
-    def ceiling_usd(self, tool_results: Sequence[ToolResult]) -> Decimal | None:
+    def ceiling_usd(
+        self, tool_results: Sequence[ToolResult], notice: str | None = None
+    ) -> Decimal | None:
         return self._model.turn_ceiling_usd
 
 

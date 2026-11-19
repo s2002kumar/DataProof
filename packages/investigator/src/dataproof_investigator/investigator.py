@@ -2,8 +2,11 @@
 
 The loop owns every decision the model could try to take:
 
-* only the five tools exist, and each call is validated before it runs (``tools``);
-* a budget caps tool calls and turns;
+* only the six tools exist, and each call is validated before it runs (``tools``);
+* a budget caps tool calls and turns. The model is told the budget and, after every turn, what
+  is left of it. A call past the limit is answered "not run"; then the model is asked for its
+  answer, in a turn kept for that. An investigation that reaches its limit ends in an answer
+  from the evidence it has, unless the model calls a tool again (ADR-0009);
 * the final answer must parse as ``InvestigationOutput`` and every hypothesis must cite
   evidence that exists: the run's recorded evidence, or a successful tool call of this
   investigation. One unknown citation invalidates the whole answer;
@@ -34,7 +37,13 @@ from dataproof_contracts import (
     ToolCallOutcome,
 )
 from dataproof_investigator.model import InvestigatorModel, ModelTurn, ToolResult, ToolSpec
-from dataproof_investigator.prompts import PROMPT_VERSION, SYSTEM_PROMPT, failure_task
+from dataproof_investigator.prompts import (
+    PROMPT_VERSION,
+    SYSTEM_PROMPT,
+    budget_line,
+    budget_notice,
+    failure_task,
+)
 from dataproof_investigator.tools import (
     TOOL_SPECS,
     TOOL_VERSION,
@@ -75,10 +84,6 @@ class Budget:
     take the investigation past this, so with a model that bounds its turns
     (``ModelSession.ceiling_usd``) this is a hard limit. With one that does not, the
     investigation stops after the turn that crosses it."""
-
-
-class _BudgetExhausted(Exception):  # noqa: N818 - an outcome, not a program error
-    pass
 
 
 class Investigator:
@@ -149,24 +154,27 @@ class Investigator:
                 finished_at=datetime.now(UTC),
             )
 
+        budget = budget_line(self.budget.max_tool_calls, self.budget.max_turns)
         session = self.model.open(
             system=self.system,
-            task=self.task(context),
+            task=f"{self.task(context)}\n{budget}",
             tools=self.tools,
             output_schema=OUTPUT_SCHEMA,
         )
         results: list[ToolResult] = []
+        notice: str | None = None
+        answer_due = False
         try:
-            for _ in range(self.budget.max_turns):
+            for sent in range(1, self.budget.max_turns + 1):
                 limit = self.budget.max_cost_usd
-                ceiling = session.ceiling_usd(results) if limit is not None else None
+                ceiling = session.ceiling_usd(results, notice) if limit is not None else None
                 if limit is not None and ceiling is not None and cost + ceiling > limit:
                     return finish(
                         InvestigationStatus.BUDGET_EXHAUSTED,
                         failure=f"the next turn could cost up to {ceiling} USD; "
                         f"{cost} of the {limit} allowed is spent",
                     )
-                turn: ModelTurn = session.send(results)
+                turn: ModelTurn = session.send(results, notice)
                 tokens["input"] += turn.input_tokens
                 tokens["output"] += turn.output_tokens
                 cost += turn.cost_usd
@@ -186,15 +194,23 @@ class Investigator:
                     )
                 if turn.stop == "end":
                     return self._conclude(turn.text, context, calls, finish)
+                if answer_due:
+                    return finish(
+                        InvestigationStatus.BUDGET_EXHAUSTED,
+                        failure="no answer: it was told its budget was spent and asked for "
+                        "its answer, and called a tool again",
+                    )
+                # Calls past the limit are answered "not run", never dropped: the model reads
+                # every result it is owed, and is then asked for its answer.
                 results = [
                     self._run(use.name, use.arguments, use.id, context, calls)
                     for use in turn.tool_uses
                 ]
-        except _BudgetExhausted:
-            return finish(
-                InvestigationStatus.BUDGET_EXHAUSTED,
-                failure=f"more than {self.budget.max_tool_calls} tool calls",
-            )
+                notice, answer_due = budget_notice(
+                    self.budget.max_tool_calls - len(calls),
+                    self.budget.max_tool_calls,
+                    self.budget.max_turns - sent,
+                )
         except Exception as exc:  # a provider or transport failure: the report stands without it
             return finish(InvestigationStatus.NOT_AVAILABLE, failure=f"{type(exc).__name__}: {exc}")
         return finish(
@@ -211,7 +227,9 @@ class Investigator:
         calls: list[ToolCall],
     ) -> ToolResult:
         if len(calls) >= self.budget.max_tool_calls:
-            raise _BudgetExhausted
+            # Not run and not recorded: nothing was validated or executed.
+            spent = f"not run: the budget of {self.budget.max_tool_calls} tool calls is spent"
+            return ToolResult(use_id, json.dumps({"not_run": spent}), is_error=True)
         sequence = len(calls) + 1
         recorded_arguments = json.loads(json.dumps(dict(arguments), default=str))
         try:

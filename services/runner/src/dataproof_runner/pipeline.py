@@ -1000,6 +1000,9 @@ class Pipeline:
             context.ensure_lease()
             reference = self._attached(run.run_id, Environment.REFERENCE)
             candidate = self._attached(run.run_id, Environment.CANDIDATE)
+            # The same paths ANALYZING counted, from the merge base: the briefing names them,
+            # so the investigator does not have to guess where the migration is (ADR-0009).
+            paths, _ = pull_request_paths(self.clone, run.inputs.base_sha, run.inputs.head_sha)
             tools = ToolContext(
                 checks=checks,
                 evidence=self.results.evidence(run.run_id),
@@ -1009,6 +1012,7 @@ class Pipeline:
                     handle.role: handle.database.conninfo(handle.database.reader)
                     for handle in (reference, candidate)
                 },
+                changed_paths=tuple(paths),
             )
             investigations.append(self.investigator.investigate(run.run_id, tools))
         return StageOutcome(

@@ -116,6 +116,11 @@ def _statements(check: CheckResult) -> list[str]:
     return statements
 
 
+def explain(check: CheckResult) -> list[str]:
+    """What the rules say about one check: the statements ``diagnose`` gives for it."""
+    return _statements(check) if check.outcome is CheckOutcome.FAIL else []
+
+
 def diagnose(run_id: UUID, checks: Mapping[str, CheckResult]) -> Investigation:
     """Explain every failed check from its recorded mismatches, deterministically."""
     started_at = datetime.now(UTC)

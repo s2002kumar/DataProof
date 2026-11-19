@@ -8,7 +8,7 @@ Request shape (Claude Opus 5.5, the default):
 * adaptive thinking with an explicit effort; assistant turns are passed back unchanged, so
   thinking blocks stay valid;
 * ``tool_choice`` is left ``auto`` (forced tool use is rejected on this model), and each of the
-  five tools is ``strict``. Keywords strict schemas do not support are removed from what is
+  six tools is ``strict``. Keywords strict schemas do not support are removed from what is
   sent; the investigator still validates every argument against the full schema;
 * the final answer is constrained to the ``InvestigationOutput`` JSON schema, and validated
   again by the investigator;
@@ -16,7 +16,11 @@ Request shape (Claude Opus 5.5, the default):
 * prompt caching is automatic (a top-level ``cache_control``): each turn re-sends the
   conversation so far, and the cached prefix is billed at the cache-read price. Cost counts
   every kind of input token, and the next turn's ceiling prices all of its input at the
-  cache-write price, so it stays an upper bound.
+  cache-write price, so it stays an upper bound;
+* the investigator's budget notices are mid-conversation system messages placed after the tool
+  results: the operator's channel, which text inside a tool result cannot imitate. They only
+  ever append to the conversation, so the cached prefix stays valid. A model that rejects
+  them gets the notice as marked text after the results.
 """
 
 import json
@@ -28,6 +32,7 @@ import anthropic
 from anthropic.types.beta import (
     BetaMessageParam,
     BetaTextBlock,
+    BetaTextBlockParam,
     BetaToolResultBlockParam,
     BetaToolUseBlock,
 )
@@ -193,8 +198,12 @@ class _AnthropicSession:
         self._context_tokens: int | None = None
         """The last turn's input (cached or not) plus output tokens: an upper bound on the
         conversation so far."""
+        self._notices_in_user_turn = False
+        """Set once the model has refused a mid-conversation system message."""
 
-    def ceiling_usd(self, tool_results: Sequence[ToolResult]) -> Decimal | None:
+    def ceiling_usd(
+        self, tool_results: Sequence[ToolResult], notice: str | None = None
+    ) -> Decimal | None:
         """An upper bound on the next turn's cost, from the fact that a token is at least a byte.
 
         The input is the conversation so far (the last turn's input and output, as counted by
@@ -212,24 +221,55 @@ class _AnthropicSession:
             context = self._context_tokens + sum(
                 len(result.content.encode()) + RESULT_OVERHEAD_TOKENS for result in tool_results
             )
+            if notice:
+                context += len(notice.encode()) + RESULT_OVERHEAD_TOKENS
         model = self._request["model"]
         if "cache_control" in self._request:
             return _cost(model, 0, self._request["max_tokens"], cache_write=context)
         return _cost(model, context, self._request["max_tokens"])
 
-    def send(self, tool_results: Sequence[ToolResult]) -> ModelTurn:
+    def _append(self, tool_results: Sequence[ToolResult], notice: str | None) -> None:
+        """Add the tool results and the investigator's notice to the conversation.
+
+        The notice is the operator's, so it goes in a mid-conversation system message after the
+        results, never inside one: tool results are the pull request's data. A model that does
+        not take such messages gets it as marked text after the results instead.
+        """
+        results: list[BetaToolResultBlockParam] = [
+            {
+                "type": "tool_result",
+                "tool_use_id": result.tool_use_id,
+                "content": result.content,
+                "is_error": result.is_error,
+            }
+            for result in tool_results
+        ]
+        if notice and self._notices_in_user_turn:
+            reminder: BetaTextBlockParam = {
+                "type": "text",
+                "text": f"<system-reminder>{notice}</system-reminder>",
+            }
+            self._messages.append({"role": "user", "content": [*results, reminder]})
+            return
+        self._messages.append({"role": "user", "content": results})
+        if notice:
+            self._messages.append({"role": "system", "content": notice})
+
+    def send(self, tool_results: Sequence[ToolResult], notice: str | None = None) -> ModelTurn:
+        before = len(self._messages)
         if tool_results:
-            results: list[BetaToolResultBlockParam] = [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": result.tool_use_id,
-                    "content": result.content,
-                    "is_error": result.is_error,
-                }
-                for result in tool_results
-            ]
-            self._messages.append({"role": "user", "content": results})
-        response = self._client.beta.messages.create(**self._request, messages=self._messages)
+            self._append(tool_results, notice)
+        try:
+            response = self._client.beta.messages.create(**self._request, messages=self._messages)
+        except anthropic.BadRequestError as exc:
+            unsupported = "role 'system'" in str(exc) and not self._notices_in_user_turn
+            if not (unsupported and notice and tool_results):
+                raise
+            # A refused request is not billed. Say the same thing in the user turn, from now on.
+            del self._messages[before:]
+            self._notices_in_user_turn = True
+            self._append(tool_results, notice)
+            response = self._client.beta.messages.create(**self._request, messages=self._messages)
         # Append the assistant content exactly as returned, thinking blocks included.
         self._messages.append({"role": "assistant", "content": response.content})
         stop = _STOPS.get(str(response.stop_reason))

@@ -327,3 +327,90 @@ def test_a_cached_context_still_counts_toward_the_next_turns_ceiling() -> None:
     assert investigation.status is InvestigationStatus.BUDGET_EXHAUSTED
     assert len(api.requests) == 1
     assert investigation.usage.cost_usd == Decimal("0.0404")
+
+
+def two_calls_then_answer(*middle: dict[str, Any] | Callable[[], httpx2.Response]) -> FakeApi:
+    def tool_use(use_id: str) -> dict[str, Any]:
+        return message(
+            [
+                {
+                    "type": "tool_use",
+                    "id": use_id,
+                    "name": "get_check_result",
+                    "input": {"check_id": C1},
+                }
+            ],
+            "tool_use",
+        )
+
+    return FakeApi(
+        tool_use("toolu_1"), *middle, message([{"type": "text", "text": FINAL}], "end_turn")
+    )
+
+
+def test_the_budget_notice_is_a_system_message_after_the_tool_results() -> None:
+    api = two_calls_then_answer()
+    investigation = Investigator(api.model(), Budget(max_tool_calls=4, max_turns=6)).investigate(
+        uuid.uuid4(), CONTEXT
+    )
+    assert investigation.status is InvestigationStatus.COMPLETED, investigation.failure
+
+    first, second = api.body(0), api.body(1)
+    (task,) = first["messages"]
+    assert task["role"] == "user"
+    assert "Budget: at most 4 tool calls and 6 turns" in task["content"]
+    roles = [m["role"] for m in second["messages"]]
+    assert roles == ["user", "assistant", "user", "system"]
+    results, notice = second["messages"][2], second["messages"][3]
+    # The notice is the operator's: it is never inside a tool result, which is the pull
+    # request's data, and the tool results carry nothing but results.
+    assert [block["type"] for block in results["content"]] == ["tool_result"]
+    assert notice["content"].startswith("Budget left: 3 of 4 tool calls, and 5 turns")
+    assert "Budget left" not in json.dumps(results)
+    # Only appended to: the earlier messages are byte for byte what was sent before.
+    assert second["messages"][:1] == first["messages"]
+
+
+def test_a_model_without_system_messages_gets_the_notice_as_marked_text() -> None:
+    def unsupported() -> httpx2.Response:
+        error = {"type": "invalid_request_error", "message": "role 'system' is not supported"}
+        return httpx2.Response(400, json={"type": "error", "error": error})
+
+    api = two_calls_then_answer(unsupported)
+    investigation = Investigator(api.model()).investigate(uuid.uuid4(), CONTEXT)
+    assert investigation.status is InvestigationStatus.COMPLETED, investigation.failure
+    assert len(api.requests) == 3, "the refused request is sent again, once"
+
+    refused, resent = api.body(1), api.body(2)
+    assert [m["role"] for m in refused["messages"]] == ["user", "assistant", "user", "system"]
+    assert [m["role"] for m in resent["messages"]] == ["user", "assistant", "user"]
+    result, reminder = resent["messages"][2]["content"]
+    assert result["type"] == "tool_result"
+    assert reminder["type"] == "text"
+    assert reminder["text"].startswith("<system-reminder>Budget left: 11 of 12 tool calls")
+    # The refused request cost nothing: two answered turns are counted.
+    assert investigation.usage.input_tokens == 2000
+
+
+def test_another_bad_request_is_not_retried() -> None:
+    def invalid() -> httpx2.Response:
+        error = {"type": "invalid_request_error", "message": "max_tokens: too large"}
+        return httpx2.Response(400, json={"type": "error", "error": error})
+
+    api = two_calls_then_answer(invalid)
+    investigation = Investigator(api.model()).investigate(uuid.uuid4(), CONTEXT)
+    assert investigation.status is InvestigationStatus.NOT_AVAILABLE
+    assert len(api.requests) == 2
+
+
+def test_a_notice_counts_toward_the_next_turns_ceiling() -> None:
+    api = tool_call_then_answer()
+    session = api.model(fallbacks=False, max_tokens=1000).open(
+        system="s", task="t", tools=TOOL_SPECS, output_schema={"type": "object"}
+    )
+    session.send([])
+    without = session.ceiling_usd([])
+    assert without is not None
+    notice = "x" * 4000
+    # 4,000 bytes and the allowance for a block, priced as a cache write at 1.25 * $4/M.
+    assert session.ceiling_usd([], notice) == without + Decimal(4100) * 5 / Decimal(1_000_000)
