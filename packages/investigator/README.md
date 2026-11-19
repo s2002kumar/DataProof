@@ -5,6 +5,8 @@ The bounded AI investigator (ADR-0002), in two roles:
 - **The Failure Investigator** explains why deterministic checks failed, using real evidence.
 - **The Change Analyst** names plausible risks in a change, and edge cases to test, before anything runs.
 
+**Status: experimental, and off unless an operator configures a model.** In the first live evaluation (2026-11-19) the Failure Investigator answered in 1 of 18 investigations, stopped the other 17 times by its own tool-call limit, and the Change Analyst's model arm sent no request ([results](../../docs/AI_EVALUATION_RESULTS.md)). The rule-based arms below run on every eligible run and are unaffected.
+
 Neither can decide anything: the loop never receives a handle to a check, a verdict, a binding approval or the run. Its only output is an `Investigation` record (see the contracts package), with its role.
 
 ## The loop
@@ -77,7 +79,7 @@ The original design gives the AI two roles (ADR-0002, ARCHITECTURE "AI investiga
 **What it is worth, and what it is not:**
 
 - **Rules:** the [change-analysis benchmark](../../benchmarks/README.md#change-analysis) anticipates 21 of 22 corpus faults, but also alarms on 6 of 12 clean controls. A rule cannot tell a correct ranged backfill from one that skips its boundary. The rules were written with the corpus in view, so that recall is an optimistic bound.
-- **The model arm** is built and tested with scripted models only. Whether it is more precise than the rules waits for an approved model budget.
+- **The model arm** is tested with scripted models. Its one live run (2026-11-19) sent no request, because the benchmark's cap for an analysis was below what one turn could cost, so whether it is more precise than the rules is still unknown ([results](../../docs/AI_EVALUATION_RESULTS.md)).
 - **Either way:** nothing it says changes a check or the verdict, and a change that passes analysis can still fail its contracts.
 
 ## Model-off baseline

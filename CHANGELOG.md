@@ -31,7 +31,7 @@ The first version to be tagged, once the gates in [RELEASE.md](docs/RELEASE.md) 
 
 ### AI, advisory only
 
-- A bounded Failure Investigator and Change Analyst: allowlisted read-only tools, validated citations and hard budgets. An answer that fails validation is never shown, and neither role changes a verdict (#42 to #44, #75). Their value has not been measured with a live model.
+- A bounded Failure Investigator and Change Analyst: allowlisted read-only tools, validated citations and hard budgets. An answer that fails validation is never shown, and neither role changes a verdict (#42 to #44, #75). Both are experimental and off unless an operator configures them. Their first live evaluation (2026-11-19) did not establish their value: the investigator answered in 1 of 18 investigations, stopped the other 17 times by its own tool-call limit, and the Change Analyst's model arm sent no request ([results](docs/AI_EVALUATION_RESULTS.md)).
 
 ### Benchmark
 

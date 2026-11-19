@@ -54,7 +54,7 @@ Everything shown is real: the pull requests, the check runs, the job summaries a
 
 ## Closing (about 30 seconds)
 
-> What DataProof claims is narrow and tested: specific checks, on an exact commit, fixture, contracts and engine version, with the expected values kept out of the pull request's hands. What it does not claim is written next to every number: the corpus is the author's, the AI roles are unmeasured until their budgeted run, the hosted deployment is not built, and nobody else has run it yet. The next step is someone else running it.
+> What DataProof claims is narrow and tested: specific checks, on an exact commit, fixture, contracts and engine version, with the expected values kept out of the pull request's hands. What it does not claim is written next to every number: the corpus is the author's, the AI roles' one live evaluation did not establish their value, the hosted deployment is not built, and nobody else has run it yet. The next step is someone else running it.
 
 ## If asked to go deeper
 

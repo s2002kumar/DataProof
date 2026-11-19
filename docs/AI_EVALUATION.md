@@ -1,6 +1,6 @@
 # AI evaluation protocol: Failure Investigator against the model-off baseline
 
-**Status:** prepared and frozen. Every path has been dry-run with a scripted model at no cost. **No paid model has been called.** A live run waits for the owner to approve a budget of at most 10 USD (#7).
+**Status:** ran once, on 2026-11-19, at commit `5254629`, for 1.651932 USD. What it showed is in [AI_EVALUATION_RESULTS.md](AI_EVALUATION_RESULTS.md). **Everything below this paragraph is the protocol exactly as it was frozen before the run.** It is kept as the record of what was decided in advance, including what the run showed to be wrong with it. It is not to be run again: a later evaluation needs its own protocol and its own cases.
 
 This protocol is written before any live result exists, so the result cannot shape the method. The harness is [`benchmarks/src/dataproof_benchmark/ablation.py`](../benchmarks/src/dataproof_benchmark/ablation.py), and its [README section](../benchmarks/README.md#ai-ablation-b3) describes the plumbing.
 

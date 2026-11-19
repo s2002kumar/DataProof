@@ -152,8 +152,9 @@ def report(results: Mapping[str, Any]) -> str:
         "- `B0`: the migration ran. `B1`: reconciliation over the reviewed binding view (row "
         "counts, a key-set hash, refund and capture sums per order and currency). `B2`: "
         "DataProof's deterministic contracts C1 to C3.",
-        "- `B3` (B2 plus AI investigation on the same evidence) is **not run**: live model "
-        "calls are a paid service that has not been approved (#7, #58).",
+        "- `B3` (B2 plus AI investigation on the same evidence) is not in this report. It ran "
+        "live once, on 2026-11-19: see [`ABLATION.md`](ABLATION.md) and "
+        "[what it showed](../../docs/AI_EVALUATION_RESULTS.md) (#7, #58).",
         "",
         "## Detection",
         "",
