@@ -110,7 +110,7 @@ Each stage has a hard budget. The harness starts a case only while its per-case 
 | D, development | The improved arm on the 18 failing development cases, once. The first two are the pilot | 2.50 | 1.80 |
 | H, held-out | The improved arm on the 11 held-out faults, three times each | 5.00 | 3.30 |
 | O, old arm | The old investigator on the same 11, once | 2.00 | 0.90 |
-| C, Change Analyst | Held-out, twice each (28 analyses); development, once each (31) | 4.00 | 2.40 |
+| C, Change Analyst | Held-out, twice each (28 analyses), with 2.00 USD; development, once each (31), with 2.00 USD | 4.00 | 2.40 |
 | **Core total** | | **13.50** | **8.40** |
 | Optional: cheaper models | The improved arm on the held-out set with `claude-sonnet-5-5` and with `claude-haiku-5-5`, three times each | 4.00 | 1.80 |
 | Optional: Qwen, local | An open-weight model on this machine | 0 | 0 |
@@ -121,6 +121,7 @@ Each stage has a hard budget. The harness starts a case only while its per-case 
 - **Stage H stops early** once four investigations have not answered (`--stop-after-unanswered 4`): A1 can then no longer be met, and the rest of the money would buy nothing.
 - **Development may change the investigator,** on the development set's evidence alone. If it does, the investigator is frozen again at a new commit before stage H, and stage D's numbers stay development numbers.
 - **Nothing is rerun.** A stage that has started is never started again.
+- **Each row is one command with its own `--budget-usd`,** except stage C, which is two. The harness refuses a budget above 10 USD for one command.
 
 Of the 15.10 USD the owner authorized on 2026-11-03, 1.651932 USD is spent. That authorization was for the first protocol, which allows no rerun, so this budget is a new decision.
 
