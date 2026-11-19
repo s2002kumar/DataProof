@@ -4,7 +4,9 @@ What has to be true before `v1.0.0` is tagged, what is true now, and what the re
 
 1.0.0 covers both ways to use DataProof: **the GitHub App** with its control plane, and **the GitHub Action** for the database tier.
 
-As of 2026-11-17. The release candidate is `c6436b0`.
+As of 2026-11-19. The release candidate is `c6436b0` (2026-11-17).
+
+`main` has since moved to `fe75bce` (#102, 2026-11-19), which publishes the first live AI evaluation. Between the two commits only documentation, benchmark results, the benchmark's audit and one unit test changed: no file of the Action, the App, a workflow or a lockfile. The eight jobs of [its push to `main`](https://github.com/s2002kumar/DataProof/commits/fe75bce0781474d1bf3fce8ec57dc4dbbb9b768a) are green (787 and 20 tests, none skipped). So every gate below that is met on `c6436b0` is met on `fe75bce` by the rule under Gates, and each is checked once more on the release pull request's merge commit.
 
 ## Gates
 
@@ -17,7 +19,7 @@ A gate is met only by evidence on the release commit, or on a commit whose Actio
 | A clean installation from the pinned commit | Repositories with no DataProof history pin the commit and get the verdicts predicted before the run ([field results](ACTION_FIELD_RESULTS.md)) | **Met at `ba733cfe`** on 2026-11-07: the example repository (#1 `CHECKED`, #2 `BLOCKED`) and the field fork of an application DataProof's author did not write (#1 `CHECKED`, #2 `BLOCKED`), every verdict as predicted. The Action's code (`action.yml` and `packages/`) is unchanged from `ba733cfe` to `c6436b0` |
 | No open security advisory against a dependency | The repository's Dependabot alerts, and `pnpm audit` on both lockfiles | **Met on `c6436b0`** on 2026-11-17: no open Dependabot alert, after #100 moved Next.js to 16.4.5 and fixed the four that GHSA-mfr8-8qww-v76h raised, and `pnpm audit` finds nothing in either lockfile |
 | The App's check-run fix holds on real GitHub ([#78](https://github.com/s2002kumar/DataProof/issues/78)) | The live take of the fixed publisher on new commits, with check-run links, in [DEMO.md](DEMO.md#the-fixed-publisher-on-real-github) | **Met on `4f93f32`** on 2026-11-16: in a burst of five approvals, and with an older run turning green after a newer one existed, the required check read the newest run's check run, and the pull request was mergeable only when that run was `CHECKED`. On `c6436b0` the App's Python code, the check-run publisher included, is unchanged from `4f93f32`; the one change to the App since is the dashboard's Next.js version (#100). That must still be true of the release commit |
-| The claims match the evidence | README, STATUS, the Action's metadata and this file say what the tests and runs show, and no more | Checked on 2026-11-07; corrections are in the pull request that adds this file. The #78 claims were brought up to date on 2026-11-16, and the release candidate's on 2026-11-17 |
+| The claims match the evidence | README, STATUS, the Action's metadata and this file say what the tests and runs show, and no more | Checked on 2026-11-07; corrections are in the pull request that adds this file. The #78 claims were brought up to date on 2026-11-16, the release candidate's on 2026-11-17, and the AI roles' on 2026-11-19, when their evaluation had run (#102): they are described as experimental and off unless configured, with what the run showed |
 | The owner approves the tag | A message from the owner | **Not given** |
 
 ## The open issues, classified
