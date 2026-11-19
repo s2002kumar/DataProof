@@ -1,0 +1,253 @@
+[
+  {
+    "tool_results": [],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "get_check_result",
+        "arguments": {
+          "check_id": "commerce.c1_event_preservation"
+        }
+      },
+      {
+        "name": "get_check_result",
+        "arguments": {
+          "check_id": "commerce.c2_refund_totals"
+        }
+      },
+      {
+        "name": "get_check_result",
+        "arguments": {
+          "check_id": "commerce.c3_capture_totals"
+        }
+      }
+    ],
+    "input_tokens": 2140,
+    "output_tokens": 198,
+    "cache_write_tokens": 2136,
+    "cache_read_tokens": 0,
+    "cost_usd": "0.014656",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 2828
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": false,
+        "bytes": 742,
+        "sha256": "b4ecbbf0c37b7aa4ec88098c2bd7ebb3b4e5c83f75db1bc46df266ff3c7799ba",
+        "content": "{\"evidence_id\": \"investigation.tool.1\", \"data\": {\"check_id\": \"commerce.c1_event_preservation\", \"contract_id\": \"commerce.c1_event_preservation\", \"contract_version\": 1, \"required\": true, \"outcome\": \"FAIL\", \"not_run_reason\": null, \"error_code\": null, \"expected_key_count\": 435, \"observed_key_count\": 435, \"mismatch_count\": 1, \"mismatch_examples\": [{\"key\": [{\"type\": \"integer\", \"value\": 1116}], \"column\": \"event_kind\", \"expected\": {\"type\": \"text\", \"value\": \"CAPTURE\"}, \"observed\": {\"type\": \"text\", \"value\": \"REFUND\"}}], \"evidence_ids\": [\"commerce.c1_event_preservation:reference:oracle\", \"commerce.c1_event_preservation:candidate:binding\"], \"dataset_digest\": \"b4f47bea876de4049bedf0968fda8c055f327938fc5010c990d75bfe9e1a0530\", \"elapsed_ms\": 141}}",
+        "truncated": false
+      },
+      {
+        "is_error": false,
+        "bytes": 813,
+        "sha256": "bda7026e40fa41b487c8c0a240e05fc83f775b75ddb73fe6087a1b10faba9049",
+        "content": "{\"evidence_id\": \"investigation.tool.2\", \"data\": {\"check_id\": \"commerce.c2_refund_totals\", \"contract_id\": \"commerce.c2_refund_totals\", \"contract_version\": 1, \"required\": true, \"outcome\": \"FAIL\", \"not_run_reason\": null, \"error_code\": null, \"expected_key_count\": 208, \"observed_key_count\": 208, \"mismatch_count\": 1, \"mismatch_examples\": [{\"key\": [{\"type\": \"integer\", \"value\": 147}, {\"type\": \"text\", \"value\": \"USD\"}], \"column\": \"refund_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"205.81\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"569.94\"}}], \"evidence_ids\": [\"commerce.c2_refund_totals:reference:precondition\", \"commerce.c2_refund_totals:reference:oracle\", \"commerce.c2_refund_totals:candidate:binding\"], \"dataset_digest\": \"b4f47bea876de4049bedf0968fda8c055f327938fc5010c990d75bfe9e1a0530\", \"elapsed_ms\": 93}}",
+        "truncated": false
+      },
+      {
+        "is_error": false,
+        "bytes": 766,
+        "sha256": "c7c765ec966b7b0967f0b9071d1201063df9575e5502f8cbe984091e554078cf",
+        "content": "{\"evidence_id\": \"investigation.tool.3\", \"data\": {\"check_id\": \"commerce.c3_capture_totals\", \"contract_id\": \"commerce.c3_capture_totals\", \"contract_version\": 1, \"required\": true, \"outcome\": \"FAIL\", \"not_run_reason\": null, \"error_code\": null, \"expected_key_count\": 208, \"observed_key_count\": 208, \"mismatch_count\": 1, \"mismatch_examples\": [{\"key\": [{\"type\": \"integer\", \"value\": 147}, {\"type\": \"text\", \"value\": \"USD\"}], \"column\": \"capture_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"791.59\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"427.46\"}}], \"evidence_ids\": [\"commerce.c3_capture_totals:reference:oracle\", \"commerce.c3_capture_totals:candidate:binding\"], \"dataset_digest\": \"b4f47bea876de4049bedf0968fda8c055f327938fc5010c990d75bfe9e1a0530\", \"elapsed_ms\": 62}}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "get_evidence",
+        "arguments": {
+          "evidence_id": "commerce.c1_event_preservation:reference:oracle"
+        }
+      },
+      {
+        "name": "get_evidence",
+        "arguments": {
+          "evidence_id": "commerce.c1_event_preservation:candidate:binding"
+        }
+      },
+      {
+        "name": "get_evidence",
+        "arguments": {
+          "evidence_id": "commerce.c2_refund_totals:reference:precondition"
+        }
+      }
+    ],
+    "input_tokens": 3490,
+    "output_tokens": 281,
+    "cache_write_tokens": 1352,
+    "cache_read_tokens": 2136,
+    "cost_usd": "0.0128152",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 2312
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": false,
+        "bytes": 470,
+        "sha256": "64664983579480411710eb76d5e077a73eb3bbbdee2f713e4824510e054b11d3",
+        "content": "{\"evidence_id\": \"investigation.tool.4\", \"data\": {\"environment\": \"REFERENCE\", \"evidence_id\": \"commerce.c1_event_preservation:reference:oracle\", \"kind\": \"query\", \"query_sql\": \"SELECT event_id, order_id, event_kind::text AS event_kind, amount, occurred_at\\nFROM legacy_payment_events\\n\", \"result_sha256\": \"2b953b41e13f4b65bfb9967bbe176c2eb7f80e6b4527c627ff497734fdce7a48\", \"row_count\": 435, \"sql_sha256\": \"9c3f405e7a938e451c470be2b1cb552b23cd68d9ed349e660a68b744c76e9c3a\"}}",
+        "truncated": false
+      },
+      {
+        "is_error": false,
+        "bytes": 471,
+        "sha256": "11a9fa9c7b78659742f4e0e9ff336ba161480a06fa8ec826702dadd9330e9db0",
+        "content": "{\"evidence_id\": \"investigation.tool.5\", \"data\": {\"environment\": \"CANDIDATE\", \"evidence_id\": \"commerce.c1_event_preservation:candidate:binding\", \"kind\": \"query\", \"query_sql\": \"SELECT source_event_id, order_id, entry_kind::text AS entry_kind, amount, occurred_at\\nFROM ledger_entries\\n\", \"result_sha256\": \"12b5e3ff2fc48f5fffb11f5652bdcaa9c5c2caabd384a4e180f15d2e0ac380e2\", \"row_count\": 435, \"sql_sha256\": \"c5148fa7eefb60e0753e5c53f619a987cb67ade868bcc19237099220c05bb24f\"}}",
+        "truncated": false
+      },
+      {
+        "is_error": false,
+        "bytes": 566,
+        "sha256": "2846795d8f81509298323d3b5305159886a212226a06b43824affcf018e11de9",
+        "content": "{\"evidence_id\": \"investigation.tool.6\", \"data\": {\"environment\": \"REFERENCE\", \"evidence_id\": \"commerce.c2_refund_totals:reference:precondition\", \"kind\": \"query\", \"query_sql\": \"SELECT order_id\\nFROM legacy_payment_events\\nGROUP BY order_id\\nHAVING COALESCE(SUM(amount) FILTER (WHERE event_kind = 'REFUND'), 0)\\n     > COALESCE(SUM(amount) FILTER (WHERE event_kind = 'CAPTURE'), 0)\\n\", \"result_sha256\": \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\", \"row_count\": 0, \"sql_sha256\": \"50fd7b8f96d42788ae2f3494a91f6f3b042556808a3a0eea74ef54113aaefa4a\"}}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "run_readonly_query",
+        "arguments": {
+          "environment": "REFERENCE",
+          "sql": "SELECT event_id, order_id, event_kind::text, amount, occurred_at FROM legacy_payment_events WHERE order_id = 147 ORDER BY event_id",
+          "max_rows": 50
+        }
+      },
+      {
+        "name": "run_readonly_query",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "sql": "SELECT * FROM ledger_entries WHERE order_id = 147 ORDER BY source_event_id",
+          "max_rows": 50
+        }
+      }
+    ],
+    "input_tokens": 4656,
+    "output_tokens": 296,
+    "cache_write_tokens": 1166,
+    "cache_read_tokens": 3488,
+    "cost_usd": "0.0124556",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 2766
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": false,
+        "bytes": 789,
+        "sha256": "14e42e3cb5fb0c9515dc1431195ddabf7c8a447f64422a575b4b70d16c5024a5",
+        "content": "{\"evidence_id\": \"investigation.tool.7\", \"data\": {\"columns\": [\"event_id\", \"order_id\", \"event_kind\", \"amount\", \"occurred_at\"], \"environment\": \"REFERENCE\", \"rows\": [[{\"type\": \"integer\", \"value\": 1116}, {\"type\": \"integer\", \"value\": 147}, {\"type\": \"text\", \"value\": \"CAPTURE\"}, {\"type\": \"decimal\", \"value\": \"364.13\"}, {\"type\": \"timestamptz\", \"value\": \"2026-07-11T23:40:00Z\"}], [{\"type\": \"integer\", \"value\": 1117}, {\"type\": \"integer\", \"value\": 147}, {\"type\": \"text\", \"value\": \"CAPTURE\"}, {\"type\": \"decimal\", \"value\": \"427.46\"}, {\"type\": \"timestamptz\", \"value\": \"2026-07-11T23:59:00Z\"}], [{\"type\": \"integer\", \"value\": 1118}, {\"type\": \"integer\", \"value\": 147}, {\"type\": \"text\", \"value\": \"REFUND\"}, {\"type\": \"decimal\", \"value\": \"205.81\"}, {\"type\": \"timestamptz\", \"value\": \"2026-07-21T08:59:00Z\"}]]}}",
+        "truncated": false
+      },
+      {
+        "is_error": false,
+        "bytes": 913,
+        "sha256": "c21f83cbbdd0eeb9ad9cec34203ae1710f4ecaa2bd312ce3bb5fbee7c2dc2755",
+        "content": "{\"evidence_id\": \"investigation.tool.8\", \"data\": {\"columns\": [\"order_id\", \"ledger_sequence\", \"source_event_id\", \"entry_kind\", \"amount\", \"occurred_at\"], \"environment\": \"CANDIDATE\", \"rows\": [[{\"type\": \"integer\", \"value\": 147}, {\"type\": \"integer\", \"value\": 1}, {\"type\": \"integer\", \"value\": 1116}, {\"type\": \"text\", \"value\": \"REFUND\"}, {\"type\": \"decimal\", \"value\": \"364.13\"}, {\"type\": \"timestamptz\", \"value\": \"2026-07-11T23:40:00Z\"}], [{\"type\": \"integer\", \"value\": 147}, {\"type\": \"integer\", \"value\": 2}, {\"type\": \"integer\", \"value\": 1117}, {\"type\": \"text\", \"value\": \"CAPTURE\"}, {\"type\": \"decimal\", \"value\": \"427.46\"}, {\"type\": \"timestamptz\", \"value\": \"2026-07-11T23:59:00Z\"}], [{\"type\": \"integer\", \"value\": 147}, {\"type\": \"integer\", \"value\": 3}, {\"type\": \"integer\", \"value\": 1118}, {\"type\": \"text\", \"value\": \"REFUND\"}, {\"type\": \"decimal\", \"value\": \"205.81\"}, {\"type\": \"timestamptz\", \"value\": \"2026-07-21T08:59:00Z\"}]]}}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations/",
+          "start_line": 1,
+          "end_line": 50
+        }
+      }
+    ],
+    "input_tokens": 5836,
+    "output_tokens": 141,
+    "cache_write_tokens": 1180,
+    "cache_read_tokens": 4654,
+    "cost_usd": "0.0096588",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 2140
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": true,
+        "bytes": 70,
+        "sha256": "a938ff216e571364daf3b3d7ea983a9d62c1204543a157f3c94cda9182e27238",
+        "content": "{\"denied\": \"not a normalized relative path: 'sample-app/migrations/'\"}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations",
+          "start_line": 1,
+          "end_line": 50
+        }
+      }
+    ],
+    "input_tokens": 6017,
+    "output_tokens": 100,
+    "cache_write_tokens": 181,
+    "cache_read_tokens": 5834,
+    "cost_usd": "0.0040798",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 1641
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": true,
+        "bytes": 72,
+        "sha256": "ae8edaab4a73df190cab9a27edb02aacc22c2b9c40fc601d24c80a5f50c3b842",
+        "content": "{\"denied\": \"sample-app/migrations is outside the readable source roots\"}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations/0002_ledger_entries.sql",
+          "start_line": 1,
+          "end_line": 200
+        }
+      },
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations/002_ledger_entries.sql",
+          "start_line": 1,
+          "end_line": 200
+        }
+      },
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations/0001_initial.sql",
+          "start_line": 1,
+          "end_line": 200
+        }
+      }
+    ],
+    "input_tokens": 6153,
+    "output_tokens": 364,
+    "cache_write_tokens": 136,
+    "cache_read_tokens": 6015,
+    "cost_usd": "0.009171",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 3344
+  }
+]

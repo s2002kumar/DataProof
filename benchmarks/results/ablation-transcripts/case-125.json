@@ -1,0 +1,295 @@
+[
+  {
+    "tool_results": [],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "get_check_result",
+        "arguments": {
+          "check_id": "commerce.c1_event_preservation"
+        }
+      },
+      {
+        "name": "get_evidence",
+        "arguments": {
+          "evidence_id": "commerce.c1_event_preservation:reference:oracle"
+        }
+      },
+      {
+        "name": "get_evidence",
+        "arguments": {
+          "evidence_id": "commerce.c1_event_preservation:candidate:binding"
+        }
+      }
+    ],
+    "input_tokens": 1976,
+    "output_tokens": 198,
+    "cache_write_tokens": 1972,
+    "cache_read_tokens": 0,
+    "cost_usd": "0.013836",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 2750
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": false,
+        "bytes": 913,
+        "sha256": "f0a30277767720c1f4062337a969de3e244e49be12783b0fa5f34076446c6bb4",
+        "content": "{\"evidence_id\": \"investigation.tool.1\", \"data\": {\"check_id\": \"commerce.c1_event_preservation\", \"contract_id\": \"commerce.c1_event_preservation\", \"contract_version\": 1, \"required\": true, \"outcome\": \"FAIL\", \"not_run_reason\": null, \"error_code\": null, \"expected_key_count\": 435, \"observed_key_count\": 435, \"mismatch_count\": 2, \"mismatch_examples\": [{\"key\": [{\"type\": \"integer\", \"value\": 1296}], \"column\": \"amount\", \"expected\": {\"type\": \"decimal\", \"value\": \"290.62\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"494.84\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1297}], \"column\": \"amount\", \"expected\": {\"type\": \"decimal\", \"value\": \"494.84\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"290.62\"}}], \"evidence_ids\": [\"commerce.c1_event_preservation:reference:oracle\", \"commerce.c1_event_preservation:candidate:binding\"], \"dataset_digest\": \"b4f47bea876de4049bedf0968fda8c055f327938fc5010c990d75bfe9e1a0530\", \"elapsed_ms\": 78}}",
+        "truncated": false
+      },
+      {
+        "is_error": false,
+        "bytes": 470,
+        "sha256": "fc57a5c09b7fab2917e49f07b2a5b2658ce27262f998c2eb420251925ebe4883",
+        "content": "{\"evidence_id\": \"investigation.tool.2\", \"data\": {\"environment\": \"REFERENCE\", \"evidence_id\": \"commerce.c1_event_preservation:reference:oracle\", \"kind\": \"query\", \"query_sql\": \"SELECT event_id, order_id, event_kind::text AS event_kind, amount, occurred_at\\nFROM legacy_payment_events\\n\", \"result_sha256\": \"2b953b41e13f4b65bfb9967bbe176c2eb7f80e6b4527c627ff497734fdce7a48\", \"row_count\": 435, \"sql_sha256\": \"9c3f405e7a938e451c470be2b1cb552b23cd68d9ed349e660a68b744c76e9c3a\"}}",
+        "truncated": false
+      },
+      {
+        "is_error": false,
+        "bytes": 471,
+        "sha256": "1427245804ac3b48d72290e00543c1021872b95da8ef67d2ff1e5f2b6800114d",
+        "content": "{\"evidence_id\": \"investigation.tool.3\", \"data\": {\"environment\": \"CANDIDATE\", \"evidence_id\": \"commerce.c1_event_preservation:candidate:binding\", \"kind\": \"query\", \"query_sql\": \"SELECT source_event_id, order_id, entry_kind::text AS entry_kind, amount, occurred_at\\nFROM ledger_entries\\n\", \"result_sha256\": \"7344efa9b050708d3a6eca513242d82b95ce0de518c04f2732f004c6f612d8ef\", \"row_count\": 435, \"sql_sha256\": \"c5148fa7eefb60e0753e5c53f619a987cb67ade868bcc19237099220c05bb24f\"}}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "run_readonly_query",
+        "arguments": {
+          "environment": "REFERENCE",
+          "sql": "SELECT event_id, order_id, event_kind::text, amount, occurred_at FROM legacy_payment_events WHERE order_id IN (SELECT order_id FROM legacy_payment_events WHERE event_id IN (1296,1297)) ORDER BY event_id",
+          "max_rows": 20
+        }
+      },
+      {
+        "name": "run_readonly_query",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "sql": "SELECT * FROM ledger_entries WHERE order_id IN (SELECT order_id FROM ledger_entries WHERE source_event_id IN (1296,1297)) ORDER BY source_event_id",
+          "max_rows": 20
+        }
+      }
+    ],
+    "input_tokens": 3150,
+    "output_tokens": 394,
+    "cache_write_tokens": 1176,
+    "cache_read_tokens": 1972,
+    "cost_usd": "0.0141624",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 3109
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": false,
+        "bytes": 581,
+        "sha256": "0d60a4ac123d830669bea317c2a605d5b60d9a762ea90aac3281c082d02d8c3b",
+        "content": "{\"evidence_id\": \"investigation.tool.4\", \"data\": {\"columns\": [\"event_id\", \"order_id\", \"event_kind\", \"amount\", \"occurred_at\"], \"environment\": \"REFERENCE\", \"rows\": [[{\"type\": \"integer\", \"value\": 1296}, {\"type\": \"integer\", \"value\": 234}, {\"type\": \"text\", \"value\": \"CAPTURE\"}, {\"type\": \"decimal\", \"value\": \"290.62\"}, {\"type\": \"timestamptz\", \"value\": \"2026-08-15T00:44:00Z\"}], [{\"type\": \"integer\", \"value\": 1297}, {\"type\": \"integer\", \"value\": 234}, {\"type\": \"text\", \"value\": \"CAPTURE\"}, {\"type\": \"decimal\", \"value\": \"494.84\"}, {\"type\": \"timestamptz\", \"value\": \"2026-08-15T01:00:00Z\"}]]}}",
+        "truncated": false
+      },
+      {
+        "is_error": false,
+        "bytes": 673,
+        "sha256": "1b5e49dc59ebf8ad8ef0294cd00c7ec27e22fe47f4545d1116cb9dd8d1906021",
+        "content": "{\"evidence_id\": \"investigation.tool.5\", \"data\": {\"columns\": [\"order_id\", \"ledger_sequence\", \"source_event_id\", \"entry_kind\", \"amount\", \"occurred_at\"], \"environment\": \"CANDIDATE\", \"rows\": [[{\"type\": \"integer\", \"value\": 234}, {\"type\": \"integer\", \"value\": 1}, {\"type\": \"integer\", \"value\": 1296}, {\"type\": \"text\", \"value\": \"CAPTURE\"}, {\"type\": \"decimal\", \"value\": \"494.84\"}, {\"type\": \"timestamptz\", \"value\": \"2026-08-15T00:44:00Z\"}], [{\"type\": \"integer\", \"value\": 234}, {\"type\": \"integer\", \"value\": 2}, {\"type\": \"integer\", \"value\": 1297}, {\"type\": \"text\", \"value\": \"CAPTURE\"}, {\"type\": \"decimal\", \"value\": \"290.62\"}, {\"type\": \"timestamptz\", \"value\": \"2026-08-15T01:00:00Z\"}]]}}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations/",
+          "start_line": 1,
+          "end_line": 50
+        }
+      }
+    ],
+    "input_tokens": 4213,
+    "output_tokens": 168,
+    "cache_write_tokens": 1063,
+    "cache_read_tokens": 3148,
+    "cost_usd": "0.0093126",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 1828
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": true,
+        "bytes": 70,
+        "sha256": "a938ff216e571364daf3b3d7ea983a9d62c1204543a157f3c94cda9182e27238",
+        "content": "{\"denied\": \"not a normalized relative path: 'sample-app/migrations/'\"}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations/0002_ledger_entries.sql",
+          "start_line": 1,
+          "end_line": 200
+        }
+      },
+      {
+        "name": "run_readonly_query",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "sql": "SELECT * FROM schema_migrations",
+          "max_rows": 20
+        }
+      }
+    ],
+    "input_tokens": 4421,
+    "output_tokens": 242,
+    "cache_write_tokens": 208,
+    "cache_read_tokens": 4211,
+    "cost_usd": "0.0067302",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 2203
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": true,
+        "bytes": 93,
+        "sha256": "e31241314c3d36e51cfd6666b322244791a1f032c8f95404f4f980d837fbcbb2",
+        "content": "{\"failed\": \"sample-app/migrations/0002_ledger_entries.sql does not exist at the head commit\"}",
+        "truncated": false
+      },
+      {
+        "is_error": true,
+        "bytes": 105,
+        "sha256": "25d44a48b2e9e48f2c0ac2b40546fc86c7a8c4357d9ef0762f1c6d3e90a95fb5",
+        "content": "{\"denied\": \"not a single read-only query: relation \\\"schema_migrations\\\" does not exist at character 59\"}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "run_readonly_query",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "sql": "SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema')",
+          "max_rows": 50
+        }
+      }
+    ],
+    "input_tokens": 4797,
+    "output_tokens": 152,
+    "cache_write_tokens": 376,
+    "cache_read_tokens": 4419,
+    "cost_usd": "0.0058118",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 1500
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": true,
+        "bytes": 66,
+        "sha256": "91d0f23bffc2d570c9997a0d6294403d79d0b8eb0a740eaf20e89b9dc4ecdb45",
+        "content": "{\"denied\": \"function not allowed in bindings: current_database()\"}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations/001_ledger_entries.sql",
+          "start_line": 1,
+          "end_line": 200
+        }
+      },
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations/0001_ledger_entries.sql",
+          "start_line": 1,
+          "end_line": 200
+        }
+      },
+      {
+        "name": "get_schema",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "table": "ledger_entries"
+        }
+      }
+    ],
+    "input_tokens": 4982,
+    "output_tokens": 326,
+    "cache_write_tokens": 185,
+    "cache_read_tokens": 4795,
+    "cost_usd": "0.008412",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 2765
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": true,
+        "bytes": 92,
+        "sha256": "ca3e17b1f1177af12caa23ca28d1673ccab4825b809bed4e420682ac61c35d70",
+        "content": "{\"failed\": \"sample-app/migrations/001_ledger_entries.sql does not exist at the head commit\"}",
+        "truncated": false
+      },
+      {
+        "is_error": true,
+        "bytes": 93,
+        "sha256": "75167c0113f2f8e2d2e1d549101835435e3ede8bc18a743a119ce8c56ecdfbf7",
+        "content": "{\"failed\": \"sample-app/migrations/0001_ledger_entries.sql does not exist at the head commit\"}",
+        "truncated": false
+      },
+      {
+        "is_error": false,
+        "bytes": 1423,
+        "sha256": "390c3ef762d5cc7aba4579db894ab4099272632271d065d46a5fd1c897ed4c66",
+        "content": "{\"evidence_id\": \"investigation.tool.12\", \"data\": {\"columns\": [{\"datetime_precision\": null, \"name\": \"order_id\", \"nullable\": false, \"precision\": 64, \"scale\": 0, \"type\": \"bigint\"}, {\"datetime_precision\": null, \"name\": \"ledger_sequence\", \"nullable\": false, \"precision\": 32, \"scale\": 0, \"type\": \"integer\"}, {\"datetime_precision\": null, \"name\": \"source_event_id\", \"nullable\": false, \"precision\": 64, \"scale\": 0, \"type\": \"bigint\"}, {\"datetime_precision\": null, \"name\": \"entry_kind\", \"nullable\": false, \"precision\": null, \"scale\": null, \"type\": \"USER-DEFINED\"}, {\"datetime_precision\": null, \"name\": \"amount\", \"nullable\": false, \"precision\": 18, \"scale\": 2, \"type\": \"numeric\"}, {\"datetime_precision\": 6, \"name\": \"occurred_at\", \"nullable\": false, \"precision\": null, \"scale\": null, \"type\": \"timestamp with time zone\"}], \"constraints\": [{\"definition\": \"CHECK ((amount > (0)::numeric))\", \"kind\": \"c\", \"name\": \"ledger_entries_amount_check\"}, {\"definition\": \"CHECK ((ledger_sequence > 0))\", \"kind\": \"c\", \"name\": \"ledger_entries_ledger_sequence_check\"}, {\"definition\": \"FOREIGN KEY (order_id) REFERENCES orders(order_id)\", \"kind\": \"f\", \"name\": \"ledger_entries_order_id_fkey\"}, {\"definition\": \"PRIMARY KEY (order_id, ledger_sequence)\", \"kind\": \"p\", \"name\": \"ledger_entries_pkey\"}, {\"definition\": \"UNIQUE (source_event_id)\", \"kind\": \"u\", \"name\": \"ledger_entries_source_event_id_key\"}], \"environment\": \"CANDIDATE\", \"table\": \"ledger_entries\"}}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations/002_ledger_entries.sql",
+          "start_line": 1,
+          "end_line": 200
+        }
+      },
+      {
+        "name": "run_readonly_query",
+        "arguments": {
+          "environment": "REFERENCE",
+          "sql": "SELECT order_id, event_kind::text, count(*) FROM legacy_payment_events GROUP BY 1,2 HAVING count(*)>1 ORDER BY 1",
+          "max_rows": 50
+        }
+      }
+    ],
+    "input_tokens": 6105,
+    "output_tokens": 317,
+    "cache_write_tokens": 1123,
+    "cache_read_tokens": 4980,
+    "cost_usd": "0.012959",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 2843
+  }
+]

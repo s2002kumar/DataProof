@@ -1,0 +1,224 @@
+{
+  "tier": "B3, the AI ablation, at the database tier",
+  "dry_run": false,
+  "model": "anthropic:claude-opus-5-5",
+  "effort": "high",
+  "max_tokens": 8000,
+  "prompt_caching": "automatic, 5-minute entries",
+  "budget": {
+    "approved_usd": "1",
+    "case_cap_usd": "0.50",
+    "max_tool_calls": 12,
+    "max_turns": 16
+  },
+  "prompt_version": "failure-investigator/1",
+  "tool_version": "tools/1",
+  "cases": [
+    {
+      "case_id": "case-104",
+      "family": "join multiplication",
+      "variant": "all events",
+      "holdout": true,
+      "failed": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "skipped": null,
+      "model_off": {
+        "status": "COMPLETED",
+        "model": "dataproof:rules-v1",
+        "hypotheses": 3,
+        "named_affected": 0,
+        "affected": 300,
+        "root_cause": true,
+        "root_cause_first": true,
+        "other_rubrics": 0,
+        "answer_parsed": true,
+        "citations": 7,
+        "valid_citations": 7,
+        "invalid_citations": [],
+        "specifics": 3,
+        "unsupported_specifics": [],
+        "hypotheses_with_unsupported": 0,
+        "tool_calls": {},
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_write_tokens": 0,
+        "cache_read_tokens": 0,
+        "cost_usd": "0",
+        "latency_ms": 0.242,
+        "texts": [
+          "commerce.c1_event_preservation: Every changed value is an exact multiple (2x, 3x, 4x) of the reference value: consistent with a join that repeats each row before it is summed or copied.",
+          "commerce.c2_refund_totals: Every changed value is an exact multiple (2x, 3x, 4x) of the reference value: consistent with a join that repeats each row before it is summed or copied.",
+          "commerce.c3_capture_totals: Every changed value is an exact multiple (2x, 3x, 4x) of the reference value: consistent with a join that repeats each row before it is summed or copied."
+        ],
+        "failure": null
+      },
+      "model": {
+        "status": "BUDGET_EXHAUSTED",
+        "model": "anthropic:claude-opus-5-5",
+        "hypotheses": 0,
+        "named_affected": 0,
+        "affected": 300,
+        "root_cause": false,
+        "root_cause_first": false,
+        "other_rubrics": 0,
+        "answer_parsed": false,
+        "citations": 0,
+        "valid_citations": 0,
+        "invalid_citations": [],
+        "specifics": 0,
+        "unsupported_specifics": [],
+        "hypotheses_with_unsupported": 0,
+        "tool_calls": {
+          "OK": 12
+        },
+        "input_tokens": 45803,
+        "output_tokens": 1772,
+        "cache_write_tokens": 14308,
+        "cache_read_tokens": 31483,
+        "cost_usd": "0.1133246",
+        "latency_ms": 22187,
+        "texts": [],
+        "failure": "more than 12 tool calls"
+      }
+    },
+    {
+      "case_id": "case-118",
+      "family": "wrong column mapping",
+      "variant": "kind of one capture",
+      "holdout": false,
+      "failed": [
+        "commerce.c1_event_preservation",
+        "commerce.c2_refund_totals",
+        "commerce.c3_capture_totals"
+      ],
+      "skipped": null,
+      "model_off": {
+        "status": "COMPLETED",
+        "model": "dataproof:rules-v1",
+        "hypotheses": 3,
+        "named_affected": 0,
+        "affected": 1,
+        "root_cause": false,
+        "root_cause_first": false,
+        "other_rubrics": 0,
+        "answer_parsed": true,
+        "citations": 7,
+        "valid_citations": 7,
+        "invalid_citations": [],
+        "specifics": 3,
+        "unsupported_specifics": [],
+        "hypotheses_with_unsupported": 0,
+        "tool_calls": {},
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_write_tokens": 0,
+        "cache_read_tokens": 0,
+        "cost_usd": "0",
+        "latency_ms": 3.015,
+        "texts": [
+          "commerce.c1_event_preservation: Values differ in ways these rules do not recognize.",
+          "commerce.c2_refund_totals: Values differ in ways these rules do not recognize.",
+          "commerce.c3_capture_totals: Values differ in ways these rules do not recognize."
+        ],
+        "failure": null
+      },
+      "model": {
+        "status": "BUDGET_EXHAUSTED",
+        "model": "anthropic:claude-opus-5-5",
+        "hypotheses": 0,
+        "named_affected": 0,
+        "affected": 1,
+        "root_cause": false,
+        "root_cause_first": false,
+        "other_rubrics": 0,
+        "answer_parsed": false,
+        "citations": 0,
+        "valid_citations": 0,
+        "invalid_citations": [],
+        "specifics": 0,
+        "unsupported_specifics": [],
+        "hypotheses_with_unsupported": 0,
+        "tool_calls": {
+          "DENIED": 2,
+          "FAILED": 2,
+          "OK": 8
+        },
+        "input_tokens": 28292,
+        "output_tokens": 1380,
+        "cache_write_tokens": 6151,
+        "cache_read_tokens": 22127,
+        "cost_usd": "0.0628364",
+        "latency_ms": 17281,
+        "texts": [],
+        "failure": "more than 12 tool calls"
+      }
+    }
+  ],
+  "summary": {
+    "model_off": {
+      "investigations": 2,
+      "statuses": {
+        "COMPLETED": 2
+      },
+      "completed": 2,
+      "root_cause": 1,
+      "root_cause_first": 1,
+      "hedged": 0,
+      "named_an_affected_event": 0,
+      "citations": 14,
+      "valid_citations": 14,
+      "specifics": 6,
+      "unsupported_specifics": 0,
+      "hypotheses_with_unsupported": 0,
+      "tool_calls": 0,
+      "input_tokens": 0,
+      "cache_write_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "cost_usd": "0",
+      "cost_usd_per_investigation": {
+        "mean": "0",
+        "max": "0"
+      },
+      "latency_ms": {
+        "median": 1.6285,
+        "p90": 3.015,
+        "max": 3.015
+      }
+    },
+    "model": {
+      "investigations": 2,
+      "statuses": {
+        "BUDGET_EXHAUSTED": 2
+      },
+      "completed": 0,
+      "root_cause": 0,
+      "root_cause_first": 0,
+      "hedged": 0,
+      "named_an_affected_event": 0,
+      "citations": 0,
+      "valid_citations": 0,
+      "specifics": 0,
+      "unsupported_specifics": 0,
+      "hypotheses_with_unsupported": 0,
+      "tool_calls": 24,
+      "input_tokens": 74095,
+      "cache_write_tokens": 20459,
+      "cache_read_tokens": 53610,
+      "output_tokens": 3152,
+      "cost_usd": "0.1761610",
+      "cost_usd_per_investigation": {
+        "mean": "0.0880805",
+        "max": "0.1133246"
+      },
+      "latency_ms": {
+        "median": 19734.0,
+        "p90": 22187.0,
+        "max": 22187.0
+      }
+    }
+  }
+}
