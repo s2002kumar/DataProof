@@ -60,3 +60,13 @@ None of this is a fault in what the investigator is allowed to do. ADR-0002's bo
 - **Anything about the first evaluation's cases.** Those have now been read closely. Running them again would measure a design that was changed with them in view, and would not be independent evidence. The next evaluation needs new cases.
 
 **Consequences:** the investigator's README, the threat model's tool list and the README describe six tools and the new loop. `tests/integration/test_investigator.py` covers the briefing, the listings, the refusals, the budget notices, the kept turn and the replay of the frozen investigations; `tests/unit/test_anthropic_adapter.py` covers the notice's channel and its fallback. Both AI roles stay experimental and off unless configured.
+
+**Sources.** The provider's documentation and engineering notes, read on 2026-11-19, that these decisions follow:
+
+- **A turn kept for the answer:** the Agent SDK's loop guide ("Count each turn with tool calls, plus one for the final text-only response"), <https://code.claude.com/docs/en/agent-sdk/agent-loop>.
+- **Notices on the operator's channel:** mid-conversation system messages ("in an agentic loop you can place the system message right after the tool results"), <https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages>; and "Don't put your own instructions in tool results", <https://platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails/mitigate-jailbreaks>.
+- **Every call answered, also one that is not run:** "still return a `tool_result` for it with `is_error: true` and a brief explanation", <https://platform.claude.com/docs/en/agents-and-tools/tool-use/parallel-tool-use>.
+- **Refusals that say what to try next:** "include what went wrong and what Claude should try next", <https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls>; and <https://www.anthropic.com/engineering/writing-tools-for-agents>.
+- **One tool for what is already known, and detailed descriptions:** <https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools>; "retrieving some data up front for speed, and pursuing further autonomous exploration at its discretion", <https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents>.
+- **Why not the API's task budgets:** they count tokens, with a minimum of 20,000, <https://platform.claude.com/docs/en/build-with-claude/task-budgets>.
+- **Reading a uniform failure as the harness's:** "a 0% pass rate across many trials ... is most often a signal of a broken task, not an incapable agent", <https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents>.
