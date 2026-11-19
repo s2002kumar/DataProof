@@ -56,7 +56,7 @@ PRICES: Mapping[str, tuple[Decimal, Decimal, Decimal]] = {
     "claude-opus-5": (Decimal(5), Decimal(25), Decimal("0.50")),
     "claude-opus-4-8": (Decimal(5), Decimal(25), Decimal("0.50")),
     "claude-fable-5-1": (Decimal(10), Decimal(50), Decimal("0.25")),
-    "claude-sonnet-5-5": (Decimal(2), Decimal(10), Decimal("0.20")),
+    "claude-sonnet-5-5": (Decimal(2), Decimal(10), Decimal("0.10")),
     "claude-haiku-5-5": (Decimal("0.10"), Decimal("0.50"), Decimal("0.01")),
 }
 #: A five-minute cache entry is written at this multiple of the input price.

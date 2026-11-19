@@ -414,3 +414,24 @@ def test_a_notice_counts_toward_the_next_turns_ceiling() -> None:
     notice = "x" * 4000
     # 4,000 bytes and the allowance for a block, priced as a cache write at 1.25 * $4/M.
     assert session.ceiling_usd([], notice) == without + Decimal(4100) * 5 / Decimal(1_000_000)
+
+
+def test_cache_reads_are_priced_at_each_models_own_rate() -> None:
+    # A cache read is a twentieth of the input price on Opus 5.5 and Sonnet 5.5, and a tenth
+    # on the others listed: 0.10 USD per million tokens on Sonnet 5.5, not Opus 5.5's 0.20.
+    from dataproof_investigator.anthropic_model import PRICES
+
+    assert PRICES["claude-opus-5-5"] == (Decimal(4), Decimal(20), Decimal("0.20"))
+    assert PRICES["claude-sonnet-5-5"] == (Decimal(2), Decimal(10), Decimal("0.10"))
+    assert PRICES["claude-haiku-5-5"] == (Decimal("0.10"), Decimal("0.50"), Decimal("0.01"))
+    sonnet = "claude-sonnet-5-5"
+    served = message(
+        [{"type": "text", "text": FINAL}], "end_turn", model=sonnet, cache=(0, 1_000_000)
+    )
+    session = (
+        FakeApi(served)
+        .model(model=sonnet)
+        .open(system="s", task="t", tools=TOOL_SPECS, output_schema={"type": "object"})
+    )
+    # 1,000 uncached input tokens at $2/M, a million cache reads at $0.10/M, 200 output at $10/M.
+    assert session.send([]).cost_usd == Decimal("0.104")
