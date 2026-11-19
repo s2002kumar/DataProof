@@ -17,6 +17,9 @@
 * ``ai-eval-audit [--check]``: recount the frozen outputs of the first live AI evaluation and
   write ``AI_EVAL_AUDIT.md`` and ``AI_EVAL_TRACES.md``; ``--check`` only verifies that the
   frozen files still match their manifest. It calls no model and no database.
+* ``eval2-investigate --set dev|heldout --database <admin DSN>``, ``eval2-analyze --set ...``
+  and ``eval2-report``: the second AI evaluation (docs/AI_EVALUATION_V2.md), proposed and not
+  run. Without ``--live`` a scripted model runs every path at no cost, under ``.work``.
 """
 
 import argparse
@@ -29,7 +32,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from dataproof_benchmark import ablation, audit, change_analysis, pipeline_tier
+from dataproof_benchmark import ablation, audit, change_analysis, evaluation, pipeline_tier
 from dataproof_benchmark.corpus import (
     CORPUS_SEED,
     CORPUS_VERSION,
@@ -120,6 +123,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         "ai-eval-audit", help="recount the frozen outputs of the first live AI evaluation"
     )
     audited.add_argument("--check", action="store_true", help="only verify the manifest")
+    for name, summary in (
+        ("eval2-investigate", "evaluation v2: the Failure Investigator against the rules"),
+        ("eval2-analyze", "evaluation v2: the Change Analyst against the risk rules"),
+    ):
+        second = commands.add_parser(name, help=summary)
+        second.add_argument("--set", dest="cases", choices=("dev", "heldout"), required=True)
+        second.add_argument("--live", action="store_true", help="call the paid model")
+        second.add_argument("--budget-usd", type=Decimal, help="the budget approved for it")
+        second.add_argument("--reps", type=int, default=1, help="investigations a case")
+        second.add_argument("--model", default=ablation.MODEL)
+        second.add_argument("--effort", choices=("low", "medium", "high"), default="medium")
+        second.add_argument("--workdir", type=Path, default=ROOT / ".work")
+        second.add_argument("--out", type=Path)
+        if name == "eval2-investigate":
+            second.add_argument("--database", required=True, help="an admin DSN")
+            second.add_argument("--only", nargs="*", help="case IDs (default: every case)")
+            second.add_argument(
+                "--stop-after-unanswered",
+                type=int,
+                help="the stop rule: start no investigation once this many gave no answer",
+            )
+    second_report = commands.add_parser("eval2-report", help="write a v2 investigation report")
+    second_report.add_argument("--results", type=Path, required=True)
+    second_report.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
 
     if args.command == "corpus":
@@ -175,9 +202,80 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
         if not args.check:
             audit.write()
+    elif args.command in ("eval2-investigate", "eval2-analyze"):
+        return second_evaluation(args)
+    elif args.command == "eval2-report":
+        results = json.loads(args.results.read_text("utf-8"))
+        args.out.write_text(evaluation.report(results), "utf-8", newline="\n")
     else:
         results = json.loads(args.results.read_text("utf-8"))
         args.out.write_text(report(results), "utf-8", newline="\n")
+    return 0
+
+
+def second_evaluation(args: argparse.Namespace) -> int:
+    """Run one stage of the second evaluation; labels are read only when grading."""
+    cases = evaluation.eval_set(args.cases, args.workdir)
+    budget = ablation.live_budget(args.budget_usd, os.environ) if args.live else Decimal(10)
+    investigating = args.command == "eval2-investigate"
+    stage = "investigator" if investigating else "analyst"
+    tokens = ablation.MAX_TOKENS if investigating else evaluation.ANALYST_MAX_TOKENS
+    # The paid model is built only for a live run: a dry run needs no key and sends nothing.
+    live = evaluation.live_model(args.model, args.effort, tokens) if args.live else None
+    served = live.name if live is not None else "scripted:dry-run"
+    if investigating:
+        rows = evaluation.investigate(
+            args.database,
+            cases,
+            (lambda: live) if live is not None else evaluation.dry_run_model,
+            budget,
+            reps=args.reps,
+            case_ids=args.only,
+            stop_after_unanswered=args.stop_after_unanswered,
+        )
+        document = evaluation.results(
+            rows,
+            cases,
+            live=args.live,
+            model=served,
+            effort=args.effort,
+            reps=args.reps,
+            budget_usd=budget,
+        )
+        kept = evaluation.transcripts(rows)
+        ended_early = evaluation.stopped(document)
+    else:
+        rows = evaluation.analyze(
+            cases,
+            (lambda _: live) if live is not None else evaluation.dry_run_analyst,
+            budget,
+            reps=args.reps,
+        )
+        document = evaluation.analysis_results(
+            rows, cases, live=args.live, model=served, reps=args.reps, budget_usd=budget
+        )
+        kept = evaluation.analysis_transcripts(rows)
+        ended_early = False
+    name = f"eval2-{args.cases}-{stage}" + ("" if args.live else "-dry-run")
+    folder = (ROOT / "results" / "ai-eval-v2") if args.live else args.workdir
+    out = args.out or folder / f"{name}-results.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(document, indent=2) + "\n", "utf-8", newline="\n")
+    transcripts = out.with_name(out.stem.removesuffix("-results") + "-transcripts")
+    transcripts.mkdir(exist_ok=True)
+    for key, turns in kept.items():
+        text = json.dumps(turns, indent=2, default=str) + "\n"
+        (transcripts / f"{key}.json").write_text(text, "utf-8", newline="\n")
+    print(json.dumps(document["summary"], indent=2))
+    print(f"results: {out}; transcripts: {transcripts}")
+    problems = evaluation.health(kept, live.name if live is not None else None)
+    if problems:
+        listed = "\n  ".join(problems)
+        print(f"this stage is not a measurement as it stands:\n  {listed}", file=sys.stderr)
+        return 3
+    if ended_early:
+        print(f"stopped early: {evaluation.STOPPED}", file=sys.stderr)
+        return 4
     return 0
 
 

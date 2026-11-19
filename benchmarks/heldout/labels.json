@@ -1,0 +1,127 @@
+{
+  "set": "heldout-v1",
+  "provenance": "The subscriptions example's fourteen change sets (examples/subscriptions/changes), written before the investigator's first live run for the Action's tests, on a schema no investigator prompt, tool description or test names. Eight fault patterns come from publicly documented incidents, linked in examples/subscriptions/README.md; the implementations, the rubrics and the fault markers are the author's. The rubrics and markers below were written on 2026-11-19, before any model had seen a case.",
+  "reading": "The evaluator's manifest. A model reads none of it: the archive it reads holds only the blinded migrations. rubric: every group must match one term in an answer's text. fault_markers: text of the statements at fault; the grader derives their lines in the blinded revision.",
+  "cases": [
+    {
+      "case_id": "held-01",
+      "change": "plan-catalog",
+      "kind": "clean",
+      "origin": "authored",
+      "family": "clean control: a table split with a moved foreign key"
+    },
+    {
+      "case_id": "held-02",
+      "change": "money-columns-float-roundtrip",
+      "kind": "fault",
+      "origin": "sourced",
+      "family": "a round trip through binary floating point loses a cent",
+      "rubric": [["float", "double precision", "floating", "binary"]],
+      "fault_markers": ["::float8 * 100"]
+    },
+    {
+      "case_id": "held-03",
+      "change": "period-session-timezone",
+      "kind": "fault",
+      "origin": "sourced",
+      "family": "instants converted through a session time zone",
+      "rubric": [["time zone", "time-zone", "timezone", "europe/berlin", "session", "wall clock", "wall-clock", "local time", "offset"]],
+      "fault_markers": ["Europe/Berlin", "ALTER COLUMN period_start TYPE timestamp,"]
+    },
+    {
+      "case_id": "held-04",
+      "change": "invoice-index-and-comment",
+      "kind": "clean",
+      "origin": "authored",
+      "family": "clean control: an index and a comment"
+    },
+    {
+      "case_id": "held-05",
+      "change": "tax-rates-fanout",
+      "kind": "fault",
+      "origin": "sourced",
+      "family": "a join that matches more than one row multiplies a sum",
+      "rubric": [["join", "tax_rates"], ["two", "both", "more than one", "multiple", "duplicate", "fan", "twice", "each rate", "every rate"]],
+      "fault_markers": ["JOIN tax_rates AS r ON r.region = 'DEFAULT'"]
+    },
+    {
+      "case_id": "held-06",
+      "change": "backfill-batches-skip-first",
+      "kind": "fault",
+      "origin": "sourced",
+      "family": "a batch window that excludes its start skips a row",
+      "rubric": [["batch", "window", "range", "boundary", "bound", "exclusive", "off-by-one", "off by one", "> :start", "strict"]],
+      "fault_markers": ["WHERE invoice_id > :start AND invoice_id <= :stop"]
+    },
+    {
+      "case_id": "held-07",
+      "change": "money-columns-whole-units",
+      "kind": "fault",
+      "origin": "authored",
+      "family": "a money column declared without decimal places",
+      "rubric": [["numeric(12, 0)", "numeric(12,0)", "scale 0", "scale of 0", "scale zero", "no decimal", "zero decimal", "whole unit", "whole-unit", "scale"]],
+      "fault_markers": ["ADD COLUMN subtotal numeric(12, 0)"]
+    },
+    {
+      "case_id": "held-08",
+      "change": "paid-at-sentinel",
+      "kind": "fault",
+      "origin": "sourced",
+      "family": "a sentinel date written where there was no date",
+      "rubric": [["1970", "sentinel", "epoch", "placeholder", "default date", "fake date"]],
+      "fault_markers": ["SET paid_at = '1970-01-01T00:00:00Z'"]
+    },
+    {
+      "case_id": "held-09",
+      "change": "money-columns",
+      "kind": "clean",
+      "origin": "authored",
+      "family": "clean control: cents to decimal money"
+    },
+    {
+      "case_id": "held-10",
+      "change": "plan-catalog-orphans",
+      "kind": "fault",
+      "origin": "sourced",
+      "family": "a table split whose filter drops rows that are still referenced",
+      "rubric": [["filter", "where", "exclud", "omit", "not copied", "dropped", "left out", "price_cents > 0"], ["free", "zero price", "zero-price", "price_cents > 0", "price of 0", "priced at 0"]],
+      "fault_markers": ["WHERE price_cents > 0"]
+    },
+    {
+      "case_id": "held-11",
+      "change": "invoices-copied-positionally",
+      "kind": "fault",
+      "origin": "sourced",
+      "family": "a positional copy into a table whose columns are in another order",
+      "rubric": [["position", "column order", "order of the columns", "order of columns", "select *", "ordinal"]],
+      "fault_markers": ["INSERT INTO invoices_v2 SELECT * FROM invoices"]
+    },
+    {
+      "case_id": "held-12",
+      "change": "import-not-idempotent",
+      "kind": "fault",
+      "origin": "sourced",
+      "family": "an import whose guard misses NULL keys runs twice",
+      "rubric": [["null"], ["twice", "again", "second", "duplicate", "idempot", "re-run", "rerun", "both attempts", "two attempts", "guard", "not exists"]],
+      "fault_markers": ["i.external_ref = l.external_ref"]
+    },
+    {
+      "case_id": "held-13",
+      "change": "period-naive-timestamp",
+      "kind": "fault",
+      "origin": "authored",
+      "family": "an instant column converted to a type that holds no instant",
+      "rubric": [["without time zone", "naive", "timestamp without", "no time zone", "not timestamptz", "type timestamp", "timestamp type", "zone-less"]],
+      "fault_markers": ["ALTER COLUMN period_start TYPE timestamp,"]
+    },
+    {
+      "case_id": "held-14",
+      "change": "money-columns-truncated",
+      "kind": "fault",
+      "origin": "authored",
+      "family": "integer division drops the cents",
+      "rubric": [["integer division", "integer divide", "truncat", "floor", "whole number", "discard", "cast", "::numeric"]],
+      "fault_markers": ["SET subtotal = subtotal_cents / 100"]
+    }
+  ]
+}

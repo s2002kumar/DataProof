@@ -59,6 +59,7 @@ from dataproof_benchmark.evaluate import contracts
 from dataproof_benchmark.harness import SAMPLE_APP, DatabaseFactory, candidate, databases, reference
 from dataproof_contracts import CheckOutcome, CheckResult, Environment, Investigation
 from dataproof_investigator import (
+    OUTPUT_SCHEMA,
     PROMPT_VERSION,
     TOOL_VERSION,
     Budget,
@@ -137,6 +138,40 @@ RUBRIC: Mapping[str, tuple[tuple[str, ...], ...]] = {
 
 ModelFactory = Callable[[Mapping[str, CheckResult]], InvestigatorModel]
 
+OUTPUT_USD_PER_MILLION = Decimal(20)
+"""The pinned model's output price. A test holds it to the adapter's table."""
+DRY_RUN_CEILING_USD = Decimal(MAX_TOKENS) * OUTPUT_USD_PER_MILLION / Decimal(1_000_000)
+"""The least a live turn's cost ceiling can be: its output tokens alone. A dry run that
+reports it meets the same cap a live run would, so a cap no turn could meet stops a dry run
+too."""
+MIN_TURNS_COVERED = 2
+"""A per-case cap must cover this many worst-case first turns: a tool call and an answer."""
+
+
+def require_feasible_cap(investigator: Investigator, context: ToolContext, cap: Decimal) -> None:
+    """Refuse to start a run whose per-case cap no investigation could work within.
+
+    A turn is not sent if its worst case could pass the cap. The first evaluation's Change
+    Analyst had a cap of 0.15 USD against a first turn that could cost 0.194 USD: every one
+    of its 34 analyses stopped before a request was sent, and the stage reported them as
+    results. A cap like that is a mistake in the run's settings, so it is an error before
+    the run, not 34 outcomes after it. Opening a session sends nothing.
+    """
+    session = investigator.model.open(
+        system=investigator.system,
+        task=investigator.task(context),
+        tools=investigator.tools,
+        output_schema=OUTPUT_SCHEMA,
+    )
+    ceiling = session.ceiling_usd([])
+    if ceiling is not None and ceiling * MIN_TURNS_COVERED > cap:
+        raise SystemExit(
+            f"the cap of {cap} USD a case cannot work: one turn could cost up to {ceiling} USD, "
+            f"and a case needs room for at least {MIN_TURNS_COVERED}. Raise the cap or lower "
+            "the output tokens a turn; nothing was sent."
+        )
+
+
 TRANSCRIPT_RESULT_CHARS = 2000
 """Tool results are kept in a transcript up to this length, with the full result's hash."""
 
@@ -202,6 +237,9 @@ class _RecordingSession:
     def ceiling_usd(
         self, tool_results: Sequence[ToolResult], notice: str | None = None
     ) -> Decimal | None:
+        # An investigator from before ADR-0009 sends no notice, and its sessions take none.
+        if notice is None:
+            return self._session.ceiling_usd(tool_results)
         return self._session.ceiling_usd(tool_results, notice)
 
     def send(self, tool_results: Sequence[ToolResult], notice: str | None = None) -> ModelTurn:
@@ -211,7 +249,10 @@ class _RecordingSession:
             sent["notice"] = notice
         started = time.monotonic()
         try:
-            turn = self._session.send(tool_results, notice)
+            if notice is None:
+                turn = self._session.send(tool_results)
+            else:
+                turn = self._session.send(tool_results, notice)
         except Exception as exc:
             self._recorder.turns.append(sent | {"error": f"{type(exc).__name__}: {exc}"})
             raise
@@ -507,7 +548,9 @@ def _case(
         changed_paths=changed_paths(change),
     )
     recorder = Recorder(model_for(checks))
-    investigation = Investigator(recorder, BUDGET).investigate(run_id, tools)
+    investigator = Investigator(recorder, BUDGET)
+    require_feasible_cap(investigator, tools, CASE_CAP_USD)
+    investigation = investigator.investigate(run_id, tools)
     texts = evidence_texts(checks, evidence, recorder.tool_evidence())
     written, read = recorder.cache_tokens()
     row["model"] = investigation.model_dump(mode="json")
