@@ -766,7 +766,8 @@ def report(document: Mapping[str, Any]) -> str:
             if scoredarm["failure"]:
                 lines.append(f"  - Not shown to reviewers: {scoredarm['failure']}")
             lines += [f"  - {text}" for text in scoredarm["texts"]]
-        lines.append("")
+        if lines[-1]:  # a case with no arm already ends with a blank line
+            lines.append("")
     return "\n".join(lines)
 
 

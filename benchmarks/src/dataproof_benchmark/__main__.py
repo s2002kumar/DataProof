@@ -14,6 +14,9 @@
   The rules alone by default; ``--dry-run`` adds a scripted model (written under ``.work``),
   and ``--live --budget-usd <approved>`` the paid one. ``change-analysis-report`` writes
   ``CHANGE_ANALYSIS.md``.
+* ``ai-eval-audit [--check]``: recount the frozen outputs of the first live AI evaluation and
+  write ``AI_EVAL_AUDIT.md`` and ``AI_EVAL_TRACES.md``; ``--check`` only verifies that the
+  frozen files still match their manifest. It calls no model and no database.
 """
 
 import argparse
@@ -26,7 +29,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from dataproof_benchmark import ablation, change_analysis, pipeline_tier
+from dataproof_benchmark import ablation, audit, change_analysis, pipeline_tier
 from dataproof_benchmark.corpus import (
     CORPUS_SEED,
     CORPUS_VERSION,
@@ -113,6 +116,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     change_report.add_argument("--results", type=Path, default=CHANGE_RESULTS)
     change_report.add_argument("--out", type=Path, default=CHANGE_REPORT)
+    audited = commands.add_parser(
+        "ai-eval-audit", help="recount the frozen outputs of the first live AI evaluation"
+    )
+    audited.add_argument("--check", action="store_true", help="only verify the manifest")
     args = parser.parse_args(argv)
 
     if args.command == "corpus":
@@ -160,6 +167,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.command == "ablation-report":
         results = json.loads(args.results.read_text("utf-8"))
         args.out.write_text(ablation.report(results), "utf-8", newline="\n")
+    elif args.command == "ai-eval-audit":
+        differing = audit.changed()
+        if differing:
+            listed = "\n  ".join(differing)
+            print(f"frozen files differ from the manifest:\n  {listed}", file=sys.stderr)
+            return 1
+        if not args.check:
+            audit.write()
     else:
         results = json.loads(args.results.read_text("utf-8"))
         args.out.write_text(report(results), "utf-8", newline="\n")
