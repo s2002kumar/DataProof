@@ -1,0 +1,264 @@
+[
+  {
+    "tool_results": [],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "get_check_result",
+        "arguments": {
+          "check_id": "commerce.c1_event_preservation"
+        }
+      },
+      {
+        "name": "get_check_result",
+        "arguments": {
+          "check_id": "commerce.c2_refund_totals"
+        }
+      },
+      {
+        "name": "get_check_result",
+        "arguments": {
+          "check_id": "commerce.c3_capture_totals"
+        }
+      }
+    ],
+    "input_tokens": 2140,
+    "output_tokens": 197,
+    "cache_write_tokens": 0,
+    "cache_read_tokens": 2136,
+    "cost_usd": "0.0043832",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 3156
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": false,
+        "bytes": 3990,
+        "sha256": "5629ecdee4c96bef8ef78a1eb66a99d265d038e753e2b709b0b3f69301d57202",
+        "content": "{\"evidence_id\": \"investigation.tool.1\", \"data\": {\"check_id\": \"commerce.c1_event_preservation\", \"contract_id\": \"commerce.c1_event_preservation\", \"contract_version\": 1, \"required\": true, \"outcome\": \"FAIL\", \"not_run_reason\": null, \"error_code\": null, \"expected_key_count\": 435, \"observed_key_count\": 435, \"mismatch_count\": 300, \"mismatch_examples\": [{\"key\": [{\"type\": \"integer\", \"value\": 1001}], \"column\": \"amount\", \"expected\": {\"type\": \"decimal\", \"value\": \"120.00\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"240.00\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1002}], \"column\": \"amount\", \"expected\": {\"type\": \"decimal\", \"value\": \"49.99\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"99.98\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1003}], \"column\": \"amount\", \"expected\": {\"type\": \"decimal\", \"value\": \"200.00\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"600.00\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1004}], \"column\": \"amount\", \"expected\": {\"type\": \"decimal\", \"value\": \"12.50\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"37.50\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1005}], \"column\": \"amount\", \"expected\": {\"type\": \"decimal\", \"value\": \"37.49\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"112.47\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1018}], \"column\": \"amount\", \"expected\": {\"type\": \"decimal\", \"value\": \"602.87\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"1808.61\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1019}], \"column\": \"amount\", \"expected\": {\"type\": \"decimal\", \"value\": \"983.62\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"2950.86\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1020}], \"column\": \"amount\", \"expected\": {\"type\": \"decimal\", \"value\": \"222.11\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"666.33\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1021}], \"column\": \"amount\", \"expected\": {\"type\": \"decimal\", \"value\": \"81.86\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"245.58\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1023}], \"column\": \"amount\", \"expected\": {\"type\": \"decimal\", \"value\": \"140.78\"}, ",
+        "truncated": true
+      },
+      {
+        "is_error": false,
+        "bytes": 4799,
+        "sha256": "e13d61c5f69b474ff79ea33eed401568b29cd08f42b7a5f7338c4d683701bfff",
+        "content": "{\"evidence_id\": \"investigation.tool.2\", \"data\": {\"check_id\": \"commerce.c2_refund_totals\", \"contract_id\": \"commerce.c2_refund_totals\", \"contract_version\": 1, \"required\": true, \"outcome\": \"FAIL\", \"not_run_reason\": null, \"error_code\": null, \"expected_key_count\": 208, \"observed_key_count\": 208, \"mismatch_count\": 79, \"mismatch_examples\": [{\"key\": [{\"type\": \"integer\", \"value\": 1}, {\"type\": \"text\", \"value\": \"USD\"}], \"column\": \"refund_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"49.99\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"99.98\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 2}, {\"type\": \"text\", \"value\": \"USD\"}], \"column\": \"refund_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"49.99\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"149.97\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 101}, {\"type\": \"text\", \"value\": \"USD\"}], \"column\": \"refund_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"303.97\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"911.91\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 103}, {\"type\": \"text\", \"value\": \"EUR\"}], \"column\": \"refund_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"23.93\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"47.86\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 106}, {\"type\": \"text\", \"value\": \"USD\"}], \"column\": \"refund_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"282.64\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"847.92\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 108}, {\"type\": \"text\", \"value\": \"EUR\"}], \"column\": \"refund_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"166.08\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"498.24\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 110}, {\"type\": \"text\", \"value\": \"EUR\"}], \"column\": \"refund_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"276.60\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"553.20\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 114}, {\"type\": \"text\", \"value\": \"EUR\"}], \"column\": \"refund_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"606.47\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"1819",
+        "truncated": true
+      },
+      {
+        "is_error": false,
+        "bytes": 4795,
+        "sha256": "b3ee5bed589793a0bbd587c1b352094466890610e24d1439edf7f679a6d384ee",
+        "content": "{\"evidence_id\": \"investigation.tool.3\", \"data\": {\"check_id\": \"commerce.c3_capture_totals\", \"contract_id\": \"commerce.c3_capture_totals\", \"contract_version\": 1, \"required\": true, \"outcome\": \"FAIL\", \"not_run_reason\": null, \"error_code\": null, \"expected_key_count\": 208, \"observed_key_count\": 208, \"mismatch_count\": 141, \"mismatch_examples\": [{\"key\": [{\"type\": \"integer\", \"value\": 1}, {\"type\": \"text\", \"value\": \"USD\"}], \"column\": \"capture_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"120.00\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"240.00\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 2}, {\"type\": \"text\", \"value\": \"USD\"}], \"column\": \"capture_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"200.00\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"600.00\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 101}, {\"type\": \"text\", \"value\": \"USD\"}], \"column\": \"capture_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"1586.49\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"4759.47\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 103}, {\"type\": \"text\", \"value\": \"EUR\"}], \"column\": \"capture_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"140.78\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"281.56\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 105}, {\"type\": \"text\", \"value\": \"USD\"}], \"column\": \"capture_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"1361.31\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"4083.93\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 106}, {\"type\": \"text\", \"value\": \"USD\"}], \"column\": \"capture_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"756.55\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"2269.65\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 108}, {\"type\": \"text\", \"value\": \"EUR\"}], \"column\": \"capture_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"503.14\"}, \"observed\": {\"type\": \"decimal\", \"value\": \"1509.42\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 109}, {\"type\": \"text\", \"value\": \"USD\"}], \"column\": \"capture_total\", \"expected\": {\"type\": \"decimal\", \"value\": \"593.09\"}, \"observed\": {\"type\": \"de",
+        "truncated": true
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "get_evidence",
+        "arguments": {
+          "evidence_id": "commerce.c1_event_preservation:candidate:binding"
+        }
+      },
+      {
+        "name": "get_evidence",
+        "arguments": {
+          "evidence_id": "commerce.c1_event_preservation:reference:oracle"
+        }
+      },
+      {
+        "name": "get_evidence",
+        "arguments": {
+          "evidence_id": "commerce.c2_refund_totals:reference:precondition"
+        }
+      }
+    ],
+    "input_tokens": 8457,
+    "output_tokens": 260,
+    "cache_write_tokens": 6319,
+    "cache_read_tokens": 2136,
+    "cost_usd": "0.0372302",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 2407
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": false,
+        "bytes": 471,
+        "sha256": "f633e7947c41735ef353c38e32bfd1f21a79da7e6fd0b0eab6753210cf799974",
+        "content": "{\"evidence_id\": \"investigation.tool.4\", \"data\": {\"environment\": \"CANDIDATE\", \"evidence_id\": \"commerce.c1_event_preservation:candidate:binding\", \"kind\": \"query\", \"query_sql\": \"SELECT source_event_id, order_id, entry_kind::text AS entry_kind, amount, occurred_at\\nFROM ledger_entries\\n\", \"result_sha256\": \"befc1a3e6c43345101c36276d83b3316270dc344e515b7f60a1fafd683c16843\", \"row_count\": 435, \"sql_sha256\": \"c5148fa7eefb60e0753e5c53f619a987cb67ade868bcc19237099220c05bb24f\"}}",
+        "truncated": false
+      },
+      {
+        "is_error": false,
+        "bytes": 470,
+        "sha256": "4b0219e2ce1fb74cfbe3eb29f6834aec41214a46ef53a14f5fc4234b1c956265",
+        "content": "{\"evidence_id\": \"investigation.tool.5\", \"data\": {\"environment\": \"REFERENCE\", \"evidence_id\": \"commerce.c1_event_preservation:reference:oracle\", \"kind\": \"query\", \"query_sql\": \"SELECT event_id, order_id, event_kind::text AS event_kind, amount, occurred_at\\nFROM legacy_payment_events\\n\", \"result_sha256\": \"2b953b41e13f4b65bfb9967bbe176c2eb7f80e6b4527c627ff497734fdce7a48\", \"row_count\": 435, \"sql_sha256\": \"9c3f405e7a938e451c470be2b1cb552b23cd68d9ed349e660a68b744c76e9c3a\"}}",
+        "truncated": false
+      },
+      {
+        "is_error": false,
+        "bytes": 566,
+        "sha256": "2846795d8f81509298323d3b5305159886a212226a06b43824affcf018e11de9",
+        "content": "{\"evidence_id\": \"investigation.tool.6\", \"data\": {\"environment\": \"REFERENCE\", \"evidence_id\": \"commerce.c2_refund_totals:reference:precondition\", \"kind\": \"query\", \"query_sql\": \"SELECT order_id\\nFROM legacy_payment_events\\nGROUP BY order_id\\nHAVING COALESCE(SUM(amount) FILTER (WHERE event_kind = 'REFUND'), 0)\\n     > COALESCE(SUM(amount) FILTER (WHERE event_kind = 'CAPTURE'), 0)\\n\", \"result_sha256\": \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\", \"row_count\": 0, \"sql_sha256\": \"50fd7b8f96d42788ae2f3494a91f6f3b042556808a3a0eea74ef54113aaefa4a\"}}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations/",
+          "start_line": 1,
+          "end_line": 200
+        }
+      }
+    ],
+    "input_tokens": 9591,
+    "output_tokens": 134,
+    "cache_write_tokens": 1134,
+    "cache_read_tokens": 8455,
+    "cost_usd": "0.010049",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 1922
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": true,
+        "bytes": 70,
+        "sha256": "a938ff216e571364daf3b3d7ea983a9d62c1204543a157f3c94cda9182e27238",
+        "content": "{\"denied\": \"not a normalized relative path: 'sample-app/migrations/'\"}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "run_readonly_query",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "sql": "SELECT table_name FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema')",
+          "max_rows": 50
+        }
+      }
+    ],
+    "input_tokens": 9765,
+    "output_tokens": 179,
+    "cache_write_tokens": 174,
+    "cache_read_tokens": 9589,
+    "cost_usd": "0.0063758",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 2343
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": true,
+        "bytes": 66,
+        "sha256": "91d0f23bffc2d570c9997a0d6294403d79d0b8eb0a740eaf20e89b9dc4ecdb45",
+        "content": "{\"denied\": \"function not allowed in bindings: current_database()\"}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "get_schema",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "table": "ledger_entries"
+        }
+      }
+    ],
+    "input_tokens": 9977,
+    "output_tokens": 81,
+    "cache_write_tokens": 212,
+    "cache_read_tokens": 9763,
+    "cost_usd": "0.0046406",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 1578
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": false,
+        "bytes": 1422,
+        "sha256": "7d77c849dbb74f766a0f61b6f9e3393fc498d54d57dda8e6daa01fbd6903fc97",
+        "content": "{\"evidence_id\": \"investigation.tool.9\", \"data\": {\"columns\": [{\"datetime_precision\": null, \"name\": \"order_id\", \"nullable\": false, \"precision\": 64, \"scale\": 0, \"type\": \"bigint\"}, {\"datetime_precision\": null, \"name\": \"ledger_sequence\", \"nullable\": false, \"precision\": 32, \"scale\": 0, \"type\": \"integer\"}, {\"datetime_precision\": null, \"name\": \"source_event_id\", \"nullable\": false, \"precision\": 64, \"scale\": 0, \"type\": \"bigint\"}, {\"datetime_precision\": null, \"name\": \"entry_kind\", \"nullable\": false, \"precision\": null, \"scale\": null, \"type\": \"USER-DEFINED\"}, {\"datetime_precision\": null, \"name\": \"amount\", \"nullable\": false, \"precision\": 18, \"scale\": 2, \"type\": \"numeric\"}, {\"datetime_precision\": 6, \"name\": \"occurred_at\", \"nullable\": false, \"precision\": null, \"scale\": null, \"type\": \"timestamp with time zone\"}], \"constraints\": [{\"definition\": \"CHECK ((amount > (0)::numeric))\", \"kind\": \"c\", \"name\": \"ledger_entries_amount_check\"}, {\"definition\": \"CHECK ((ledger_sequence > 0))\", \"kind\": \"c\", \"name\": \"ledger_entries_ledger_sequence_check\"}, {\"definition\": \"FOREIGN KEY (order_id) REFERENCES orders(order_id)\", \"kind\": \"f\", \"name\": \"ledger_entries_order_id_fkey\"}, {\"definition\": \"PRIMARY KEY (order_id, ledger_sequence)\", \"kind\": \"p\", \"name\": \"ledger_entries_pkey\"}, {\"definition\": \"UNIQUE (source_event_id)\", \"kind\": \"u\", \"name\": \"ledger_entries_source_event_id_key\"}], \"environment\": \"CANDIDATE\", \"table\": \"ledger_entries\"}}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "run_readonly_query",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "sql": "SELECT l.source_event_id, l.order_id, l.ledger_sequence, l.amount, e.amount AS legacy_amount, l.amount/e.amount AS ratio FROM ledger_entries l JOIN legacy_payment_events e ON e.event_id=l.source_event_id ORDER BY l.source_event_id LIMIT 15",
+          "max_rows": 15
+        }
+      }
+    ],
+    "input_tokens": 10703,
+    "output_tokens": 288,
+    "cache_write_tokens": 726,
+    "cache_read_tokens": 9975,
+    "cost_usd": "0.011393",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 3343
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": false,
+        "bytes": 3754,
+        "sha256": "850371a68dca0b2c3f9bd52b8b153f153167e7354633cd334b33b86bc8c04fc6",
+        "content": "{\"evidence_id\": \"investigation.tool.10\", \"data\": {\"columns\": [\"source_event_id\", \"order_id\", \"ledger_sequence\", \"amount\", \"legacy_amount\", \"ratio\"], \"environment\": \"CANDIDATE\", \"rows\": [[{\"type\": \"integer\", \"value\": 1001}, {\"type\": \"integer\", \"value\": 1}, {\"type\": \"integer\", \"value\": 1}, {\"type\": \"decimal\", \"value\": \"240.00\"}, {\"type\": \"decimal\", \"value\": \"120.00\"}, {\"type\": \"decimal\", \"value\": \"2.0000000000000000\"}], [{\"type\": \"integer\", \"value\": 1002}, {\"type\": \"integer\", \"value\": 1}, {\"type\": \"integer\", \"value\": 2}, {\"type\": \"decimal\", \"value\": \"99.98\"}, {\"type\": \"decimal\", \"value\": \"49.99\"}, {\"type\": \"decimal\", \"value\": \"2.0000000000000000\"}], [{\"type\": \"integer\", \"value\": 1003}, {\"type\": \"integer\", \"value\": 2}, {\"type\": \"integer\", \"value\": 1}, {\"type\": \"decimal\", \"value\": \"600.00\"}, {\"type\": \"decimal\", \"value\": \"200.00\"}, {\"type\": \"decimal\", \"value\": \"3.0000000000000000\"}], [{\"type\": \"integer\", \"value\": 1004}, {\"type\": \"integer\", \"value\": 2}, {\"type\": \"integer\", \"value\": 2}, {\"type\": \"decimal\", \"value\": \"37.50\"}, {\"type\": \"decimal\", \"value\": \"12.50\"}, {\"type\": \"decimal\", \"value\": \"3.0000000000000000\"}], [{\"type\": \"integer\", \"value\": 1005}, {\"type\": \"integer\", \"value\": 2}, {\"type\": \"integer\", \"value\": 3}, {\"type\": \"decimal\", \"value\": \"112.47\"}, {\"type\": \"decimal\", \"value\": \"37.49\"}, {\"type\": \"decimal\", \"value\": \"3.0000000000000000\"}], [{\"type\": \"integer\", \"value\": 1006}, {\"type\": \"integer\", \"value\": 3}, {\"type\": \"integer\", \"value\": 1}, {\"type\": \"decimal\", \"value\": \"18.99\"}, {\"type\": \"decimal\", \"value\": \"18.99\"}, {\"type\": \"decimal\", \"value\": \"1.00000000000000000000\"}], [{\"type\": \"integer\", \"value\": 1007}, {\"type\": \"integer\", \"value\": 4}, {\"type\": \"integer\", \"value\": 1}, {\"type\": \"decimal\", \"value\": \"42.50\"}, {\"type\": \"decimal\", \"value\": \"42.50\"}, {\"type\": \"decimal\", \"value\": \"1.00000000000000000000\"}], [{\"type\": \"integer\", \"value\": 1008}, {\"type\": \"integer\", \"value\": 4}, {\"type\": \"integer\", \"value\": 2}, {\"type\": \"decimal\", \"value\": \"42.50\"}, {\"type\": \"decimal\", \"",
+        "truncated": true
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "get_schema",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "table": "order_items"
+        }
+      },
+      {
+        "name": "get_schema",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "table": "order_lines"
+        }
+      },
+      {
+        "name": "get_schema",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "table": "orders"
+        }
+      }
+    ],
+    "input_tokens": 12734,
+    "output_tokens": 288,
+    "cache_write_tokens": 2031,
+    "cache_read_tokens": 10701,
+    "cost_usd": "0.0180632",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 3031
+  }
+]

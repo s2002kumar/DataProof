@@ -27,7 +27,7 @@ The fault benchmark from [BENCHMARK](../docs/BENCHMARK.md) (work package 10, #58
 | `B0` | The migration ran. Its API smoke checks need live previews, which this tier does not run. |
 | `B1` | Reconciliation over the reviewed binding view: row counts, a hash of the key set, and refund and capture sums per order and currency. It is configured fairly, credited wherever it catches a fault (F1 included), and never marked not run to widen the difference (#12). |
 | `B2` | DataProof's deterministic contracts C1 to C3, with the case's bindings approved. |
-| `B3` | `B2` plus AI investigation on the same evidence (see [AI ablation](#ai-ablation-b3)). **Not run live:** model calls are a paid service whose budget has not been approved (#7). |
+| `B3` | `B2` plus AI investigation on the same evidence (see [AI ablation](#ai-ablation-b3)). **Run live once,** on 2026-11-19 (#7): see [what it showed](../docs/AI_EVALUATION_RESULTS.md). |
 
 When C1 fails, the failure is also **reproduced** on a foreign-key-closure subset of the reference (#8). It is loaded into fresh base-schema databases, the case's migration runs on the candidate, and C1 is verified again under the pipeline's own rules (`dataproof_runner.signature`): `REPRODUCED` only if every seed key fails again on the same columns.
 
@@ -94,6 +94,13 @@ The rubric and the unsupported-specifics count are proxies, so every hypothesis 
 
 **Dry run, 2026-11-03** (scripted model, so only the model-off arm means anything): the rules completed 17 of 18 failing cases and named the root cause in 9, with all 79 of their citations valid and no unsupported specifics. The model arm completed every path of the harness.
 
+**Live run, 2026-11-19** (`claude-opus-5-5`; pilot at effort high, main run at medium; 1.48 USD for the main run): [what it showed](../docs/AI_EVALUATION_RESULTS.md).
+
+- **The model answered in 1 of 18 investigations.** The other 17 were stopped by the limit of 12 tool calls before answering. The rules named the root cause in 9 of the 18.
+- **It measured the loop, not the diagnosis:** the model is not told its limit, 43% of the calls it read were re-reads of recorded results, and none of its 34 source reads found the migration.
+- **The outputs are frozen as `ai-eval-v1`:** [`ablation-results.json`](results/ablation-results.json), the pilot's, the transcripts and [`ai-eval-v1.manifest.json`](results/ai-eval-v1.manifest.json) with each file's SHA-256. They are never regenerated.
+- **`python -m dataproof_benchmark ai-eval-audit`** recounts them into [`AI_EVAL_AUDIT.md`](results/AI_EVAL_AUDIT.md) (spend reconciled to the token, every tool call and what became of it) and [`AI_EVAL_TRACES.md`](results/AI_EVAL_TRACES.md) (each investigation turn by turn). `--check` only verifies the digests. It needs no key and no database.
+
 ## Change analysis
 
 `python -m dataproof_benchmark change-analysis` analyzes every change set (the 31 database-tier cases and the 3 API behaviour cases) as its pull request's head commit is analyzed in `ANALYZING`: the migration, the ledger API and frontend, and the bindings (which neither arm may read). It needs no database. Results: [`results/change-analysis-results.json`](results/change-analysis-results.json), and `change-analysis-report` writes [`results/CHANGE_ANALYSIS.md`](results/CHANGE_ANALYSIS.md).
@@ -114,7 +121,7 @@ The rubric and the unsupported-specifics count are proxies, so every hypothesis 
 
   The two NULL and empty-string faults, which no contract can observe, are anticipated by the rules.
 - **Read with care:** the rules were written by the corpus's author with the corpus in view. They are generic, with no case-specific literal, but their recall is an optimistic bound. A rule names a reason to look; only the contracts find a fault.
-- **The model arm has not run live.** It waits for an approved budget. The question it would answer is whether the model alarms less on correct changes (for example, recognizing complementary ranges or a no-op conversion) and catches what no pattern names (`case-201`).
+- **The model arm's live run sent no request** (2026-11-19). The 0.15 USD cap for an analysis was below the 0.194 USD that one turn could cost, so each of the 34 analyses stopped before its first turn ([results](../docs/AI_EVALUATION_RESULTS.md#7-the-change-analyst)). Its outputs are [`change-analysis-live-results.json`](results/change-analysis-live-results.json), frozen with the ablation's; the model's zeros in that file are not measurements. The question it would answer is still open: whether the model alarms less on correct changes (for example, recognizing complementary ranges or a no-op conversion) and catches what no pattern names (`case-201`).
 
 ## Findings worth knowing
 
@@ -124,8 +131,8 @@ The rubric and the unsupported-specifics count are proxies, so every hypothesis 
 
 ## Not covered yet
 
-- **A live `B3` run** (#7). The harness is built and tested with scripted models; the run waits for an approved model budget.
-- **A live Change Analyst run.** The model arm is built and dry-run, and waits for an approved budget.
+- **A measurement of the AI investigator's diagnosis** (#7). The one live `B3` run measured its loop instead ([results](../docs/AI_EVALUATION_RESULTS.md)). A new measurement needs the loop fixed, new cases and a new budget.
+- **A live Change Analyst run that calls the model.** The first sent no request.
 
 ## Tests
 

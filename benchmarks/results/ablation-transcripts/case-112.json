@@ -1,0 +1,301 @@
+[
+  {
+    "tool_results": [],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "get_check_result",
+        "arguments": {
+          "check_id": "commerce.c1_event_preservation"
+        }
+      },
+      {
+        "name": "get_evidence",
+        "arguments": {
+          "evidence_id": "commerce.c1_event_preservation:reference:oracle"
+        }
+      },
+      {
+        "name": "get_evidence",
+        "arguments": {
+          "evidence_id": "commerce.c1_event_preservation:candidate:binding"
+        }
+      }
+    ],
+    "input_tokens": 1976,
+    "output_tokens": 198,
+    "cache_write_tokens": 1972,
+    "cache_read_tokens": 0,
+    "cost_usd": "0.013836",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 1781
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": false,
+        "bytes": 4813,
+        "sha256": "f2568fb3a4bea1893206726229d63d506904be49fb2ad6fc34e739431a188f3e",
+        "content": "{\"evidence_id\": \"investigation.tool.1\", \"data\": {\"check_id\": \"commerce.c1_event_preservation\", \"contract_id\": \"commerce.c1_event_preservation\", \"contract_version\": 1, \"required\": true, \"outcome\": \"FAIL\", \"not_run_reason\": null, \"error_code\": null, \"expected_key_count\": 435, \"observed_key_count\": 435, \"mismatch_count\": 218, \"mismatch_examples\": [{\"key\": [{\"type\": \"integer\", \"value\": 1009}], \"column\": \"occurred_at\", \"expected\": {\"type\": \"timestamptz\", \"value\": \"2026-03-29T01:30:00Z\"}, \"observed\": {\"type\": \"timestamptz\", \"value\": \"2026-03-29T00:30:00Z\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1013}], \"column\": \"occurred_at\", \"expected\": {\"type\": \"timestamptz\", \"value\": \"2026-06-06T12:01:00Z\"}, \"observed\": {\"type\": \"timestamptz\", \"value\": \"2026-06-06T10:01:00Z\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1014}], \"column\": \"occurred_at\", \"expected\": {\"type\": \"timestamptz\", \"value\": \"2026-06-06T12:02:00Z\"}, \"observed\": {\"type\": \"timestamptz\", \"value\": \"2026-06-06T10:02:00Z\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1015}], \"column\": \"occurred_at\", \"expected\": {\"type\": \"timestamptz\", \"value\": \"2026-06-08T12:00:00Z\"}, \"observed\": {\"type\": \"timestamptz\", \"value\": \"2026-06-08T10:00:00Z\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1022}], \"column\": \"occurred_at\", \"expected\": {\"type\": \"timestamptz\", \"value\": \"2026-05-03T01:19:00Z\"}, \"observed\": {\"type\": \"timestamptz\", \"value\": \"2026-05-02T23:19:00Z\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1023}], \"column\": \"occurred_at\", \"expected\": {\"type\": \"timestamptz\", \"value\": \"2026-07-26T06:09:00Z\"}, \"observed\": {\"type\": \"timestamptz\", \"value\": \"2026-07-26T04:09:00Z\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1024}], \"column\": \"occurred_at\", \"expected\": {\"type\": \"timestamptz\", \"value\": \"2026-08-03T00:09:00Z\"}, \"observed\": {\"type\": \"timestamptz\", \"value\": \"2026-08-02T22:09:00Z\"}}, {\"key\": [{\"type\": \"integer\", \"value\": 1025}], \"column\": \"occurred_at\", \"expected\": {\"type\": \"timestamptz\", \"value\": \"2026-04-03T04:34:00Z\"}, \"observed\": {\"type\": \"timest",
+        "truncated": true
+      },
+      {
+        "is_error": false,
+        "bytes": 470,
+        "sha256": "fc57a5c09b7fab2917e49f07b2a5b2658ce27262f998c2eb420251925ebe4883",
+        "content": "{\"evidence_id\": \"investigation.tool.2\", \"data\": {\"environment\": \"REFERENCE\", \"evidence_id\": \"commerce.c1_event_preservation:reference:oracle\", \"kind\": \"query\", \"query_sql\": \"SELECT event_id, order_id, event_kind::text AS event_kind, amount, occurred_at\\nFROM legacy_payment_events\\n\", \"result_sha256\": \"2b953b41e13f4b65bfb9967bbe176c2eb7f80e6b4527c627ff497734fdce7a48\", \"row_count\": 435, \"sql_sha256\": \"9c3f405e7a938e451c470be2b1cb552b23cd68d9ed349e660a68b744c76e9c3a\"}}",
+        "truncated": false
+      },
+      {
+        "is_error": false,
+        "bytes": 471,
+        "sha256": "57561b7178d3d132f62ffb0d659181784cdbf4e3bd2f63b9e8ede5ef775472e4",
+        "content": "{\"evidence_id\": \"investigation.tool.3\", \"data\": {\"environment\": \"CANDIDATE\", \"evidence_id\": \"commerce.c1_event_preservation:candidate:binding\", \"kind\": \"query\", \"query_sql\": \"SELECT source_event_id, order_id, entry_kind::text AS entry_kind, amount, occurred_at\\nFROM ledger_entries\\n\", \"result_sha256\": \"e830085b8566d9f46255e531560f89dd230a375663922b0976052b2c50231a0e\", \"row_count\": 435, \"sql_sha256\": \"c5148fa7eefb60e0753e5c53f619a987cb67ade868bcc19237099220c05bb24f\"}}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "get_schema",
+        "arguments": {
+          "environment": "REFERENCE",
+          "table": "legacy_payment_events"
+        }
+      },
+      {
+        "name": "get_schema",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "table": "ledger_entries"
+        }
+      },
+      {
+        "name": "run_readonly_query",
+        "arguments": {
+          "environment": "REFERENCE",
+          "sql": "SELECT current_setting('TimeZone') tz",
+          "max_rows": 1
+        }
+      }
+    ],
+    "input_tokens": 5075,
+    "output_tokens": 440,
+    "cache_write_tokens": 3101,
+    "cache_read_tokens": 1972,
+    "cost_usd": "0.0247074",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 4094
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": false,
+        "bytes": 1430,
+        "sha256": "4f78b7520cf6668a61da600ace6f8a946d89179078dcb41960edc31490c323b0",
+        "content": "{\"evidence_id\": \"investigation.tool.4\", \"data\": {\"columns\": [{\"datetime_precision\": null, \"name\": \"event_id\", \"nullable\": false, \"precision\": 64, \"scale\": 0, \"type\": \"bigint\"}, {\"datetime_precision\": null, \"name\": \"order_id\", \"nullable\": false, \"precision\": 64, \"scale\": 0, \"type\": \"bigint\"}, {\"datetime_precision\": null, \"name\": \"event_kind\", \"nullable\": false, \"precision\": null, \"scale\": null, \"type\": \"USER-DEFINED\"}, {\"datetime_precision\": null, \"name\": \"amount\", \"nullable\": false, \"precision\": 18, \"scale\": 2, \"type\": \"numeric\"}, {\"datetime_precision\": 6, \"name\": \"occurred_at\", \"nullable\": false, \"precision\": null, \"scale\": null, \"type\": \"timestamp with time zone\"}, {\"datetime_precision\": null, \"name\": \"external_ref\", \"nullable\": false, \"precision\": null, \"scale\": null, \"type\": \"text\"}, {\"datetime_precision\": null, \"name\": \"memo\", \"nullable\": true, \"precision\": null, \"scale\": null, \"type\": \"text\"}], \"constraints\": [{\"definition\": \"CHECK ((amount > (0)::numeric))\", \"kind\": \"c\", \"name\": \"legacy_payment_events_amount_check\"}, {\"definition\": \"UNIQUE (external_ref)\", \"kind\": \"u\", \"name\": \"legacy_payment_events_external_ref_key\"}, {\"definition\": \"FOREIGN KEY (order_id) REFERENCES orders(order_id)\", \"kind\": \"f\", \"name\": \"legacy_payment_events_order_id_fkey\"}, {\"definition\": \"PRIMARY KEY (event_id)\", \"kind\": \"p\", \"name\": \"legacy_payment_events_pkey\"}], \"environment\": \"REFERENCE\", \"table\": \"legacy_payment_events\"}}",
+        "truncated": false
+      },
+      {
+        "is_error": false,
+        "bytes": 1422,
+        "sha256": "5ece85169ece7117bcd39263504f090d06149dff33b6b627fd9419b8f9af7dfc",
+        "content": "{\"evidence_id\": \"investigation.tool.5\", \"data\": {\"columns\": [{\"datetime_precision\": null, \"name\": \"order_id\", \"nullable\": false, \"precision\": 64, \"scale\": 0, \"type\": \"bigint\"}, {\"datetime_precision\": null, \"name\": \"ledger_sequence\", \"nullable\": false, \"precision\": 32, \"scale\": 0, \"type\": \"integer\"}, {\"datetime_precision\": null, \"name\": \"source_event_id\", \"nullable\": false, \"precision\": 64, \"scale\": 0, \"type\": \"bigint\"}, {\"datetime_precision\": null, \"name\": \"entry_kind\", \"nullable\": false, \"precision\": null, \"scale\": null, \"type\": \"USER-DEFINED\"}, {\"datetime_precision\": null, \"name\": \"amount\", \"nullable\": false, \"precision\": 18, \"scale\": 2, \"type\": \"numeric\"}, {\"datetime_precision\": 6, \"name\": \"occurred_at\", \"nullable\": false, \"precision\": null, \"scale\": null, \"type\": \"timestamp with time zone\"}], \"constraints\": [{\"definition\": \"CHECK ((amount > (0)::numeric))\", \"kind\": \"c\", \"name\": \"ledger_entries_amount_check\"}, {\"definition\": \"CHECK ((ledger_sequence > 0))\", \"kind\": \"c\", \"name\": \"ledger_entries_ledger_sequence_check\"}, {\"definition\": \"FOREIGN KEY (order_id) REFERENCES orders(order_id)\", \"kind\": \"f\", \"name\": \"ledger_entries_order_id_fkey\"}, {\"definition\": \"PRIMARY KEY (order_id, ledger_sequence)\", \"kind\": \"p\", \"name\": \"ledger_entries_pkey\"}, {\"definition\": \"UNIQUE (source_event_id)\", \"kind\": \"u\", \"name\": \"ledger_entries_source_event_id_key\"}], \"environment\": \"CANDIDATE\", \"table\": \"ledger_entries\"}}",
+        "truncated": false
+      },
+      {
+        "is_error": true,
+        "bytes": 69,
+        "sha256": "dc0f9e1e3d26f916606219be9ad2e53f988777bedbcee469be4dcf33f640c563",
+        "content": "{\"denied\": \"function not allowed in bindings: current_setting(text)\"}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations/",
+          "start_line": 1,
+          "end_line": 50
+        }
+      }
+    ],
+    "input_tokens": 6888,
+    "output_tokens": 135,
+    "cache_write_tokens": 1813,
+    "cache_read_tokens": 5073,
+    "cost_usd": "0.0127876",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 1687
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": true,
+        "bytes": 70,
+        "sha256": "a938ff216e571364daf3b3d7ea983a9d62c1204543a157f3c94cda9182e27238",
+        "content": "{\"denied\": \"not a normalized relative path: 'sample-app/migrations/'\"}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations",
+          "start_line": 1,
+          "end_line": 50
+        }
+      }
+    ],
+    "input_tokens": 7063,
+    "output_tokens": 100,
+    "cache_write_tokens": 175,
+    "cache_read_tokens": 6886,
+    "cost_usd": "0.0042602",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 1172
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": true,
+        "bytes": 72,
+        "sha256": "ae8edaab4a73df190cab9a27edb02aacc22c2b9c40fc601d24c80a5f50c3b842",
+        "content": "{\"denied\": \"sample-app/migrations is outside the readable source roots\"}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations/0002_ledger_entries.sql",
+          "start_line": 1,
+          "end_line": 200
+        }
+      },
+      {
+        "name": "read_source",
+        "arguments": {
+          "path": "sample-app/migrations/002_ledger_entries.sql",
+          "start_line": 1,
+          "end_line": 200
+        }
+      }
+    ],
+    "input_tokens": 7199,
+    "output_tokens": 271,
+    "cache_write_tokens": 136,
+    "cache_read_tokens": 7061,
+    "cost_usd": "0.0075202",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 2516
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": true,
+        "bytes": 93,
+        "sha256": "e31241314c3d36e51cfd6666b322244791a1f032c8f95404f4f980d837fbcbb2",
+        "content": "{\"failed\": \"sample-app/migrations/0002_ledger_entries.sql does not exist at the head commit\"}",
+        "truncated": false
+      },
+      {
+        "is_error": true,
+        "bytes": 92,
+        "sha256": "affbfcdf4285150f2aab18da2c6ab1ed4a2a4004e99002fc0242a2960c47cd3a",
+        "content": "{\"failed\": \"sample-app/migrations/002_ledger_entries.sql does not exist at the head commit\"}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "run_readonly_query",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "sql": "SELECT l.entry_kind::text k, EXTRACT(EPOCH FROM (l.occurred_at - e.occurred_at))/3600 AS diff_h, count(*) n, min(e.occurred_at) mn, max(e.occurred_at) mx FROM ledger_entries l JOIN legacy_payment_events e ON e.event_id=l.source_event_id GROUP BY 1,2 ORDER BY 1,2",
+          "max_rows": 50
+        }
+      }
+    ],
+    "input_tokens": 7601,
+    "output_tokens": 270,
+    "cache_write_tokens": 402,
+    "cache_read_tokens": 7197,
+    "cost_usd": "0.0088574",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 2594
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": false,
+        "bytes": 1569,
+        "sha256": "cbdcdd0365b439bdb8ee847af3f869cea53a94afe3d4d747d6ba699945c846d8",
+        "content": "{\"evidence_id\": \"investigation.tool.11\", \"data\": {\"columns\": [\"k\", \"diff_h\", \"n\", \"mn\", \"mx\"], \"environment\": \"CANDIDATE\", \"rows\": [[{\"type\": \"text\", \"value\": \"CAPTURE\"}, {\"type\": \"decimal\", \"value\": \"-2.0000000000000000\"}, {\"type\": \"integer\", \"value\": 92}, {\"type\": \"timestamptz\", \"value\": \"2026-04-03T04:34:00Z\"}, {\"type\": \"timestamptz\", \"value\": \"2026-09-21T17:59:00Z\"}], [{\"type\": \"text\", \"value\": \"CAPTURE\"}, {\"type\": \"decimal\", \"value\": \"-1.00000000000000000000\"}, {\"type\": \"integer\", \"value\": 45}, {\"type\": \"timestamptz\", \"value\": \"2026-01-05T21:59:00Z\"}, {\"type\": \"timestamptz\", \"value\": \"2026-03-29T01:30:00Z\"}], [{\"type\": \"text\", \"value\": \"CAPTURE\"}, {\"type\": \"decimal\", \"value\": \"0E-20\"}, {\"type\": \"integer\", \"value\": 138}, {\"type\": \"timestamptz\", \"value\": \"2026-01-06T05:30:00Z\"}, {\"type\": \"timestamptz\", \"value\": \"2026-11-01T05:45:00Z\"}], [{\"type\": \"text\", \"value\": \"REFUND\"}, {\"type\": \"decimal\", \"value\": \"-2.0000000000000000\"}, {\"type\": \"integer\", \"value\": 60}, {\"type\": \"timestamptz\", \"value\": \"2026-03-29T06:00:00Z\"}, {\"type\": \"timestamptz\", \"value\": \"2026-09-26T02:59:00Z\"}], [{\"type\": \"text\", \"value\": \"REFUND\"}, {\"type\": \"decimal\", \"value\": \"-1.00000000000000000000\"}, {\"type\": \"integer\", \"value\": 21}, {\"type\": \"timestamptz\", \"value\": \"2026-01-15T02:48:00Z\"}, {\"type\": \"timestamptz\", \"value\": \"2026-03-26T01:26:00Z\"}], [{\"type\": \"text\", \"value\": \"REFUND\"}, {\"type\": \"decimal\", \"value\": \"0E-20\"}, {\"type\": \"integer\", \"value\": 79}, {\"type\": \"timestamptz\", \"value\": \"2026-01-12T18:30:00Z\"}, {\"type\": \"timestamptz\", \"value\": \"2026-11-01T06:45:00Z\"}]]}}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "run_readonly_query",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "sql": "SELECT EXTRACT(EPOCH FROM (l.occurred_at - e.occurred_at))/3600 AS diff_h, split_part(e.external_ref,'-',1) pfx, (e.memo IS NULL) memo_null, count(*) n FROM ledger_entries l JOIN legacy_payment_events e ON e.event_id=l.source_event_id GROUP BY 1,2,3 ORDER BY 1,2,3",
+          "max_rows": 50
+        }
+      }
+    ],
+    "input_tokens": 8681,
+    "output_tokens": 389,
+    "cache_write_tokens": 1080,
+    "cache_read_tokens": 7599,
+    "cost_usd": "0.0147078",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 3562
+  },
+  {
+    "tool_results": [
+      {
+        "is_error": true,
+        "bytes": 77,
+        "sha256": "aa014182a9797ca71405ca4a7cd2b6a1dcbcb5574b36a101d211ced09b4c7729",
+        "content": "{\"denied\": \"function not allowed in bindings: split_part(text,text,integer)\"}",
+        "truncated": false
+      }
+    ],
+    "stop": "tool_use",
+    "text": null,
+    "tool_uses": [
+      {
+        "name": "run_readonly_query",
+        "arguments": {
+          "environment": "CANDIDATE",
+          "sql": "SELECT EXTRACT(EPOCH FROM (l.occurred_at - e.occurred_at))/3600 AS diff_h, e.external_ref, e.memo, e.occurred_at, l.occurred_at AS new_at FROM ledger_entries l JOIN legacy_payment_events e ON e.event_id=l.source_event_id ORDER BY e.event_id LIMIT 30",
+          "max_rows": 30
+        }
+      }
+    ],
+    "input_tokens": 9110,
+    "output_tokens": 238,
+    "cache_write_tokens": 429,
+    "cache_read_tokens": 8679,
+    "cost_usd": "0.0086488",
+    "served_by": "anthropic:claude-opus-5-5",
+    "latency_ms": 2234
+  }
+]

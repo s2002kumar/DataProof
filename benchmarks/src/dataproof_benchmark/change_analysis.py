@@ -333,8 +333,9 @@ def report(document: Mapping[str, Any]) -> str:
         lines += ["**The model arm is a dry run with a scripted model. It is not a result.**", ""]
     elif not model_ran:
         lines += [
-            "**The model arm has not run:** it waits for an approved model budget. Only the "
-            "static risk rules are reported.",
+            "**The model arm is not in these results.** Its live run of 2026-11-19 sent no "
+            "request ([what happened](../../docs/AI_EVALUATION_RESULTS.md#7-the-change-analyst)),"
+            " so only the static risk rules are reported.",
             "",
         ]
     faults, clean = summary["faults"], summary["clean_controls"]

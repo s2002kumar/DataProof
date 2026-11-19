@@ -1,0 +1,121 @@
+{
+  "baseline": "ai-eval-v1",
+  "what": "The outputs of the first live AI evaluation, exactly as the frozen harness wrote them. Never edit or regenerate these files: a later evaluation writes elsewhere.",
+  "protocol": "docs/AI_EVALUATION.md",
+  "harness_commit": "525462945167e255dd6ef7fc9179eb0bf158576f",
+  "model": "claude-opus-5-5",
+  "stages": [
+    {
+      "stage": "Pilot",
+      "started_at": "2026-11-19T11:29:25.7964728Z",
+      "finished_at": "2026-11-19T11:31:09.4119316Z",
+      "exit_code": 0,
+      "cap_usd": "1",
+      "command": "python -m dataproof_benchmark ablation --database <admin DSN> --live --budget-usd 1 --cases case-104 case-118 --effort high --out results/ablation-pilot-results.json",
+      "gate": {
+        "pass": true,
+        "pilot_cost_usd": "0.1761610",
+        "statuses": {
+          "case-104": "BUDGET_EXHAUSTED",
+          "case-118": "BUDGET_EXHAUSTED"
+        },
+        "pilot_rule": {
+          "budget_exhausted": [
+            "case-104",
+            "case-118"
+          ],
+          "cut_off_at_token_limit": false,
+          "main_run_effort": "medium"
+        },
+        "facts": {
+          "turns": 11,
+          "errors": 0,
+          "max_tokens_stops": 0,
+          "refusals": 0
+        },
+        "reasons": []
+      }
+    },
+    {
+      "stage": "Main",
+      "started_at": "2026-11-19T11:31:10.1547942Z",
+      "finished_at": "2026-11-19T11:39:09.5221706Z",
+      "exit_code": 0,
+      "cap_usd": "9",
+      "command": "python -m dataproof_benchmark ablation --database <admin DSN> --live --budget-usd 9 --effort medium --out results/ablation-results.json",
+      "gate": {
+        "pass": true,
+        "kind": "ablation",
+        "cost_usd": "1.4757710",
+        "cap_usd": "9",
+        "statuses": {
+          "skipped": 13,
+          "BUDGET_EXHAUSTED": 17,
+          "COMPLETED": 1
+        },
+        "facts": {
+          "turns": 118,
+          "errors": 0,
+          "max_tokens_stops": 0,
+          "refusals": 0
+        },
+        "reasons": []
+      }
+    },
+    {
+      "stage": "ChangeAnalyst",
+      "started_at": "2026-11-19T11:39:09.9611070Z",
+      "finished_at": "2026-11-19T11:39:31.4707007Z",
+      "exit_code": 0,
+      "cap_usd": "5.10",
+      "command": "python -m dataproof_benchmark change-analysis --live --budget-usd 5.10 --out results/change-analysis-live-results.json",
+      "gate": {
+        "pass": true,
+        "kind": "change",
+        "cost_usd": "0",
+        "cap_usd": "5.10",
+        "statuses": {
+          "BUDGET_EXHAUSTED": 34
+        },
+        "facts": {
+          "turns": 0,
+          "errors": 0,
+          "max_tokens_stops": 0,
+          "refusals": 0
+        },
+        "reasons": []
+      }
+    }
+  ],
+  "recorded_cost_usd": {
+    "pilot": "0.1761610",
+    "main": "1.4757710",
+    "change_analyst": "0",
+    "total": "1.6519320"
+  },
+  "files": {
+    "ablation-pilot-results.json": "5478f8dd47eb01ae315af53d8b4718a22c1e55108a22db641ecb2f3c488352e1",
+    "ablation-pilot-transcripts/case-104.json": "d48e15414d449808db31abaa27d406892255049c27c6d109d5392fa915714072",
+    "ablation-pilot-transcripts/case-118.json": "498f67c01d051274005239a3c61ae736b23e839b59a894fefbe6de57755abedf",
+    "ablation-results.json": "18352c74c7798adbf2820230c038d771626c3fa6ee2d606f865886a7d833bd47",
+    "ablation-transcripts/case-104.json": "2d07107fc55b2522fc2c07134e1e0d731ff1b5cac4bc87031a61a5a19d2b272d",
+    "ablation-transcripts/case-105.json": "89ec76e9805d842e8347b287ce155adbd2412eee90f1b2189565f1b13cc26d4b",
+    "ablation-transcripts/case-107.json": "649842f23982530b8bfb8764c2d6a18f5dc1dfb8c551d72275ae9da3722b551b",
+    "ablation-transcripts/case-109.json": "dcf0afe0c1569dd442f84a47a55b93ad14c5106c5dcbac031ba3b61d6e8298c4",
+    "ablation-transcripts/case-110.json": "48231ab343815a9c1559fe5f6a5f81491b0dbe354c9c67916b41aaf86d6dbb90",
+    "ablation-transcripts/case-111.json": "cefc606bf06017e55a61dd773fb2ac085ee1c0edca4bae8a8d7c11008c6dd52c",
+    "ablation-transcripts/case-112.json": "d238e67ad8333b004fd8f00390ba6131f8bb2d1002286e18fc0a927ceff48e37",
+    "ablation-transcripts/case-114.json": "79f2d7a504001bb8037e889dfccbd8dc7cd818cec4fd69b21a43f351cd15a354",
+    "ablation-transcripts/case-118.json": "332a8c1f6685fc5bf7000d4ab5d511ce1cd110f2f31316546257bb219cbc9ab9",
+    "ablation-transcripts/case-119.json": "d40c6b0bf7274913c70adfee17750d7f44e1313cd59e5b807842942c2807cba1",
+    "ablation-transcripts/case-121.json": "8376d1bbc2758b786fc4d8c9f740f1f87d2700050abc38899b881595d3cd9b72",
+    "ablation-transcripts/case-123.json": "435d0925c7595a197082a4030495ca1e8dfedf973c4a9582e96046246797c0dc",
+    "ablation-transcripts/case-124.json": "d00c60a08abdfba4db2ab1be7cda4891791b707e29bf825a1d696ca400988e0a",
+    "ablation-transcripts/case-125.json": "5993b8bdc353bfbcb7d2fd6b74dd424bab57c9c885f24b06781a603fb9439fa5",
+    "ablation-transcripts/case-126.json": "514258c6e1df432f8f8a83bed80a5401f8d7cb6340f6a09f1afd0fe9ba00d72e",
+    "ablation-transcripts/case-129.json": "dab0582e4d4ed0eece329038ba5c1d6ed38f0bcd4718ba8b940e0a0d812b589f",
+    "ablation-transcripts/case-130.json": "c181501b3316835061ce3839ba9b4917aa133935d9542af22cf7bd02830a5509",
+    "ablation-transcripts/case-131.json": "bb23819ae1a57275ce321d7f92d7c628060edd70b8e9a4de7d55505bd5a04864",
+    "change-analysis-live-results.json": "35bb551685938cf06575027cc1807dd89e1f52b7e37e450c55c62d966c85b9f9"
+  }
+}

@@ -60,7 +60,7 @@ From public documentation only; none of these was run here, and this is position
 - **Supply chain.** The migration image installs the base branch's pinned requirements with network at build time. What the base branch trusts, the Action trusts.
 - **Resource use** is bounded by limits and a timeout, not prevented.
 - **One person.** The live demo's author was also its reviewer and the only maintainer; approvals are recorded as procedural separation. The approver rule is enforced when there is more than one maintainer, and that path has not been exercised live.
-- **The AI roles** are bounded by tools, budgets, citation validation and injection negatives; prompt injection through SQL, comments or evidence is tested but a model has not yet been run live, so the bounds are verified and the value is not.
+- **The AI roles** are bounded by tools, budgets, citation validation and injection negatives; prompt injection through SQL, comments or evidence is tested with scripted models. One live evaluation has run (2026-11-19): the bounds held, and the value was not established ([results](AI_EVALUATION_RESULTS.md)).
 
 ## Benchmark weaknesses
 
@@ -71,7 +71,7 @@ From public documentation only; none of these was run here, and this is position
 - **Fixtures are small** (hundreds of rows), so timings prove nothing about production-scale migrations, and the type check exists precisely because a small fixture can miss a declared-type fault.
 - **The misses are real.** NULL-and-empty confusion is invisible to the declared contracts (2 of 20), and a fault no oracle declares passes by construction.
 - **No external run.** The Action's timings (40 s to a verdict on the example repository) and installations are the author's; the field-results log has no external entry yet.
-- **The AI arms are unmeasured.** Protocol frozen, budget approved, key pending; until the run happens, the only honest statement about the investigator is what it cannot do.
+- **The AI arms' value is not established.** The frozen protocol ran once (2026-11-19, 1.65 USD). The investigator's own loop stopped 17 of 18 investigations before an answer, and the Change Analyst's model was never called, so the run measured the scaffolding and not the diagnosis. The honest statements about the investigator are what it cannot do, and that as built it rarely finishes ([results](AI_EVALUATION_RESULTS.md)).
 
 ## Questions that deserve a direct answer
 
