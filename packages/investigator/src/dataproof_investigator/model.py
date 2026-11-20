@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Literal, Protocol
 
-StopReason = Literal["tool_use", "end", "refusal", "max_tokens"]
+StopReason = Literal["tool_use", "end", "refusal", "max_tokens", "unexpected"]
+"""``unexpected`` is any stop a provider reports that the loop has no use for; the turn's
+text then says which. The turn was billed, so it is a turn and not an exception."""
 
 
 @dataclass(frozen=True)
@@ -48,15 +50,35 @@ class ModelTurn:
     served_by: str | None = None
     """``provider:model`` that produced this turn, when it differs from the one asked for
     (for example after a refusal fallback)."""
+    us_only: bool = False
+    """Whether the provider says the turn ran in the United States only, which costs more."""
 
 
 class ModelSession(Protocol):
-    def send(self, tool_results: Sequence[ToolResult]) -> ModelTurn:
-        """Return the model's next turn. The first call has no tool results."""
+    def send(
+        self,
+        tool_results: Sequence[ToolResult],
+        notice: str | None = None,
+        *,
+        final: bool = False,
+    ) -> ModelTurn:
+        """Return the model's next turn. The first call has no tool results.
+
+        ``notice`` is a line from the investigator itself (what is left of the budget, that an
+        answer is due, or what was wrong with the answer given). It is the operator's, so an
+        adapter sends it apart from the tool results, which are the pull request's data: never
+        inside one. After the first turn it may come with no tool results at all.
+
+        ``final`` asks for a turn that cannot call a tool: the investigator sets it when it
+        has asked for the answer once already. An adapter that cannot forbid tool calls sends
+        the turn as any other.
+        """
         ...
 
-    def ceiling_usd(self, tool_results: Sequence[ToolResult]) -> Decimal | None:
-        """The most the next ``send`` with these results could cost, or None if unknown."""
+    def ceiling_usd(
+        self, tool_results: Sequence[ToolResult], notice: str | None = None
+    ) -> Decimal | None:
+        """The most the next ``send`` with these could cost, or None if unknown."""
         ...
 
 
@@ -90,6 +112,10 @@ class ScriptedModel:
     turn_ceiling_usd: Decimal | None = None
     """What every session reports as the most its next turn could cost."""
     received: list[Sequence[ToolResult]] = field(default_factory=list)
+    notices: list[str | None] = field(default_factory=list)
+    """The investigator's notice with each turn's results, turn by turn (None for none)."""
+    finals: list[bool] = field(default_factory=list)
+    """Whether each turn was sent as one that may not call a tool."""
     opened_with: dict[str, Any] = field(default_factory=dict)
 
     def open(
@@ -114,15 +140,25 @@ class _ScriptedSession:
         self._model = model
         self._next = 0
 
-    def send(self, tool_results: Sequence[ToolResult]) -> ModelTurn:
+    def send(
+        self,
+        tool_results: Sequence[ToolResult],
+        notice: str | None = None,
+        *,
+        final: bool = False,
+    ) -> ModelTurn:
         self._model.received.append(tuple(tool_results))
+        self._model.notices.append(notice)
+        self._model.finals.append(final)
         if self._next >= len(self._model.steps):
             return ModelTurn(stop="end", text="")
         step = self._model.steps[self._next]
         self._next += 1
         return step(tool_results) if callable(step) else step
 
-    def ceiling_usd(self, tool_results: Sequence[ToolResult]) -> Decimal | None:
+    def ceiling_usd(
+        self, tool_results: Sequence[ToolResult], notice: str | None = None
+    ) -> Decimal | None:
         return self._model.turn_ceiling_usd
 
 

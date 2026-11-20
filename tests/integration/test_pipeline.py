@@ -827,18 +827,20 @@ def test_the_change_analyst_reads_the_change_before_anything_runs(harness: Harne
     path = f"{SAMPLE_APP}/migrations/versions/{revision.name}"
     analyst = ScriptedModel(
         [
+            call("get_briefing", {}),
             call(
                 "run_readonly_query",
                 {"environment": "CANDIDATE", "sql": "SELECT 1", "max_rows": 1},
+                "t2",
             ),
-            call("read_source", {"path": path, "start_line": 1, "end_line": 60}, "t2"),
+            call("read_source", {"path": path, "start_line": 1, "end_line": 60}, "t3"),
             answer(
                 json.dumps(
                     {
                         "hypotheses": [
                             {
                                 "statement": "The backfill joins order items before summing.",
-                                "cited_evidence_ids": ["investigation.tool.2"],
+                                "cited_evidence_ids": ["investigation.tool.3"],
                                 "confidence": "MEDIUM",
                             }
                         ],
@@ -861,10 +863,19 @@ def test_the_change_analyst_reads_the_change_before_anything_runs(harness: Harne
         "aggregate-in-backfill",
     }, "the static rules saw F1's join and sum"
     assert model.status is InvestigationStatus.COMPLETED, model.failure
-    assert [c.outcome for c in model.tool_calls] == [ToolCallOutcome.DENIED, ToolCallOutcome.OK]
-    assert "no tool named 'run_readonly_query'" in (model.tool_calls[0].detail or "")
-    assert analyst.opened_with["tools"] == ["read_source"]
-    assert path in analyst.opened_with["task"], "it is told what changed"
+    assert [c.outcome for c in model.tool_calls] == [
+        ToolCallOutcome.OK,
+        ToolCallOutcome.DENIED,
+        ToolCallOutcome.OK,
+    ]
+    assert "no tool named 'run_readonly_query'" in (model.tool_calls[1].detail or "")
+    assert analyst.opened_with["tools"] == ["get_briefing", "read_source"]
+    # It is told what changed in a tool result, as data: a pull request chooses its file
+    # names, so the task carries none.
+    assert path not in analyst.opened_with["task"]
+    briefing = json.loads(analyst.received[1][0].content)["data"]
+    assert path in [changed["path"] for changed in briefing["changed_files"]]
+    assert "README" not in json.dumps(briefing["changed_files"]), "only readable changed files"
     report = harness.results.report(run_id)
     assert report is not None
     assert report.verdict is ReportVerdict.BLOCKED, "the checks still decide"

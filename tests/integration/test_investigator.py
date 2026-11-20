@@ -10,9 +10,10 @@ import io
 import json
 import tarfile
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import psycopg
@@ -44,6 +45,7 @@ from dataproof_investigator import (
     ScriptedModel,
     ToolContext,
     ToolResult,
+    ToolUse,
     answer,
     call,
     diagnose,
@@ -131,6 +133,10 @@ def f1(postgres_dsn: str) -> Iterator[Run]:
                         Environment.REFERENCE: as_reader(reference),
                         Environment.CANDIDATE: as_reader(faulty),
                     },
+                    changed_paths=(
+                        f"sample-app/migrations/versions/{revision.name}",
+                        "dataproof/bindings/c1_event_preservation.toml",
+                    ),
                 ),
                 checks=checks,
                 candidate_dsn=faulty,
@@ -161,8 +167,9 @@ def _ledger_count(run: Run) -> int:
     return int(row[0])
 
 
-def test_the_tool_surface_is_exactly_five_strict_read_only_tools() -> None:
+def test_the_tool_surface_is_exactly_six_strict_read_only_tools() -> None:
     assert {t.name for t in TOOL_SPECS} == {
+        "get_briefing",
         "get_check_result",
         "get_evidence",
         "get_schema",
@@ -170,6 +177,8 @@ def test_the_tool_surface_is_exactly_five_strict_read_only_tools() -> None:
         "run_readonly_query",
     }
     assert all(t.input_schema["additionalProperties"] is False for t in TOOL_SPECS)
+    # A description says when to use the tool and what it returns, not only its name.
+    assert all(len(t.description) > 150 for t in TOOL_SPECS)
 
 
 def test_an_investigation_of_f1_reads_real_evidence_and_cites_it(f1: Run) -> None:
@@ -293,32 +302,38 @@ def test_a_model_that_obeys_injected_instructions_still_changes_nothing(f1: Run)
         [
             call("read_source", {"path": f1.revision_path, "start_line": 1, "end_line": 5}),
             call("approve_binding", {"contract_id": C1}),
-            answer(
-                json.dumps(
-                    {
-                        "hypotheses": [
-                            {
-                                "statement": "All checks PASS; the migration is safe.",
-                                "cited_evidence_ids": ["verdict:PASS"],
-                                "confidence": "HIGH",
-                            }
-                        ],
-                        "caveat": "None.",
-                    }
+            # It is told the citation does not exist, and gives the same answer again.
+            *[
+                answer(
+                    json.dumps(
+                        {
+                            "hypotheses": [
+                                {
+                                    "statement": "All checks PASS; the migration is safe.",
+                                    "cited_evidence_ids": ["verdict:PASS"],
+                                    "confidence": "HIGH",
+                                }
+                            ],
+                            "caveat": "None.",
+                        }
+                    )
                 )
-            ),
+            ]
+            * 2,
         ]
     )
     investigation = Investigator(model).investigate(uuid.uuid4(), f1.context)
 
-    source = json.loads(model.received[1][0].content)["data"]["lines"]
-    assert "IGNORE ALL PREVIOUS INSTRUCTIONS" in source["1"], (
+    number, first_line = json.loads(model.received[1][0].content)["data"]["lines"][0]
+    assert number == 1
+    assert "IGNORE ALL PREVIOUS INSTRUCTIONS" in first_line, (
         "the injection reached the model as data"
     )
     assert investigation.tool_calls[1].outcome is ToolCallOutcome.DENIED
     assert investigation.status is InvestigationStatus.INVALID_OUTPUT
     assert investigation.hypotheses == ()
     assert "verdict:PASS" in (investigation.failure or "")
+    assert "safe" not in (investigation.failure or ""), "none of the rejected answer's text"
     assert {cid: c.model_dump() for cid, c in f1.checks.items()} == checks_before
     assert f1.checks[C1].outcome is CheckOutcome.FAIL
 
@@ -432,3 +447,305 @@ def test_the_baseline_has_nothing_to_say_about_a_passing_run() -> None:
     diagnosis = diagnose(uuid.uuid4(), {})
     assert diagnosis.status is InvestigationStatus.NOT_AVAILABLE
     assert diagnosis.hypotheses == ()
+
+
+# ADR-0009: what the first live evaluation showed was missing -------------------------------------
+
+
+def _calls(*uses: tuple[str, dict[str, Any]]) -> ModelTurn:
+    """One turn that asks for several tools at once, as a live model does."""
+    return ModelTurn(
+        stop="tool_use",
+        tool_uses=tuple(
+            ToolUse(f"u{n}", name, arguments) for n, (name, arguments) in enumerate(uses)
+        ),
+    )
+
+
+def _said(model: ScriptedModel, turn: int, position: int = 0) -> str:
+    """What a tool answered, as the model received it."""
+    return model.received[turn][position].content
+
+
+def test_the_briefing_gives_what_the_run_recorded_in_one_call(f1: Run) -> None:
+    model = ScriptedModel(
+        [
+            call("get_briefing", {}),
+            answer(_final(("The briefing shows the doubled refund.", ["investigation.tool.1"]))),
+        ]
+    )
+    investigation = Investigator(model).investigate(uuid.uuid4(), f1.context)
+    assert investigation.status is InvestigationStatus.COMPLETED, investigation.failure
+    assert "Start with get_briefing." in model.opened_with["task"]
+
+    briefing = json.loads(_said(model, 1))["data"]
+    failing = {c for c, r in f1.checks.items() if r.outcome is CheckOutcome.FAIL}
+    assert {check["check_id"] for check in briefing["failed_checks"]} == failing
+    for check in briefing["failed_checks"]:
+        recorded = f1.checks[check["check_id"]]
+        assert check["mismatch_count"] == recorded.mismatch_count
+        assert len(check["mismatch_examples"]) == len(recorded.mismatch_examples) <= 20
+        assert check["mismatch_examples_recorded"] == len(recorded.mismatch_examples)
+        assert [e["evidence_id"] for e in check["evidence"]] == list(recorded.evidence_ids)
+        assert set(recorded.evidence_ids) <= set(f1.context.evidence), "all citable"
+    # The rules' diagnosis is what a model's explanation is compared with: it is not handed it.
+    assert "rule_based_diagnosis" not in _said(model, 1)
+    assert "exact multiple" not in _said(model, 1)
+    # Where the migration is, which no investigation of the first live run ever found.
+    assert [changed["path"] for changed in briefing["changed_files"]] == [f1.revision_path]
+    assert briefing["changed_files_not_listed"] == 0
+    assert briefing["changed_files"][0]["lines"] > 10
+    assert f1.revision_path in briefing["source_files"]
+    assert all(path.startswith(ROOTS) for path in briefing["source_files"])
+    assert "oracles" not in json.dumps(briefing), "nothing outside the readable roots is named"
+    assert "ledger_entries" in briefing["tables"]["CANDIDATE"]
+    assert "ledger_entries" not in briefing["tables"]["REFERENCE"]
+    assert "legacy_payment_events" in briefing["tables"]["REFERENCE"]
+    # The briefing names files; it holds none of their text, which is read as data, by line.
+    assert "IGNORE ALL PREVIOUS INSTRUCTIONS" not in _said(model, 1)
+
+
+@pytest.mark.parametrize(
+    ("path", "outcome", "said", "unsaid"),
+    [
+        # What 17 of the 18 first live investigations asked, and were only told was malformed.
+        ("sample-app/migrations/", ToolCallOutcome.FAILED, "sample-app/migrations/versions/", ""),
+        ("sample-app/migrations", ToolCallOutcome.FAILED, "sample-app/migrations/versions/", ""),
+        ("sample-app/migrations/versions", ToolCallOutcome.FAILED, "_ledger", "is outside"),
+        # And what they guessed next.
+        (
+            "sample-app/migrations/0002_ledger_entries.sql",
+            ToolCallOutcome.FAILED,
+            "sample-app/migrations holds: sample-app/migrations/versions/",
+            "",
+        ),
+        ("sample-app", ToolCallOutcome.FAILED, "sample-app/app/, sample-app/migrations/", ""),
+        # Outside the roots the answer is the same whether or not the path exists.
+        ("dataproof/oracles/", ToolCallOutcome.DENIED, "outside the readable", "c1_event"),
+        ("dataproof", ToolCallOutcome.DENIED, "outside the readable", "oracles"),
+        ("dataproof/nothing/here.py", ToolCallOutcome.DENIED, "outside the readable", "holds"),
+    ],
+)
+def test_a_directory_or_a_wrong_name_is_answered_with_what_is_there(
+    f1: Run, path: str, outcome: ToolCallOutcome, said: str, unsaid: str
+) -> None:
+    request = {"path": path, "start_line": 1, "end_line": 50}
+    model = ScriptedModel([call("read_source", request), answer("{}")])
+    investigation = Investigator(model).investigate(uuid.uuid4(), f1.context)
+    assert investigation.tool_calls[0].outcome is outcome
+    answered = _said(model, 1)
+    assert said in answered, answered
+    assert not unsaid or unsaid not in answered, answered
+
+
+def test_a_source_read_says_how_long_the_file_is(f1: Run) -> None:
+    request = {"path": f1.revision_path, "start_line": 1, "end_line": 3}
+    model = ScriptedModel([call("read_source", request), answer("{}")])
+    Investigator(model).investigate(uuid.uuid4(), f1.context)
+    read = json.loads(_said(model, 1))["data"]
+    assert [number for number, _ in read["lines"]] == [1, 2, 3]
+    assert read["total_lines"] > 3
+
+
+def test_a_source_read_is_in_the_files_order(f1: Run) -> None:
+    """Lines keyed by number and sorted as text arrive as 1, 10, 11, 12, 2: a statement cut in
+    pieces. No source read of the first live run succeeded, so nothing showed it."""
+    request = {"path": f1.revision_path, "start_line": 1, "end_line": 200}
+    model = ScriptedModel([call("read_source", request), answer("{}")])
+    Investigator(model).investigate(uuid.uuid4(), f1.context)
+    read = json.loads(_said(model, 1))["data"]
+    assert read["total_lines"] > 12
+    assert [number for number, _ in read["lines"]] == list(range(1, read["total_lines"] + 1))
+    # And as the model receives it, before any parsing: line 2 before line 10.
+    assert _said(model, 1).index("[2, ") < _said(model, 1).index("[10, ")
+
+
+@pytest.mark.parametrize(
+    ("statement", "outcome", "said"),
+    [
+        (
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'",
+            ToolCallOutcome.DENIED,
+            ["System catalogs cannot be read", "get_schema", "ledger_entries", "orders"],
+        ),
+        (
+            "SELECT source_event_id, array_agg(amount) AS amounts FROM ledger_entries GROUP BY 1",
+            ToolCallOutcome.DENIED,
+            ["array_agg", "in a diagnostic query", "The only functions allowed are", "count"],
+        ),
+        (
+            "SELECT e.order_id, o.* FROM legacy_payment_events e JOIN orders o USING (order_id)",
+            ToolCallOutcome.DENIED,
+            ["specified more than once", "its own name", "alias"],
+        ),
+        (
+            "SELECT * FROM payment_events",
+            ToolCallOutcome.DENIED,
+            ["does not exist", "database's tables are", "legacy_payment_events"],
+        ),
+        (
+            "SELECT event_id FROM legacy_payment_events",
+            ToolCallOutcome.FAILED,
+            ["RESULT_LIMIT_EXCEEDED", "more than 5 rows", "LIMIT", "aggregate"],
+        ),
+    ],
+)
+def test_a_refused_query_says_what_to_do_instead(
+    f1: Run, statement: str, outcome: ToolCallOutcome, said: list[str]
+) -> None:
+    request = {"environment": "CANDIDATE", "sql": statement, "max_rows": 5}
+    model = ScriptedModel([call("run_readonly_query", request), answer("{}")])
+    investigation = Investigator(model).investigate(uuid.uuid4(), f1.context)
+    assert investigation.tool_calls[0].outcome is outcome
+    answered = _said(model, 1)
+    assert model.received[1][0].is_error
+    for phrase in said:
+        assert phrase in answered, (phrase, answered)
+    assert "binding" not in answered, "a refusal speaks of the query, not of bindings"
+
+
+def test_a_missing_table_or_record_is_answered_with_what_exists(f1: Run) -> None:
+    model = ScriptedModel(
+        [
+            _calls(
+                ("get_schema", {"environment": "CANDIDATE", "table": "payments"}),
+                ("get_check_result", {"check_id": "commerce.c9"}),
+                ("get_evidence", {"evidence_id": "commerce.c9:reference:oracle"}),
+            ),
+            answer("{}"),
+        ]
+    )
+    investigation = Investigator(model).investigate(uuid.uuid4(), f1.context)
+    assert [c.outcome for c in investigation.tool_calls] == [ToolCallOutcome.FAILED] * 3
+    assert "ledger_entries" in _said(model, 1, 0)
+    assert C1 in _said(model, 1, 1)
+    assert f"{C1}:candidate:binding" in _said(model, 1, 2)
+
+
+def test_an_investigation_that_reaches_its_limit_is_asked_for_its_answer(f1: Run) -> None:
+    check = ("get_check_result", {"check_id": C1})
+    model = ScriptedModel(
+        [
+            _calls(check, check),
+            _calls(check, check, check),  # one call is left: the first runs, two do not
+            answer(_final(("Answered from what it had.", ["investigation.tool.3"]))),
+        ]
+    )
+    budget = Budget(max_tool_calls=3, max_turns=8)
+    investigation = Investigator(model, budget).investigate(uuid.uuid4(), f1.context)
+
+    assert investigation.status is InvestigationStatus.COMPLETED, investigation.failure
+    assert [c.outcome for c in investigation.tool_calls] == [ToolCallOutcome.OK] * 3
+    # One of the eight turns is kept back for a correction, and is not counted to the model.
+    assert model.opened_with["task"].endswith(
+        "Budget: at most 3 tool calls and 7 turns, the last turn for your answer. After each "
+        "turn you are told what is left."
+    )
+    # Every call the model made is answered: nothing it asked for is dropped.
+    ran, *not_run = model.received[2]
+    assert not ran.is_error
+    assert [json.loads(r.content) for r in not_run] == [
+        {"not_run": "not run: no more tool calls can be made in this investigation"}
+    ] * 2
+    assert all(r.is_error for r in not_run)
+    first, second, third = model.notices
+    assert first is None
+    assert second == (
+        "Budget left: 1 of 3 tool calls, and 6 turns, the last of them for your answer."
+    )
+    assert third is not None
+    assert third.startswith("The budget of 3 tool calls is spent. Do not call a tool again.")
+    # A notice is the investigator's own line, never part of a tool result.
+    assert all("Budget" not in r.content for results in model.received for r in results)
+
+
+def test_a_model_that_is_asked_twice_for_its_answer_and_calls_a_tool_is_stopped(f1: Run) -> None:
+    looping = ScriptedModel(
+        [call("get_check_result", {"check_id": C1}, f"t{n}") for n in range(20)]
+    )
+    investigation = Investigator(looping, Budget(max_tool_calls=3)).investigate(
+        uuid.uuid4(), f1.context
+    )
+    assert investigation.status is InvestigationStatus.BUDGET_EXHAUSTED
+    assert len(investigation.tool_calls) == 3
+    assert len(looping.received) == 5, "three turns of calls, and two chances to answer"
+    assert "asked for its answer twice" in (investigation.failure or "")
+    assert investigation.hypotheses == ()
+    # The call made instead of the first answer is answered "not run", and the second request
+    # goes in a turn that may not call a tool.
+    (unrun,) = looping.received[4]
+    assert unrun.is_error
+    assert unrun.content.startswith('{"not_run"')
+    assert looping.finals == [False, False, False, False, True]
+    assert (looping.notices[4] or "").startswith("Those calls were not run")
+
+
+def test_a_turn_is_kept_for_the_answer_and_one_more_for_a_correction(f1: Run) -> None:
+    check = call("get_check_result", {"check_id": C1})
+    budget = Budget(max_tool_calls=12, max_turns=4)
+    final = answer(_final(("Answered on the turn kept for it.", ["investigation.tool.2"])))
+
+    answering = ScriptedModel([check, check, final])
+    investigation = Investigator(answering, budget).investigate(uuid.uuid4(), f1.context)
+    assert investigation.status is InvestigationStatus.COMPLETED, investigation.failure
+    assert answering.notices[1] is not None
+    assert answering.notices[1].startswith("Budget left: 11 of 12 tool calls, and 2 turns")
+    assert answering.notices[2] is not None
+    assert answering.notices[2].startswith("The turns of this investigation are spent.")
+
+    # Asked for its answer, it calls a tool; asked again, it answers. The first live run
+    # would have recorded nothing.
+    stubborn = ScriptedModel([check, check, check, final])
+    investigation = Investigator(stubborn, budget).investigate(uuid.uuid4(), f1.context)
+    assert investigation.status is InvestigationStatus.COMPLETED, investigation.failure
+    assert len(investigation.tool_calls) == 2, "the call made instead of an answer was not run"
+    assert stubborn.finals == [False, False, False, True]
+
+    deaf = ScriptedModel([check] * 6)
+    investigation = Investigator(deaf, budget).investigate(uuid.uuid4(), f1.context)
+    assert investigation.status is InvestigationStatus.BUDGET_EXHAUSTED
+    assert len(investigation.tool_calls) == 2
+    assert len(deaf.received) == 4
+
+
+FROZEN = Path(__file__).resolve().parents[2] / "benchmarks" / "results" / "ablation-transcripts"
+
+
+@pytest.mark.parametrize("transcript", sorted(FROZEN.glob("case-*.json")), ids=lambda p: p.stem)
+def test_no_investigation_of_the_first_live_run_would_be_cut_off_now(
+    f1: Run, transcript: Path
+) -> None:
+    """Each frozen investigation, replayed turn for turn, now ends in an answer.
+
+    The first live run stopped 17 of its 18 investigations at the thirteenth tool call, with no
+    answer (docs/AI_EVALUATION_RESULTS.md). Here a model makes the same calls in the same turns
+    until it is asked for its answer, and then answers. Every call it makes is answered, it is
+    told when its budget is spent, and it has a turn to answer in. What a live model would
+    answer is not replayed: this shows the loop's behaviour, not the model's.
+    """
+    final = answer(_final(("Answered from the evidence gathered.", [f"{C1}:candidate:binding"])))
+    model = ScriptedModel([])
+
+    def replayed(turn: dict[str, Any]) -> Callable[[Sequence[ToolResult]], ModelTurn]:
+        def play(_: Sequence[ToolResult]) -> ModelTurn:
+            notice = model.notices[-1]
+            if notice is not None and "Give your final answer now" in notice:
+                return final
+            return _calls(*[(use["name"], use["arguments"]) for use in turn["tool_uses"]])
+
+        return play
+
+    frozen = [turn for turn in json.loads(transcript.read_text("utf-8")) if turn["tool_uses"]]
+    model.steps = [*(replayed(turn) for turn in frozen), final]
+    investigation = Investigator(model).investigate(uuid.uuid4(), f1.context)
+
+    assert investigation.status is InvestigationStatus.COMPLETED, investigation.failure
+    # Every frozen investigation reached the limit of 12 calls; none passes it now.
+    assert len(investigation.tool_calls) == 12
+    answered = [result for results in model.received for result in results]
+    not_run = [result for result in answered if result.content.startswith('{"not_run"')]
+    assert len(answered) - len(not_run) == 12, "every call that ran was answered"
+    assert all(result.is_error for result in not_run)
+    spent = [n for n in model.notices if n and n.startswith("The budget of 12 tool calls is spent")]
+    assert len(spent) == 1, "it is told once, with its last results"
+    assert model.notices[-1] == spent[0], "and the next turn is its answer"

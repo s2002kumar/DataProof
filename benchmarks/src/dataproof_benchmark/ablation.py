@@ -4,7 +4,7 @@ Every database-tier case whose contracts fail or error is diagnosed twice, on th
 
 * **model-off**: the rule-based diagnosis every run gets (``dataproof_investigator.diagnose``);
 * **model**: the bounded Failure Investigator, as a run's ``INVESTIGATING`` stage runs it. It has
-  the five read-only tools over the case's live reference and candidate databases (through a
+  its read-only tools over the case's live reference and candidate databases (through a
   read-only role), and the head commit's allowlisted source.
 
 A **live** run calls a paid model. It needs ``--live``, an approved ``--budget-usd`` of at most
@@ -199,15 +199,30 @@ class _RecordingSession:
         self._recorder = recorder
         self._session = session
 
-    def ceiling_usd(self, tool_results: Sequence[ToolResult]) -> Decimal | None:
-        return self._session.ceiling_usd(tool_results)
+    def ceiling_usd(
+        self, tool_results: Sequence[ToolResult], notice: str | None = None
+    ) -> Decimal | None:
+        return self._session.ceiling_usd(tool_results, notice)
 
-    def send(self, tool_results: Sequence[ToolResult]) -> ModelTurn:
+    def send(
+        self,
+        tool_results: Sequence[ToolResult],
+        notice: str | None = None,
+        *,
+        final: bool = False,
+    ) -> ModelTurn:
         self._recorder.results.extend(tool_results)
         sent: dict[str, Any] = {"tool_results": [_kept(result) for result in tool_results]}
+        if notice is not None:
+            sent["notice"] = notice
+        if final:
+            sent["final"] = True
         started = time.monotonic()
         try:
-            turn = self._session.send(tool_results)
+            if final:
+                turn = self._session.send(tool_results, notice, final=True)
+            else:
+                turn = self._session.send(tool_results, notice)
         except Exception as exc:
             self._recorder.turns.append(sent | {"error": f"{type(exc).__name__}: {exc}"})
             raise
@@ -225,6 +240,8 @@ class _RecordingSession:
                 "cache_read_tokens": turn.cache_read_tokens,
                 "cost_usd": str(turn.cost_usd),
                 "served_by": turn.served_by,
+                # An investigator from before ADR-0009 has no such field.
+                "us_only": getattr(turn, "us_only", False),
                 "latency_ms": round((time.monotonic() - started) * 1000),
             }
         )
@@ -334,6 +351,14 @@ def measures(
         "unsupported_specifics": unsupported,
         "hypotheses_with_unsupported": flagged,
     }
+
+
+def changed_paths(change_dir: Path) -> tuple[str, ...]:
+    """The paths a case's pull request changes: its revision, as the head commit holds it."""
+    return tuple(
+        f"sample-app/migrations/versions/{revision.name}"
+        for revision in sorted(change_dir.glob("*.py"))
+    )
 
 
 def source_archive(change_dir: Path) -> bytes:
@@ -492,6 +517,7 @@ def _case(
             Environment.REFERENCE: as_reader(reference_dsn),
             Environment.CANDIDATE: as_reader(candidate_dsn),
         },
+        changed_paths=changed_paths(change),
     )
     recorder = Recorder(model_for(checks))
     investigation = Investigator(recorder, BUDGET).investigate(run_id, tools)
