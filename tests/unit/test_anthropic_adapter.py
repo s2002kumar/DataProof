@@ -217,12 +217,12 @@ def overloaded() -> httpx2.Response:
 
 
 def test_an_api_error_leaves_the_report_alone() -> None:
-    api = FakeApi(overloaded, overloaded, overloaded)
+    api = FakeApi(*[overloaded] * 5)
     investigation = Investigator(api.model()).investigate(uuid.uuid4(), CONTEXT)
     assert investigation.status is InvestigationStatus.NOT_AVAILABLE
     assert "busy" in (investigation.failure or "") or "529" in (investigation.failure or "")
-    assert len(api.requests) == 3, "sent again twice, and then given up"
-    assert api.slept == [5.0, 20.0]
+    assert len(api.requests) == 5, "sent again four times, and then given up"
+    assert api.slept == [5.0, 15.0, 30.0, 60.0]
 
 
 def test_a_request_the_provider_did_not_process_is_sent_again() -> None:
@@ -656,6 +656,119 @@ def test_an_answer_that_is_sent_back_goes_through_the_api_and_is_accepted() -> N
     assert investigation.status is InvestigationStatus.COMPLETED, investigation.failure
     sent_back = api.body(1)["messages"][2]
     assert sent_back["role"] == "user"
-    assert "cites 1 evidence ID(s) that do not exist: commerce.c9:nothing" in sent_back["content"]
+    assert "cites 1 evidence ID(s) that do not exist." in sent_back["content"]
+    assert "commerce.c9:nothing" not in sent_back["content"], "what it wrote is not repeated"
     assert f"The evidence IDs you can cite are: {EVIDENCE}" in sent_back["content"]
     assert api.body(1)["tool_choice"] == {"type": "none"}
+
+
+# What a second review found ---------------------------------------------------------------------
+
+
+def status(code: int, kind: str, **headers: str) -> Callable[[], httpx2.Response]:
+    error = {"type": "error", "error": {"type": kind, "message": "try later"}}
+    return lambda: httpx2.Response(code, json=error, headers=headers)
+
+
+@pytest.mark.parametrize(
+    ("code", "kind"),
+    [(429, "rate_limit_error"), (529, "overloaded_error"), (500, "api_error"), (503, "api_error")],
+)
+def test_a_request_that_cannot_have_been_billed_is_sent_again(code: int, kind: str) -> None:
+    """A server error is not billed, and one transient error used to end the investigation, and
+    a paid stage with it."""
+    answered = message([{"type": "text", "text": FINAL_RECORDED}], "end_turn")
+    api = FakeApi(status(code, kind), answered)
+    investigation = Investigator(api.model()).investigate(uuid.uuid4(), CONTEXT)
+    assert investigation.status is InvestigationStatus.COMPLETED, investigation.failure
+    assert len(api.requests) == 2
+    assert api.slept == [5.0]
+
+
+def test_a_resend_waits_as_long_as_the_provider_asks_within_a_minute() -> None:
+    api = FakeApi(
+        status(429, "rate_limit_error", **{"retry-after": "42"}),
+        status(429, "rate_limit_error", **{"retry-after": "600"}),
+        message([{"type": "text", "text": FINAL_RECORDED}], "end_turn"),
+    )
+    Investigator(api.model()).investigate(uuid.uuid4(), CONTEXT)
+    assert api.slept == [42.0, 60.0]
+
+
+def test_a_connection_that_was_never_made_is_tried_again_and_a_dropped_one_is_not() -> None:
+    def refused() -> httpx2.Response:
+        raise httpx2.ConnectError("connection refused")
+
+    api = FakeApi(refused, message([{"type": "text", "text": FINAL_RECORDED}], "end_turn"))
+    investigation = Investigator(api.model()).investigate(uuid.uuid4(), CONTEXT)
+    assert investigation.status is InvestigationStatus.COMPLETED, investigation.failure
+    assert len(api.requests) == 2
+
+    def dropped() -> httpx2.Response:
+        raise httpx2.RemoteProtocolError("server disconnected without sending a response")
+
+    api = FakeApi(dropped, message([{"type": "text", "text": FINAL_RECORDED}], "end_turn"))
+    investigation = Investigator(api.model()).investigate(uuid.uuid4(), CONTEXT)
+    assert investigation.status is InvestigationStatus.NOT_AVAILABLE
+    assert len(api.requests) == 1, "it may have been processed and billed"
+
+
+def test_an_empty_answer_is_not_kept_and_the_same_request_is_sent_once_more() -> None:
+    """An empty assistant message cannot be sent back: the repair turn used to send one, and
+    the API refuses it."""
+    empty = message([{"type": "thinking", "thinking": "", "signature": "s"}], "end_turn")
+    cited = FINAL_RECORDED.replace(EVIDENCE, "investigation.tool.1")
+    api = FakeApi(tool_use(), empty, message([{"type": "text", "text": cited}], "end_turn"))
+    investigation = Investigator(api.model()).investigate(uuid.uuid4(), CONTEXT)
+    assert investigation.status is InvestigationStatus.COMPLETED, investigation.failure
+    assert len(api.requests) == 3
+    assert api.body(2)["messages"] == api.body(1)["messages"], "the same request, nothing added"
+    for request in range(3):
+        for sent in api.body(request)["messages"]:
+            assert sent["content"], "no empty message is ever sent"
+    assert investigation.usage.input_tokens == 3000, "the empty turn is paid for and counted"
+
+    twice = FakeApi(empty, empty)
+    investigation = Investigator(twice.model()).investigate(uuid.uuid4(), CONTEXT)
+    assert investigation.status is InvestigationStatus.INVALID_OUTPUT
+    assert investigation.failure == "the model gave an empty answer twice"
+
+
+def test_an_empty_text_block_is_not_sent_back() -> None:
+    use = {
+        "type": "tool_use",
+        "id": "toolu_1",
+        "name": "get_check_result",
+        "input": {"check_id": C1},
+    }
+    api = FakeApi(
+        message([{"type": "text", "text": ""}, use], "tool_use"),
+        message([{"type": "text", "text": FINAL}], "end_turn"),
+    )
+    Investigator(api.model()).investigate(uuid.uuid4(), CONTEXT)
+    replayed = api.body(1)["messages"][1]["content"]
+    assert [block["type"] for block in replayed] == ["tool_use"]
+
+
+def test_only_a_refused_tool_choice_is_sent_again_without_it() -> None:
+    final = message([{"type": "text", "text": FINAL_RECORDED}], "end_turn")
+    invalid = bad_request("messages: all messages must have non-empty content")
+    api = FakeApi(tool_use(), invalid, final)
+    session = open_session(api)
+    session.send([])
+    with pytest.raises(anthropic.BadRequestError):
+        session.send([ToolResult("toolu_1", "{}", is_error=True)], "Answer now.", final=True)
+    assert len(api.requests) == 2, "another 400 is not taken for a refused tool_choice"
+
+
+def test_an_unknown_model_is_priced_at_the_dearest_price_of_each_kind() -> None:
+    from dataproof_investigator.anthropic_model import DEAREST, LONG_PROMPT
+
+    cards = [*PRICES.values(), *(card for _, card in LONG_PROMPT.values())]
+    assert tuple(max(card[i] for card in cards) for i in range(3)) == DEAREST
+
+
+def test_a_turn_says_whether_it_ran_in_the_united_states() -> None:
+    final = [{"type": "text", "text": FINAL_RECORDED}]
+    assert open_session(FakeApi(message(final, "end_turn", inference_geo="us"))).send([]).us_only
+    assert not open_session(FakeApi(message(final, "end_turn"))).send([]).us_only

@@ -6,11 +6,18 @@ The loop owns every decision the model could try to take:
 * a budget caps tool calls, turns and cost. The model is told the budget and, after every
   turn, what is left of it. A call past the limit is answered "not run"; then the model is
   asked for its answer, in a turn kept for that. An investigation that reaches a limit ends
-  in an answer from the evidence it has (ADR-0009). That holds for the cost limit too: when
-  the money left would not surely cover a turn after the next one, the next one is the answer;
+  in an answer from the evidence it has (ADR-0009). That holds for the cost limit too, with a
+  model that bounds its turns (``ModelSession.ceiling_usd``): when the money left would not
+  surely cover a turn after the next one, the next one is the answer. With one that does not
+  (the Anthropic adapter with fallbacks on), the cost is checked after each turn, and past the
+  limit no tool is run;
 * asked for its answer, a model that calls a tool instead is asked once more, in a turn that
   cannot call one. An answer the checks below reject is sent back once, with the reason. Both
-  use a turn kept in reserve, and neither loosens a check;
+  use a turn kept in reserve, and neither loosens a check. An empty answer is asked for again
+  once, as it was;
+* when the next turn's worst case would pass the cost limit, the results it would carry are
+  withheld (they could not be afforded), and the answer is asked for in a turn that cannot
+  call a tool. Only if even that turn cannot be afforded does the investigation stop unanswered;
 * the final answer must parse as ``InvestigationOutput`` and every hypothesis must cite
   evidence that exists: the run's recorded evidence, or a successful tool call of this
   investigation. One unknown citation invalidates the whole answer;
@@ -19,6 +26,7 @@ The loop owns every decision the model could try to take:
 """
 
 import json
+import re
 import time
 import unicodedata
 from collections.abc import Callable, Mapping, Sequence
@@ -119,7 +127,9 @@ class OutputHypothesis(_Output):
         description="One cause, and the statement that does it (path and lines). At most "
         "2,000 characters.",
     )
-    cited_evidence_ids: list[Text] = Field(
+    # Not cleaned: an ID with a control character in it is not the ID it resembles, and is
+    # rejected as one that does not exist.
+    cited_evidence_ids: list[str] = Field(
         min_length=1,
         max_length=20,
         description="The evidence IDs that show it: at least one, at most 20. Only IDs of the "
@@ -264,15 +274,28 @@ class Investigator:
         answer_due = False  # the turn about to be sent has been asked for the answer
         final = False  # ... and may not call a tool
         corrected = False  # an answer has been sent back once already
+        resent = False  # an empty answer has been asked for again
         try:
             for sent in range(1, max_turns + 1):
                 ceiling = session.ceiling_usd(results, notice) if limit is not None else None
                 if limit is not None and ceiling is not None and cost + ceiling > limit:
-                    return finish(
-                        InvestigationStatus.BUDGET_EXHAUSTED,
-                        failure=f"the next turn could cost up to {ceiling} USD; "
-                        f"{cost} of the {limit} allowed is spent",
-                    )
+                    if not results or (final and all(r.is_error for r in results)):
+                        return finish(
+                            InvestigationStatus.BUDGET_EXHAUSTED,
+                            failure=f"the next turn could cost up to {ceiling} USD; "
+                            f"{cost} of the {limit} allowed is spent",
+                        )
+                    # The results cannot be afforded: they are withheld, and the answer is
+                    # asked for from what the model has seen, in a turn that cannot call a tool.
+                    results = [self._withheld(result, calls) for result in results]
+                    notice, answer_due, final = cost_notice(), True, True
+                    ceiling = session.ceiling_usd(results, notice)
+                    if ceiling is not None and cost + ceiling > limit:
+                        return finish(
+                            InvestigationStatus.BUDGET_EXHAUSTED,
+                            failure=f"even an answer could cost up to {ceiling} USD; "
+                            f"{cost} of the {limit} allowed is spent",
+                        )
                 turn = _send(session, results, notice, final)
                 tokens["input"] += turn.input_tokens
                 tokens["output"] += turn.output_tokens
@@ -292,6 +315,17 @@ class Investigator:
                         failure=f"the provider ended the turn unexpectedly: {turn.text}",
                     )
                 turns_left = max_turns - sent
+                if turn.stop == "end" and not (turn.text or "").strip() and not turn.tool_uses:
+                    # The provider documents empty turns. Nothing of one was kept, so the same
+                    # request is sent once more; a second empty answer is no answer.
+                    if resent or turns_left == 0:
+                        return finish(
+                            InvestigationStatus.INVALID_OUTPUT,
+                            failure="the model gave an empty answer twice",
+                        )
+                    resent = True
+                    results, notice = [], None
+                    continue
                 if turn.stop == "end":
                     # An answer that was paid for is judged, even if it took the cost past
                     # the limit: throwing it away would save nothing.
@@ -349,8 +383,26 @@ class Investigator:
         )
 
     def _not_run(self, use: ToolUse) -> ToolResult:
-        spent = f"not run: the budget of {self.budget.max_tool_calls} tool calls is spent"
+        spent = "not run: no more tool calls can be made in this investigation"
         return ToolResult(use.id, json.dumps({"not_run": spent}), is_error=True)
+
+    def _withheld(self, result: ToolResult, calls: list[ToolCall]) -> ToolResult:
+        """A result that ran but cannot be afforded: the model is not sent it, so it cannot
+        cite it, and the call is recorded as failed."""
+        if result.is_error:
+            return result
+        evidence_id = json.loads(result.content).get("evidence_id")
+        for index, call in enumerate(calls):
+            if call.evidence_id is not None and call.evidence_id == evidence_id:
+                calls[index] = call.model_copy(
+                    update={
+                        "outcome": ToolCallOutcome.FAILED,
+                        "evidence_id": None,
+                        "detail": "run, and not returned: the cost budget could not cover it",
+                    }
+                )
+        withheld = "not returned: the cost budget of this investigation cannot cover it"
+        return ToolResult(result.tool_use_id, json.dumps({"not_run": withheld}), is_error=True)
 
     def _run(
         self,
@@ -403,7 +455,7 @@ class Investigator:
                     detail=f"the tool could not run ({type(exc).__name__})",
                 )
             )
-            failed = "the tool could not run just now. Go on without it."
+            failed = "the call could not be run with these arguments. Go on without it."
             return ToolResult(use_id, json.dumps({"failed": failed}), is_error=True)
         evidence_id = f"{TOOL_EVIDENCE_PREFIX}{sequence}"
         calls.append(
@@ -448,7 +500,11 @@ class Investigator:
         listed = ", ".join(citable[:LISTED_EVIDENCE]) + (
             f", and {len(citable) - LISTED_EVIDENCE} more" if len(citable) > LISTED_EVIDENCE else ""
         )
-        return _Rejected(problem, f"it {problem}. The evidence IDs you can cite are: {listed}")
+        # The model is not shown what it wrote: the operator's message carries only the count
+        # and the IDs this investigation produced, never text a pull request could have put
+        # into a citation.
+        advice = f"it cites {len(unknown)} evidence ID(s) that do not exist. The evidence IDs "
+        return _Rejected(problem, advice + f"you can cite are: {listed}")
 
 
 def _send(
@@ -460,5 +516,9 @@ def _send(
     return session.send(results, notice)
 
 
+_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
+"""The contracts' identifier: what a recorded tool name or evidence ID may be."""
+
+
 def _identifier(name: str) -> bool:
-    return bool(name) and len(name) <= 128 and all(c.isalnum() or c in "_.:-" for c in name)
+    return _IDENTIFIER.fullmatch(name) is not None

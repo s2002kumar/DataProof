@@ -240,6 +240,8 @@ class _RecordingSession:
                 "cache_read_tokens": turn.cache_read_tokens,
                 "cost_usd": str(turn.cost_usd),
                 "served_by": turn.served_by,
+                # An investigator from before ADR-0009 has no such field.
+                "us_only": getattr(turn, "us_only", False),
                 "latency_ms": round((time.monotonic() - started) * 1000),
             }
         )

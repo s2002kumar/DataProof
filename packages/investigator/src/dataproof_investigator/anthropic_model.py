@@ -31,15 +31,23 @@ States when the response says that is where it ran. The next turn's ceiling pric
 input as written to the cache, its output at ``max_tokens``, and the surcharge unless a
 response has shown there is none: it stays an upper bound.
 
-Retries. The request is sent again only when the provider said it was not processed: a rate
-limit or an overload. A timeout or a dropped connection may have been processed and billed, so
-it is not sent again; the paid evaluation builds its client with the SDK's own retries off for
-the same reason.
+Retries. A request is sent again only when it cannot have been billed: the provider answered
+with a rate limit, an overload or a server error, or the connection was never made. It waits as
+long as the provider asks, within a minute, and gives up after four resends. A timeout or a
+connection dropped after the request was sent may have been processed and billed, so it is not
+sent again; the paid evaluation builds its client with the SDK's own retries off for the same
+reason.
+
+An empty answer. A turn that ends with neither text nor a tool call is not kept in the
+conversation: an empty assistant message cannot be part of one that goes on. The provider
+documents that such turns happen; the investigator sends the same request once more, as a turn
+of its own, under its own cost check.
 """
 
 import json
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
@@ -80,14 +88,24 @@ PRICES: Mapping[str, Card] = {
 LONG_PROMPT: Mapping[str, tuple[int, Card]] = {
     "claude-haiku-5-5": (100_000, (Decimal("0.50"), Decimal("2.50"), Decimal("0.05"))),
 }
+#: The dearest price of each kind, over every card: what a turn costs at most when the model
+#: that serves it is not known in advance (a fallback) or has no recorded price.
+DEAREST: Card = (
+    max(card[0] for card in [*PRICES.values(), *(c for _, c in LONG_PROMPT.values())]),
+    max(card[1] for card in [*PRICES.values(), *(c for _, c in LONG_PROMPT.values())]),
+    max(card[2] for card in [*PRICES.values(), *(c for _, c in LONG_PROMPT.values())]),
+)
 #: A five-minute cache entry is written at this multiple of the input price.
 CACHE_WRITE = Decimal("1.25")
 #: Every token costs this multiple when inference is kept in the United States.
 US_ONLY = Decimal("1.1")
 
-RETRIES = 2
-"""How often a request the provider did not process is sent again."""
-RETRY_SECONDS = (5.0, 20.0)
+RETRY_SECONDS = (5.0, 15.0, 30.0, 60.0)
+"""The waits before each resend of a request that cannot have been billed."""
+MAX_RETRY_AFTER = 60.0
+"""The longest a provider's ``retry-after`` is waited for."""
+_NOT_CONNECTED = frozenset({"ConnectError", "ConnectTimeout"})
+"""Transport errors raised before a request was sent: nothing reached the provider."""
 
 _UNSUPPORTED = frozenset(
     {
@@ -143,14 +161,14 @@ def _card(model: str, requested: str | None, prompt_tokens: int) -> Card:
     """The prices a turn is billed at.
 
     ``model`` is what the response names. A dated snapshot of the model that was asked for
-    has that model's price. Anything else unknown is priced as the dearest model recorded, so
-    that a cost is overstated and never understated; the turn's ``served_by`` shows it.
+    has that model's price. Anything else unknown is priced at the dearest price of each kind,
+    so that a cost is overstated and never understated; the turn's ``served_by`` shows it.
     """
     name = model
     if name not in PRICES and requested is not None and model.startswith(f"{requested}-"):
         name = requested
     if name not in PRICES:
-        return max(PRICES.values(), key=lambda card: card[1])
+        return DEAREST
     long = LONG_PROMPT.get(name)
     if long is not None and prompt_tokens > long[0]:
         return long[1]
@@ -166,10 +184,11 @@ def _cost(
     *,
     requested: str | None = None,
     us_only: bool = False,
+    card: Card | None = None,
 ) -> Decimal:
     """What a turn costs; ``input_tokens`` is the uncached remainder, as the API reports it."""
     prompt = input_tokens + cache_write + cache_read
-    input_price, output_price, read_price = _card(model, requested, prompt)
+    input_price, output_price, read_price = card or _card(model, requested, prompt)
     total = (
         input_price * input_tokens
         + input_price * CACHE_WRITE * cache_write
@@ -280,8 +299,13 @@ class _AnthropicSession:
         The input is the conversation so far (the last turn's input and output, as counted by
         the API) plus the new tool results, all priced as if written to the cache, the dearest
         way to send them; the output is at most ``max_tokens``; and the surcharge for
-        inference in the United States applies unless a response has shown otherwise. With
-        fallbacks on, another model may serve the turn at another price, so there is no bound.
+        inference in the United States applies unless a response has shown otherwise.
+
+        With fallbacks on, another model may serve the turn, at a price not known in advance,
+        so there is no bound: priced at the dearest card, even a first turn would pass the
+        default cost limit. The investigator then checks the cost after each turn instead,
+        and stops calling tools once it is past the limit. The paid evaluation turns fallbacks
+        off, so every one of its turns is bounded.
         """
         if self._fallbacks:
             return None
@@ -335,22 +359,31 @@ class _AnthropicSession:
         return response
 
     def _create(self, final: bool) -> BetaMessage:
-        """Send the conversation. Sent again only if the provider did not process it."""
+        """Send the conversation, again only if the first cannot have been billed."""
         extra: dict[str, Any] = {"tool_choice": {"type": "none"}} if final else {}
-        for wait in (*RETRY_SECONDS[:RETRIES], None):
+        for wait in (*RETRY_SECONDS, None):
             try:
                 try:
                     return self._post(extra)
-                except anthropic.BadRequestError:
-                    if not extra:
+                except anthropic.BadRequestError as refused:
+                    if not extra or "tool_choice" not in str(refused):
                         raise
                     # A turn that may not call a tool is a rare last resort, and this request
-                    # shape has no other use here. If it is refused, which is not billed, the
-                    # turn is sent as any other: the notice still asks for the answer.
+                    # shape has no other use here. If that is what was refused (a refusal is
+                    # not billed), the turn is sent as any other: the notice still asks for
+                    # the answer.
                     extra = {}
                     return self._post(extra)
-            except (anthropic.RateLimitError, anthropic.OverloadedError):
+            except (
+                anthropic.RateLimitError,
+                anthropic.OverloadedError,
+                anthropic.InternalServerError,
+            ) as exc:
                 if wait is None:
+                    raise
+                self._sleep(_waited(exc, wait))
+            except anthropic.APIConnectionError as exc:
+                if wait is None or type(exc.__cause__).__name__ not in _NOT_CONNECTED:
                     raise
                 self._sleep(wait)
         raise AssertionError("unreachable")  # pragma: no cover
@@ -363,15 +396,48 @@ class _AnthropicSession:
         final: bool = False,
     ) -> ModelTurn:
         self._append(tool_results, notice)
-        response = self._create(final)
-        # Append the assistant content exactly as returned, thinking blocks included.
-        self._messages.append({"role": "assistant", "content": response.content})
+        measured = self._measure(self._create(final))
+        response = measured.response
+        if _empty(response):
+            # Not kept: the conversation is as it was sent, so the same request can be sent
+            # again with nothing added, and its context is what this request's prompt held.
+            self._context_tokens = measured.prompt
+        else:
+            # The assistant content exactly as returned, thinking blocks included; an empty
+            # text block cannot be sent back, so it is left out.
+            content = [
+                block
+                for block in response.content
+                if not (isinstance(block, BetaTextBlock) and not block.text)
+            ]
+            self._messages.append({"role": "assistant", "content": content})
+            self._context_tokens = measured.prompt + measured.output
+        self._us_only = measured.us_only
+        stop = _STOPS.get(str(response.stop_reason))
+        text = "".join(b.text for b in response.content if isinstance(b, BetaTextBlock)) or None
+        return ModelTurn(
+            # A stop the loop has no use for is still a turn that was billed.
+            stop=stop or "unexpected",
+            tool_uses=tuple(
+                ToolUse(id=block.id, name=block.name, arguments=dict(block.input))
+                for block in response.content
+                if isinstance(block, BetaToolUseBlock)
+            ),
+            text=text if stop is not None else f"stop reason {response.stop_reason!r}",
+            input_tokens=measured.prompt,
+            output_tokens=measured.output,
+            cache_write_tokens=measured.written,
+            cache_read_tokens=measured.read,
+            cost_usd=measured.cost,
+            served_by=f"anthropic:{response.model}",
+            us_only=measured.us_only,
+        )
+
+    def _measure(self, response: BetaMessage) -> "_Measured":
         usage = response.usage
         written = usage.cache_creation_input_tokens or 0
         read = usage.cache_read_input_tokens or 0
-        prompt = usage.input_tokens + written + read
-        self._context_tokens = prompt + usage.output_tokens
-        self._us_only = getattr(usage, "inference_geo", None) == "us"
+        us_only = getattr(usage, "inference_geo", None) == "us"
         requested = str(self._request["model"])
         # With a fallback, the top-level usage is the attempt that answered; the attempts
         # billed are listed one by one, a declined one included.
@@ -390,7 +456,7 @@ class _AnthropicSession:
                         entry.cache_creation_input_tokens or 0,
                         entry.cache_read_input_tokens or 0,
                         requested=requested,
-                        us_only=bool(self._us_only),
+                        us_only=us_only,
                     )
                     for entry in attempts
                 ),
@@ -404,23 +470,36 @@ class _AnthropicSession:
                 written,
                 read,
                 requested=requested,
-                us_only=bool(self._us_only),
+                us_only=us_only,
             )
-        stop = _STOPS.get(str(response.stop_reason))
-        text = "".join(b.text for b in response.content if isinstance(b, BetaTextBlock)) or None
-        return ModelTurn(
-            # A stop the loop has no use for is still a turn that was billed.
-            stop=stop or "unexpected",
-            tool_uses=tuple(
-                ToolUse(id=block.id, name=block.name, arguments=dict(block.input))
-                for block in response.content
-                if isinstance(block, BetaToolUseBlock)
-            ),
-            text=text if stop is not None else f"stop reason {response.stop_reason!r}",
-            input_tokens=prompt,
-            output_tokens=usage.output_tokens,
-            cache_write_tokens=written,
-            cache_read_tokens=read,
-            cost_usd=cost,
-            served_by=f"anthropic:{response.model}",
-        )
+        prompt = usage.input_tokens + written + read
+        return _Measured(response, prompt, usage.output_tokens, written, read, cost, us_only)
+
+
+@dataclass(frozen=True)
+class _Measured:
+    response: BetaMessage
+    prompt: int
+    output: int
+    written: int
+    read: int
+    cost: Decimal
+    us_only: bool
+
+
+def _empty(response: BetaMessage) -> bool:
+    """A turn that ended with neither text nor a tool call."""
+    return str(response.stop_reason) == "end_turn" and not any(
+        isinstance(block, BetaToolUseBlock)
+        or (isinstance(block, BetaTextBlock) and block.text.strip())
+        for block in response.content
+    )
+
+
+def _waited(exc: anthropic.APIStatusError, wait: float) -> float:
+    """How long to wait before a resend: as long as the provider asks, within a minute."""
+    asked = exc.response.headers.get("retry-after") if exc.response is not None else None
+    try:
+        return min(MAX_RETRY_AFTER, max(wait, float(asked))) if asked else wait
+    except ValueError:
+        return wait

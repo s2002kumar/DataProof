@@ -86,6 +86,22 @@ On 2026-11-19 four reviewers read this change with one question: what goes wrong
 | A declined fallback attempt, a long Haiku prompt, inference kept in the United States and an unpriced model were all costed too low | Each is priced; a model with no recorded price is refused |
 | A stop reason the loop does not know raised after the turn was billed, losing its cost | It is a turn, with its cost |
 
+A second review, of these fixes, found more; each is fixed and held by a test:
+
+| Found | Done |
+| --- | --- |
+| Only a rate limit or an overload was sent again, twice; a server error or a connection that was never made ended the investigation, and a paid stage with it | Every error that cannot have been billed (429, 529, 5xx, no connection made) is sent again up to four times, waiting as long as the provider asks within a minute |
+| An empty answer, which the provider documents, was kept as an empty assistant message; the correction that followed sent it back and the API refuses one | An empty turn is not kept, and the same request is sent once more as a turn of its own; a second empty answer is `INVALID_OUTPUT`. An empty text block is never sent back |
+| Any 400 on a final turn was taken for a refused `tool_choice` | Only a 400 that names `tool_choice` is |
+| A batch of large results could make the next turn too dear to send, and the investigation stopped unanswered with results it never saw | Results the cost limit cannot cover are withheld, their calls recorded as failed, and the answer is asked for in a turn that cannot call a tool |
+| An unknown model was priced at the card with the dearest output, whose cache read is not the dearest | Every kind of token at its dearest price |
+| A non-ASCII tool name passed the loop's identifier check and failed the record's, ending the investigation | The record's rule, in both |
+| A control character in a citation was removed, so an ID that was not the one cited was accepted | Citations are not cleaned; such an ID does not exist |
+| The correction repeated cited IDs, text a pull request could have put there, on the operator's channel | It gives their number and the IDs that can be cited |
+| A call past the turns was said to be past the budget of calls; a briefing with long file names could still pass the size limit; the analyst's rules read a duplicate member differently from the tools | Each corrected |
+
+With fallbacks on, a turn still has no cost bound: priced at the dearest card, even a first turn passes the default limit. The cost is then checked after each turn, as the investigator's README says. The paid evaluation runs with fallbacks off.
+
 What the review confirmed and left as it was: the request shape is the documented one for every priced model; a mid-conversation system message after the tool results is the documented place for it and needs no beta; thinking blocks are passed back whole; every tool call is answered; the cost ceiling held as an upper bound on all 109 later turns of the first run; a path outside the readable roots gets the same refusal whether or not it exists; and nothing a model writes reaches a verdict, a check or GitHub.
 
 Not done here, and why: the query tool reads a whole result into memory before its row limit applies, which is the verifier's code and predates this change; and a record that cannot be stored still fails its stage rather than being replaced by a `NOT_AVAILABLE` record. Both are noted in the pull request.
