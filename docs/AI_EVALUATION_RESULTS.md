@@ -230,7 +230,7 @@ The protocol was frozen before the run so that the result could not shape the me
 
 - **The product:** both AI roles stay off unless an operator configures them, and are experimental. The deterministic verifier and the rule-based diagnosis are unaffected by anything here. See [STATUS.md](STATUS.md).
 - **The fixes,** in order of what each cost above: tell the model its budget and ask for an answer before it runs out; give the investigator the changed paths and a way to see what files exist; hand over the recorded results in one call; make refusals say what is allowed; and make a cap that cannot be met an error before a run starts, not a result after it. The investigator's part of this is [ADR-0009](adr/0009-the-investigator-finishes.md).
-- **The next evaluation** needs new cases, since these have now been read closely: a development set and a held-out set, repeats, a column for investigations that were stopped, and acceptance criteria written before it runs. It needs the owner's approval of a new budget.
+- **The next evaluation** needs new cases, since these have now been read closely: a development set and a held-out set, repeats, a column for investigations that were stopped, and acceptance criteria written before it runs. It is proposed in [AI_EVALUATION_V2.md](AI_EVALUATION_V2.md), and it needs the owner's approval of the protocol and of a new budget.
 
 ## Reproducing this report
 

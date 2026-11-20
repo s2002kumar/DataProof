@@ -17,6 +17,9 @@
 * ``ai-eval-audit [--check]``: recount the frozen outputs of the first live AI evaluation and
   write ``AI_EVAL_AUDIT.md`` and ``AI_EVAL_TRACES.md``; ``--check`` only verifies that the
   frozen files still match their manifest. It calls no model and no database.
+* ``eval2-investigate --set dev|heldout --database <admin DSN>``, ``eval2-analyze --set ...``
+  and ``eval2-report``: the second AI evaluation (docs/AI_EVALUATION_V2.md), proposed and not
+  run. Without ``--live`` a scripted model runs every path at no cost, under ``.work``.
 """
 
 import argparse
@@ -24,12 +27,19 @@ import json
 import os
 import platform
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from dataproof_benchmark import ablation, audit, change_analysis, pipeline_tier
+from dataproof_benchmark import (
+    ablation,
+    audit,
+    change_analysis,
+    evaluation,
+    pipeline_tier,
+    verdicts,
+)
 from dataproof_benchmark.corpus import (
     CORPUS_SEED,
     CORPUS_VERSION,
@@ -120,6 +130,60 @@ def main(argv: Sequence[str] | None = None) -> int:
         "ai-eval-audit", help="recount the frozen outputs of the first live AI evaluation"
     )
     audited.add_argument("--check", action="store_true", help="only verify the manifest")
+    for name, summary in (
+        ("eval2-investigate", "evaluation v2: the Failure Investigator against the rules"),
+        ("eval2-analyze", "evaluation v2: the Change Analyst against the risk rules"),
+    ):
+        second = commands.add_parser(name, help=summary)
+        second.add_argument("--set", dest="cases", choices=("dev", "heldout"), required=True)
+        second.add_argument("--live", action="store_true", help="call the paid model")
+        second.add_argument("--budget-usd", type=Decimal, help="the budget approved for it")
+        second.add_argument("--reps", type=int, default=1, help="investigations a case")
+        second.add_argument("--model", default=ablation.MODEL)
+        second.add_argument("--effort", choices=("low", "medium", "high"), default="medium")
+        second.add_argument("--workdir", type=Path, default=ROOT / ".work")
+        second.add_argument("--out", type=Path)
+        second.add_argument("--only", nargs="*", help="case IDs (default: every case)")
+        second.add_argument("--skip", nargs="*", default=[], help="case IDs to leave out")
+        second.add_argument(
+            "--journal",
+            type=Path,
+            help="keep each turn here as it happens, and send nothing this folder already "
+            "holds (a live stage always keeps one, beside its results)",
+        )
+        second.add_argument(
+            "--stop-after-unanswered",
+            type=int,
+            help="the stop rule: start no investigation once this many gave no answer",
+        )
+        if name == "eval2-investigate":
+            second.add_argument("--database", required=True, help="an admin DSN")
+    second_report = commands.add_parser("eval2-report", help="write a v2 stage's report")
+    second_report.add_argument("--results", type=Path, required=True)
+    second_report.add_argument("--out", type=Path, required=True)
+    sheet = commands.add_parser(
+        "eval2-sheet", help="the held-out answers to mark, blind to which arm wrote each"
+    )
+    sheet.add_argument(
+        "--arm",
+        nargs=2,
+        action="append",
+        metavar=("NAME", "RESULTS"),
+        required=True,
+        help="an arm's name and its results file; the first arm's file gives the rules too",
+    )
+    sheet.add_argument("--out", type=Path, required=True, help="a folder for the sheet")
+    sheet.add_argument(
+        "--key", type=Path, required=True, help="where the key goes: not in the sheet's folder"
+    )
+    sheet.add_argument("--workdir", type=Path, default=ROOT / ".work")
+    verdict = commands.add_parser("eval2-verdict", help="the acceptance criteria, from results")
+    verdict.add_argument("--results", type=Path, help="the held-out investigation results")
+    verdict.add_argument("--marks", type=Path, help="the owner's marks.csv")
+    verdict.add_argument("--key", type=Path, help="the sheet's key")
+    verdict.add_argument("--analysis", type=Path, help="the held-out Change Analyst results")
+    verdict.add_argument("--analysis-dev", type=Path, help="the development analyst results")
+    verdict.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
 
     if args.command == "corpus":
@@ -175,9 +239,219 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
         if not args.check:
             audit.write()
+    elif args.command in ("eval2-investigate", "eval2-analyze"):
+        return second_evaluation(args)
+    elif args.command == "eval2-report":
+        results = json.loads(args.results.read_text("utf-8"))
+        written = (
+            evaluation.analysis_report(results)
+            if "Change Analyst" in results["evaluation"]
+            else evaluation.report(results)
+        )
+        args.out.write_text(written, "utf-8", newline="\n")
+    elif args.command == "eval2-sheet":
+        return marking_sheet(args)
+    elif args.command == "eval2-verdict":
+        return acceptance(args)
     else:
         results = json.loads(args.results.read_text("utf-8"))
         args.out.write_text(report(results), "utf-8", newline="\n")
+    return 0
+
+
+def second_evaluation(args: argparse.Namespace) -> int:
+    """Run one stage of the second evaluation; labels are read only when grading."""
+    cases = evaluation.eval_set(args.cases, args.workdir)
+    budget = ablation.live_budget(args.budget_usd, os.environ) if args.live else Decimal(10)
+    investigating = args.command == "eval2-investigate"
+    stage = "investigator" if investigating else "analyst"
+    tokens = ablation.MAX_TOKENS if investigating else evaluation.ANALYST_MAX_TOKENS
+    # The paid model is built only for a live run: a dry run needs no key and sends nothing.
+    live = evaluation.live_model(args.model, args.effort, tokens) if args.live else None
+    served = live.name if live is not None else "scripted:dry-run"
+    name = f"eval2-{args.cases}-{stage}" + ("" if args.live else "-dry-run")
+    folder = (ROOT / "results" / "ai-eval-v2") if args.live else args.workdir
+    out = args.out or folder / f"{name}-results.json"
+    stem = out.stem.removesuffix("-results")
+    transcripts = out.with_name(f"{stem}-transcripts")
+    if args.live and (out.exists() or transcripts.exists()):
+        # A paid stage's results are written once. Taking a stage up again is the journal's
+        # job, and it writes its results only when none exist.
+        raise SystemExit(f"{out} or its transcripts already exist: a paid stage is not rerun")
+    kept_in = args.journal or (out.with_name(f"{stem}-journal") if args.live else None)
+    journal = evaluation.Journal(kept_in) if kept_in is not None else None
+    started = evaluation.provenance(cases)  # what ran, as it was when the stage started
+    try:
+        return _stage(
+            args, cases, budget, investigating, live, served, out, transcripts, journal, started
+        )
+    except evaluation.ProviderStopped as stopped:
+        print(
+            f"STOPPED: {stopped}\nNo results are written. The investigation it stopped is open "
+            "in the journal: taking the stage up again (resume) starts it again, charged what "
+            "it spent; or close the stage as it stands (abandon).",
+            file=sys.stderr,
+        )
+        return EXIT_PROVIDER
+
+
+def _stage(
+    args: argparse.Namespace,
+    cases: Any,
+    budget: Decimal,
+    investigating: bool,
+    live: Any,
+    served: str,
+    out: Path,
+    transcripts: Path,
+    journal: Any,
+    started: Mapping[str, Any],
+) -> int:
+    pinned = live.name if live is not None else None
+    if investigating:
+        rows = evaluation.investigate(
+            args.database,
+            cases,
+            (lambda: live) if live is not None else evaluation.dry_run_model,
+            budget,
+            reps=args.reps,
+            case_ids=args.only,
+            skip=args.skip,
+            stop_after_unanswered=args.stop_after_unanswered,
+            journal=journal,
+            served_by=pinned,
+        )
+        document = evaluation.results(
+            rows,
+            cases,
+            live=args.live,
+            model=served,
+            effort=args.effort,
+            reps=args.reps,
+            budget_usd=budget,
+        )
+        kept = evaluation.transcripts(rows)
+    else:
+        rows = evaluation.analyze(
+            cases,
+            (lambda _: live) if live is not None else evaluation.dry_run_analyst,
+            budget,
+            reps=args.reps,
+            case_ids=args.only,
+            skip=args.skip,
+            journal=journal,
+            served_by=pinned,
+            stop_after_unanswered=args.stop_after_unanswered,
+        )
+        document = evaluation.analysis_results(
+            rows,
+            cases,
+            live=args.live,
+            model=served,
+            reps=args.reps,
+            budget_usd=budget,
+            effort=args.effort,
+        )
+        kept = evaluation.analysis_transcripts(rows)
+    document["provenance"] = dict(started) | {"finished_at": document["provenance"]["written_at"]}
+    problems = evaluation.health(kept, pinned)
+    document["plumbing"] = {
+        "problems": problems,
+        "cache_misses": evaluation.cache_misses(kept),
+        "not_started": {
+            "halted": evaluation.not_started(document, evaluation.HALTED),
+            "stop_rule": evaluation.not_started(document, evaluation.STOPPED),
+            "budget": evaluation.not_started(document, "the budget"),
+        },
+    }
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # "x": never over an existing file. A dry run may be repeated, so it replaces its own.
+    with out.open("x" if args.live else "w", encoding="utf-8", newline="\n") as file:
+        file.write(json.dumps(document, indent=2) + "\n")
+    transcripts.mkdir(exist_ok=not args.live)
+    for key, turns in kept.items():
+        text = json.dumps(turns, indent=2, default=str) + "\n"
+        (transcripts / f"{key}.json").write_text(text, "utf-8", newline="\n")
+    print(json.dumps(document["summary"], indent=2))
+    print(f"results: {out}; transcripts: {transcripts}")
+    return stage_exit(document, problems)
+
+
+EXIT_NOT_A_MEASUREMENT = 3
+EXIT_STOP_RULE = 4
+EXIT_INCOMPLETE = 5
+EXIT_PROVIDER = 6
+
+
+def stage_exit(document: Mapping[str, Any], problems: Sequence[str]) -> int:
+    """What a stage's exit code says. 0 only when every investigation it was to run ran, sent
+    its requests and was served by the pinned model. The first evaluation's stages exited 0
+    with no model output at all."""
+    summary = document["summary"]
+    expected = summary.get("investigations_expected", summary.get("analyses_expected", 0))
+    ran = summary.get("investigations_run", summary.get("analyses_run", 0))
+    if problems:
+        listed = "\n  ".join(problems)
+        print(f"this stage is not a measurement as it stands:\n  {listed}", file=sys.stderr)
+        return EXIT_NOT_A_MEASUREMENT
+    if expected == 0 or ran == 0:
+        print("no investigation ran: this stage measured nothing", file=sys.stderr)
+        return EXIT_NOT_A_MEASUREMENT
+    if evaluation.stopped(document):
+        print(f"stopped early: {evaluation.STOPPED}", file=sys.stderr)
+        return EXIT_STOP_RULE
+    if ran < expected:
+        print(
+            f"incomplete: {ran} of {expected} investigations ran; the rest were not started "
+            "because the budget left could not cover one",
+            file=sys.stderr,
+        )
+        return EXIT_INCOMPLETE
+    return 0
+
+
+def marking_sheet(args: argparse.Namespace) -> int:
+    """The held-out answers for the owner to mark, shuffled, without the arm that wrote each.
+    The key is written apart, to be opened only when the marks are in."""
+    arms = {name: json.loads(Path(path).read_text("utf-8")) for name, path in args.arm}
+    sets = {document["set"] for document in arms.values()}
+    if len(sets) != 1:
+        raise SystemExit(f"the arms are of different sets: {', '.join(sorted(sets))}")
+    cases = evaluation.eval_set(sets.pop(), args.workdir)
+    items, key = verdicts.sheet(arms, evaluation.references(cases))
+    if args.key.resolve().parent == args.out.resolve():
+        raise SystemExit("the key is not to be kept beside the sheet")
+    args.out.mkdir(parents=True, exist_ok=True)
+    args.key.parent.mkdir(parents=True, exist_ok=True)
+    (args.out / "sheet.md").write_text(verdicts.sheet_markdown(items), "utf-8", newline="\n")
+    (args.out / "marks.csv").write_text(verdicts.marks_csv(items), "utf-8", newline="\n")
+    args.key.write_text(json.dumps(key, indent=2) + "\n", "utf-8", newline="\n")
+    print(f"{len(items)} answers to mark: {args.out / 'sheet.md'}; marks in marks.csv")
+    return 0
+
+
+def acceptance(args: argparse.Namespace) -> int:
+    """The acceptance criteria of whatever results are given, as a report and a JSON record."""
+    found = []
+    if args.results:
+        document = json.loads(args.results.read_text("utf-8"))
+        marks = verdicts.read_marks(args.marks.read_text("utf-8")) if args.marks else None
+        key = json.loads(args.key.read_text("utf-8")) if args.key else None
+        found.append(verdicts.verdict(document, marks, key))
+    if args.analysis:
+        heldout = json.loads(args.analysis.read_text("utf-8"))
+        dev = json.loads(args.analysis_dev.read_text("utf-8")) if args.analysis_dev else None
+        found.append(verdicts.analysis_verdict(heldout, dev))
+    if not found:
+        raise SystemExit("give --results, --analysis, or both")
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    text = "\n".join(verdicts.verdict_markdown(entry) for entry in found)
+    args.out.write_text(text, "utf-8", newline="\n")
+    args.out.with_suffix(".json").write_text(
+        json.dumps(found, indent=2, default=str) + "\n", "utf-8", newline="\n"
+    )
+    for entry in found:
+        print(f"{entry['role']}: {entry['outcome']}")
     return 0
 
 

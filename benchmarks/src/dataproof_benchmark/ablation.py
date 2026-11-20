@@ -59,6 +59,7 @@ from dataproof_benchmark.evaluate import contracts
 from dataproof_benchmark.harness import SAMPLE_APP, DatabaseFactory, candidate, databases, reference
 from dataproof_contracts import CheckOutcome, CheckResult, Environment, Investigation
 from dataproof_investigator import (
+    OUTPUT_SCHEMA,
     PROMPT_VERSION,
     TOOL_VERSION,
     Budget,
@@ -137,8 +138,44 @@ RUBRIC: Mapping[str, tuple[tuple[str, ...], ...]] = {
 
 ModelFactory = Callable[[Mapping[str, CheckResult]], InvestigatorModel]
 
-TRANSCRIPT_RESULT_CHARS = 2000
-"""Tool results are kept in a transcript up to this length, with the full result's hash."""
+OUTPUT_USD_PER_MILLION = Decimal(20)
+"""The pinned model's output price. A test holds it to the adapter's table."""
+DRY_RUN_CEILING_USD = Decimal(MAX_TOKENS) * OUTPUT_USD_PER_MILLION / Decimal(1_000_000)
+"""The least a live turn's cost ceiling can be: its output tokens alone. A dry run that
+reports it meets the same cap a live run would, so a cap no turn could meet stops a dry run
+too."""
+MIN_TURNS_COVERED = 2
+"""A per-case cap must cover this many worst-case first turns: a tool call and an answer."""
+
+
+def require_feasible_cap(investigator: Investigator, context: ToolContext, cap: Decimal) -> None:
+    """Refuse to start a run whose per-case cap no investigation could work within.
+
+    A turn is not sent if its worst case could pass the cap. The first evaluation's Change
+    Analyst had a cap of 0.15 USD against a first turn that could cost 0.194 USD: every one
+    of its 34 analyses stopped before a request was sent, and the stage reported them as
+    results. A cap like that is a mistake in the run's settings, so it is an error before
+    the run, not 34 outcomes after it. Opening a session sends nothing.
+    """
+    session = investigator.model.open(
+        system=investigator.system,
+        task=investigator.task(context),
+        tools=investigator.tools,
+        output_schema=OUTPUT_SCHEMA,
+    )
+    ceiling = session.ceiling_usd([])
+    if ceiling is not None and ceiling * MIN_TURNS_COVERED > cap:
+        raise SystemExit(
+            f"the cap of {cap} USD a case cannot work: one turn could cost up to {ceiling} USD, "
+            f"and a case needs room for at least {MIN_TURNS_COVERED}. Raise the cap or lower "
+            "the output tokens a turn; nothing was sent."
+        )
+
+
+TRANSCRIPT_RESULT_CHARS = 16000
+"""Tool results are kept in a transcript up to this length, with the full result's hash. The
+first evaluation kept 2,000 characters; a briefing is longer, and a reader of a transcript
+needs to see what the model saw."""
 
 
 @dataclass
@@ -152,10 +189,20 @@ class Recorder:
     model: InvestigatorModel
     turns: list[dict[str, Any]] = field(default_factory=list)
     results: list[ToolResult] = field(default_factory=list)
+    on_turn: Callable[[Mapping[str, Any]], None] | None = None
+    surcharge_pending: Decimal = Decimal(0)
+    """Called with each turn's record as soon as it exists, a failed request's included: a
+    paid stage writes it to disk then, so that what was spent is known even if the process
+    ends before the investigation does."""
     name: str = field(init=False)
 
     def __post_init__(self) -> None:
         self.name = self.model.name
+
+    def keep(self, turn: dict[str, Any]) -> None:
+        self.turns.append(turn)
+        if self.on_turn is not None:
+            self.on_turn(turn)
 
     def open(
         self,
@@ -202,6 +249,9 @@ class _RecordingSession:
     def ceiling_usd(
         self, tool_results: Sequence[ToolResult], notice: str | None = None
     ) -> Decimal | None:
+        # An investigator from before ADR-0009 sends no notice, and its sessions take none.
+        if notice is None:
+            return self._session.ceiling_usd(tool_results)
         return self._session.ceiling_usd(tool_results, notice)
 
     def send(
@@ -217,16 +267,34 @@ class _RecordingSession:
             sent["notice"] = notice
         if final:
             sent["final"] = True
+        at_most = self.ceiling_usd(tool_results, notice)
         started = time.monotonic()
         try:
+            # An investigator from before ADR-0009 sends neither a notice nor a final turn,
+            # and its sessions take neither.
             if final:
                 turn = self._session.send(tool_results, notice, final=True)
+            elif notice is None:
+                turn = self._session.send(tool_results)
             else:
                 turn = self._session.send(tool_results, notice)
         except Exception as exc:
-            self._recorder.turns.append(sent | {"error": f"{type(exc).__name__}: {exc}"})
+            failed = sent | {"error": f"{type(exc).__name__}: {exc}"[:500]}
+            failed["status_code"] = getattr(exc, "status_code", None)
+            failed["transport"] = transport_failure(exc)
+            if failed["transport"] and at_most is not None:
+                # No answer came back, so the provider may have processed the request and
+                # billed it. A refusal with a status was not billed, and a request that failed
+                # here, before it was sent, never reached the provider.
+                failed["unconfirmed_usd"] = str(at_most)
+            self._recorder.keep(failed)
             raise
-        self._recorder.turns.append(
+        if not hasattr(turn, "us_only"):
+            # An investigator from before ADR-0009 does not say where a turn ran, so it does
+            # not price the surcharge for inference kept in the United States: it is allowed
+            # for, so that what a stage records stays an upper bound.
+            self._recorder.surcharge_pending = turn.cost_usd * Decimal("0.1")
+        self._recorder.keep(
             sent
             | {
                 "stop": turn.stop,
@@ -244,8 +312,31 @@ class _RecordingSession:
                 "us_only": getattr(turn, "us_only", False),
                 "latency_ms": round((time.monotonic() - started) * 1000),
             }
+            | (
+                {"unconfirmed_usd": str(self._recorder.surcharge_pending)}
+                if self._recorder.surcharge_pending
+                else {}
+            )
         )
+        self._recorder.surcharge_pending = Decimal(0)
         return turn
+
+
+_TRANSPORT_MODULES = frozenset({"httpx", "httpx2", "httpcore", "httpcore2", "h11", "h2", "ssl"})
+
+
+def transport_failure(exc: BaseException) -> bool:
+    """Whether a request failed in transit, with no answer: a timeout or a lost connection,
+    raised by the SDK with a transport error as its cause. Anything else raised with no
+    status (an encoding error, a bug here) happened before the request left, or after the
+    answer came, and is the investigation's own."""
+    if type(exc).__name__ not in ("APIConnectionError", "APITimeoutError"):
+        return False
+    cause = exc.__cause__
+    if cause is None:
+        return True
+    module = type(cause).__module__.split(".")[0]
+    return module in _TRANSPORT_MODULES or isinstance(cause, OSError | TimeoutError)
 
 
 def _kept(result: ToolResult) -> dict[str, Any]:
@@ -520,7 +611,9 @@ def _case(
         changed_paths=changed_paths(change),
     )
     recorder = Recorder(model_for(checks))
-    investigation = Investigator(recorder, BUDGET).investigate(run_id, tools)
+    investigator = Investigator(recorder, BUDGET)
+    require_feasible_cap(investigator, tools, CASE_CAP_USD)
+    investigation = investigator.investigate(run_id, tools)
     texts = evidence_texts(checks, evidence, recorder.tool_evidence())
     written, read = recorder.cache_tokens()
     row["model"] = investigation.model_dump(mode="json")
