@@ -27,12 +27,15 @@ same code runs the old investigator from a checkout of the old package: that is 
 
 import ast
 import difflib
+import hashlib
 import io
 import json
 import math
 import os
+import platform
 import re
 import statistics
+import subprocess
 import tarfile
 import time
 import tokenize
@@ -68,8 +71,10 @@ from dataproof_investigator import (
     Budget,
     Investigator,
     InvestigatorModel,
+    ModelTurn,
     ScriptedModel,
     ToolContext,
+    ToolResult,
     answer,
     call,
     change_analyst,
@@ -97,12 +102,32 @@ HELDOUT_REVISION = "migrations/versions/0002_change.py"
 MAX_LOCATED_WIDTH = 20
 """The widest stated line range that counts as locating a statement: naming a whole file as
 "lines 1-200" locates nothing."""
+LOCATED_MARGIN = 2
+"""A stated range locates the statement at fault if it lies within the statement's lines,
+give or take this many: the call that wraps it, or its closing bracket."""
+MAX_STATED_RANGES = 4
+"""An answer that states more ranges than this has not located anything: it has listed the
+file."""
+
+INVESTIGATION_CAP_USD = Decimal("1.00")
+"""The most one investigation may cost. An investigation of the first run cost 0.06 to 0.11
+USD; a turn's worst case is about 0.25 USD, most of it output it never writes. The loop asks
+for the answer when two worst-case turns no longer fit, so a cap of 0.50 USD could cut a
+twelve-turn investigation off (a review showed it with the first run's token counts)."""
+INVESTIGATION_START_USD = Decimal("0.60")
+"""An investigation is started only while the stage has this much left, and is given what is
+left as its cap if that is less than the cap above. Below this it would be asked for its
+answer after a turn or two, and would measure the budget, not the investigator."""
+BUDGET = Budget(max_tool_calls=12, max_turns=16, max_cost_usd=INVESTIGATION_CAP_USD)
 
 ANALYST_MAX_TOKENS = 4000
-ANALYST_CASE_CAP_USD = Decimal("0.25")
-"""The Change Analyst's cap for one analysis. With 4,000 output tokens a turn its first turn
-can cost at most about 0.12 USD, so the cap covers two worst-case turns. The first
-evaluation's cap, 0.15 USD against a 0.194 USD turn, covered none."""
+"""An analysis writes one answer of a few risks; its turns are short. With 4,000 output tokens
+a worst-case turn costs about 0.11 USD, so the cap below leaves room for several."""
+ANALYST_CASE_CAP_USD = Decimal("0.40")
+"""The Change Analyst's cap for one analysis: a briefing, a read or two and an answer cost a
+few cents, and two worst-case turns must fit beside them. The first evaluation's cap, 0.15 USD
+against a 0.194 USD turn at 8,000 output tokens, admitted no turn at all."""
+ANALYSIS_START_USD = Decimal("0.30")
 ANALYST_BUDGET = Budget(max_tool_calls=8, max_turns=10, max_cost_usd=ANALYST_CASE_CAP_USD)
 
 ModelFactory = Callable[[], InvestigatorModel]
@@ -192,6 +217,8 @@ class _Stage:
     record: str
     budget_usd: Decimal
     cap: Decimal
+    start: Decimal
+    """What the stage must have left for another investigation to start."""
     journal: Journal | None = None
     served_by: str | None = None
     """The pinned model of a live stage: a turn another model served halts the stage."""
@@ -205,11 +232,16 @@ class _Stage:
         """Why the next investigation is not started, or None."""
         if self.halted is not None:
             return f"{HALTED}: {self.halted}"
-        if self.budget_usd - self.spent < self.cap:
+        if self.budget_usd - self.spent < self.start:
             return "the budget left cannot cover it"
         if self.stop_after_unanswered is not None and self.unanswered >= self.stop_after_unanswered:
             return STOPPED
         return None
+
+    def limited(self, budget: Budget) -> Budget:
+        """The budget of the next investigation: never more than the stage has left, so the
+        stage's budget is a limit no investigation can take it past."""
+        return replace(budget, max_cost_usd=min(self.cap, self.budget_usd - self.spent))
 
     def kept(self, key: str, rep: int, interrupted: Investigation) -> dict[str, Any] | None:
         """The record of an investigation that a run of this stage already started, which this
@@ -240,7 +272,8 @@ class _Stage:
         stage up again was a decision made knowing of it)."""
         record = run[self.record]
         self.counted += 1
-        self.spent += Decimal(record["usage"]["cost_usd"])
+        # A request that got no answer may have been billed: it counts at its worst case.
+        self.spent += Decimal(record["usage"]["cost_usd"]) + unconfirmed(run["transcript"])
         self.unanswered += record["status"] != InvestigationStatus.COMPLETED.value
         if check and self.halted is None:
             problems = health({key: run["transcript"]}, self.served_by)
@@ -251,6 +284,11 @@ class _Stage:
             f"{record['usage']['latency_ms'] / 1000:.1f} s; the stage has spent {self.spent} "
             f"of {self.budget_usd} USD" + (" (kept from before)" if not check else "")
         )
+
+
+def unconfirmed(turns: Sequence[Mapping[str, Any]]) -> Decimal:
+    """What requests that got no answer could have cost, had the provider processed them."""
+    return sum((Decimal(str(t.get("unconfirmed_usd", "0"))) for t in turns), Decimal(0))
 
 
 def say(text: str) -> None:
@@ -301,25 +339,38 @@ def _interrupted(investigator: Investigator, run_id: uuid.UUID) -> Investigation
 
 
 def blind(source: str) -> str:
-    """A Python source file without its comments and docstrings; every other line unchanged.
+    """A Python source file without what says, in words, what it does: its comments, every
+    statement that is only a string (docstrings among them), and the body of ``downgrade``.
+    Every other line is unchanged.
 
     A revision's comments say what it does wrong ("integer / integer is integer division"), and
-    an investigator that reads the answer has explained nothing. Statements keep their text, so
-    a line range in the blinded file still names a statement.
+    an investigator that reads the answer has explained nothing. A ``downgrade`` is not what
+    ran, and it can say the same in a string (a review found "the original column order is
+    not restored" in one). Statements keep their text, so a line range in the blinded file
+    still names a statement.
     """
     tree = ast.parse(source)
     dropped: set[int] = set()
+    replaced: dict[int, str] = {}
     for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "downgrade":
+            first, last = node.body[0], node.body[-1]
+            dropped.update(range(first.lineno, (last.end_lineno or last.lineno) + 1))
+            replaced[first.lineno] = " " * first.col_offset + "raise NotImplementedError"
+            continue
         if not isinstance(node, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             continue
-        first = node.body[0] if node.body else None
-        if (
-            isinstance(first, ast.Expr)
-            and isinstance(first.value, ast.Constant)
-            and isinstance(first.value.value, str)
-            and len(node.body) > 1
-        ):
-            dropped.update(range(first.lineno, (first.end_lineno or first.lineno) + 1))
+        strings = [
+            statement
+            for statement in node.body
+            if isinstance(statement, ast.Expr)
+            and isinstance(statement.value, ast.Constant)
+            and isinstance(statement.value.value, str)
+        ]
+        if len(strings) == len(node.body):
+            strings = strings[:-1]  # a body must keep a statement
+        for statement in strings:
+            dropped.update(range(statement.lineno, (statement.end_lineno or statement.lineno) + 1))
     comments = {
         token.start[0]: token.start[1]
         for token in tokenize.generate_tokens(io.StringIO(source).readline)
@@ -327,6 +378,8 @@ def blind(source: str) -> str:
     }
     kept = []
     for number, line in enumerate(source.splitlines(), 1):
+        if number in replaced:
+            kept.append(replaced[number])
         if number in dropped:
             continue
         if number in comments:
@@ -365,39 +418,75 @@ def changed_lines(safe: str, faulty: str) -> tuple[int, int] | None:
 
 
 _RANGE = re.compile(
-    r"(?:\blines?\s+|\bL|\.py:)(\d{1,4})(?:\s*(?:-|\N{EN DASH}|to|through|and)\s*L?(\d{1,4}))?",
+    r"(?:\blines?\s+|\bL|\.py:)(\d{1,4})(?:\s*(?:-|\N{EN DASH}|to|through)\s*L?(\d{1,4}))?",
     re.IGNORECASE,
 )
+_FILE = re.compile(r"[\w./-]*\w\.py\b")
+_NEAR = 80
+"""How far from a stated range a file name is taken to be the file it speaks of."""
 
 
-def stated_ranges(text: str) -> list[tuple[int, int]]:
-    """Line ranges a text states: "lines 22-30", "line 25", "L22-L30", "0002_change.py:25"."""
+def stated_ranges(text: str, path: str | None = None) -> list[tuple[int, int]]:
+    """Line ranges a text states: "lines 22-30", "line 25", "L22-L30", "0002_change.py:25".
+
+    With ``path``, a range stated of another file is left out: one with a file name near it,
+    none of which is ``path``'s. "Line 20 and 187 invoices" is one line, not a range.
+    """
     ranges = []
+    name = path.rsplit("/", 1)[-1] if path else None
     for found in _RANGE.finditer(text):
         start = int(found.group(1))
         end = int(found.group(2)) if found.group(2) else start
+        if name is not None:
+            nearby = text[max(0, found.start() - _NEAR) : found.end() + _NEAR]
+            named_files = {match.rsplit("/", 1)[-1] for match in _FILE.findall(nearby)}
+            if named_files and name not in named_files:
+                continue
         ranges.append((min(start, end), max(start, end)))
     return ranges
 
 
-def located(texts: Sequence[str], fault: Sequence[int] | None) -> bool | None:
-    """Whether the texts state lines that overlap the statement at fault, narrowly."""
+def located(
+    texts: Sequence[str], fault: Sequence[int] | None, path: str | None = None
+) -> bool | None:
+    """Whether the texts point at the statement at fault: a stated range of the changed file
+    that lies within the statement's lines, give or take ``LOCATED_MARGIN``.
+
+    A range that merely overlaps the statement does not count (a constant "lines 10-29"
+    overlapped every fault of the held-out set), and neither does an answer that states more
+    than ``MAX_STATED_RANGES`` ranges: it has listed the file. What this cannot see is a
+    negation ("not at lines 18-25"); the owner's reading is the check on that.
+    """
     if fault is None:
         return None
-    low, high = fault
-    return any(
-        start <= high and end >= low and end - start < MAX_LOCATED_WIDTH
-        for text in texts
-        for start, end in stated_ranges(text)
-    )
+    low, high = fault[0] - LOCATED_MARGIN, fault[1] + LOCATED_MARGIN
+    ranges = {span for text in texts for span in stated_ranges(text, path)}
+    if len(ranges) > MAX_STATED_RANGES:
+        return False
+    return any(low <= start and end <= high for start, end in ranges)
 
 
-def rubric(groups: Sequence[Sequence[str]] | None, texts: Sequence[str]) -> bool | None:
-    """The keyword proxy for naming a cause: every group must match at least one term."""
+def named(groups: Sequence[Sequence[str]] | None, texts: Sequence[str]) -> bool | None:
+    """The keyword proxy for naming a cause: every group of terms must have a term that
+    starts a word of the texts ("round" matches "rounded", "cast" does not match "forecast").
+
+    A proxy, and a weak one both ways: a hedge that lists every cause matches (``hedged``
+    catches that), and a correct explanation in other words does not. It is reported beside
+    the owner's blinded marks, which decide.
+    """
     if groups is None:
         return None
     joined = " ".join(texts).lower()
-    return all(any(term in joined for term in group) for group in groups)
+    return all(
+        any(re.search(rf"(?<![a-z0-9]){re.escape(term.lower())}", joined) for term in group)
+        for group in groups
+    )
+
+
+def hedged(texts: Sequence[str], others: Sequence[Sequence[Sequence[str]]]) -> bool:
+    """Whether the texts also match two or more of the other cases' rubrics: an answer that
+    lists every cause has named none."""
+    return sum(bool(named(groups, texts)) for groups in others) >= 2
 
 
 def wilson(successes: int, trials: int) -> tuple[float, float] | None:
@@ -487,6 +576,7 @@ class DevSet:
                 "fault_lines": changed_lines(safe, case.source())
                 if case.label.kind == "fault"
                 else None,
+                "path": next(iter(self.changed(case_id))),
                 "affected": list(case.label.affected_events),
             }
         return found
@@ -622,9 +712,28 @@ class HeldoutSet:
                 "fault_lines": statement_lines(self._revision(case_id), markers)
                 if markers
                 else None,
+                "path": HELDOUT_REVISION,
                 "affected": [],
             }
         return found
+
+
+def references(cases: EvalSet) -> dict[str, dict[str, Any]]:
+    """What the owner reads an answer against: each fault's family, where its pattern comes
+    from, and the faulty statement as the model's file has it, with its lines."""
+    found = {}
+    for case_id, label in cases.labels().items():
+        if label["kind"] != "fault" or label["fault_lines"] is None:
+            continue
+        source = next(iter(cases.changed(case_id).values())).splitlines()
+        low, high = label["fault_lines"]
+        found[case_id] = {
+            "family": label["family"],
+            "origin": label["origin"],
+            "fault_lines": [low, high],
+            "statement": source[low - 1 : high],
+        }
+    return found
 
 
 def eval_set(name: str, workdir: Path) -> EvalSet:
@@ -639,38 +748,64 @@ def eval_set(name: str, workdir: Path) -> EvalSet:
 
 
 def dry_run_model() -> InvestigatorModel:
-    """A scripted investigator with a real price: it reads one check, then cites what it read.
+    """A scripted investigator with a real price. It does what a live one is asked to: the
+    briefing, then the first changed file it names, then an answer citing both. So a dry run
+    exercises the briefing and a source read on every real case, at no cost.
 
     It reports the least a live turn's ceiling can be, so that a cap no live turn could meet
     stops a dry run too. The first evaluation's dry run had no price and could not see one.
     """
-    final = {
-        "hypotheses": [
-            {
-                "statement": "Scripted: the first failed check was read.",
-                "cited_evidence_ids": ["investigation.tool.1"],
-                "confidence": "LOW",
-            }
-        ],
-        "suggested_action": None,
-        "caveat": "A dry run: no model was called.",
-    }
-    return _FirstCheckModel(json.dumps(final))
+    return _BriefedModel()
 
 
-class _FirstCheckModel:
-    """Scripted: call ``get_check_result`` on the first failed check named in the task."""
+def _changed_path(results: Sequence[ToolResult]) -> str | None:
+    """The first changed file a briefing result names, if the results hold one."""
+    for result in results:
+        if result.is_error:
+            continue
+        data = json.loads(result.content).get("data", {})
+        changed = data.get("changed_files") if isinstance(data, dict) else None
+        if changed:
+            return str(changed[0]["path"])
+    return None
+
+
+class _BriefedModel:
+    """Scripted: the briefing, the changed file, an answer. An investigator without a
+    briefing (the old arm) reads the first failed check instead."""
 
     name = "scripted:dry-run"
 
-    def __init__(self, final: str) -> None:
-        self._final = final
-
     def open(self, *, system: str, task: str, tools: Any, output_schema: Any) -> Any:
+        names = {tool.name for tool in tools}
         found = re.search(r"^- (\S+): (?:FAIL|ERROR)", task, re.MULTILINE)
-        first = call("get_check_result", {"check_id": found.group(1) if found else "none"})
+        check = found.group(1) if found else "none"
+
+        def second(results: Sequence[ToolResult]) -> ModelTurn:
+            path = _changed_path(results)
+            if path is None:
+                return call("get_check_result", {"check_id": check}, "t2")
+            return call("read_source", {"path": path, "start_line": 1, "end_line": 200}, "t2")
+
+        cited = ["investigation.tool.1", "investigation.tool.2"]
+        final = {
+            "hypotheses": [
+                {
+                    "statement": "Scripted: the briefing and the changed file were read.",
+                    "cited_evidence_ids": cited,
+                    "confidence": "LOW",
+                }
+            ],
+            "suggested_action": None,
+            "caveat": "A dry run: no model was called.",
+        }
+        first = (
+            call("get_briefing", {}, "t1")
+            if "get_briefing" in names
+            else call("get_check_result", {"check_id": check}, "t1")
+        )
         model = ScriptedModel(
-            [first, answer(self._final)],
+            [first, second, answer(json.dumps(final))],
             name=self.name,
             turn_ceiling_usd=ablation.DRY_RUN_CEILING_USD,
         )
@@ -686,7 +821,7 @@ def investigate(
     reps: int = 1,
     case_ids: Sequence[str] | None = None,
     skip: Sequence[str] = (),
-    budget: Budget = ablation.BUDGET,
+    budget: Budget = BUDGET,
     stop_after_unanswered: int | None = None,
     journal: Journal | None = None,
     served_by: str | None = None,
@@ -700,11 +835,15 @@ def investigate(
     the journal already holds is counted and not sent again.
     """
     rows: list[dict[str, Any]] = []
-    cap = budget.max_cost_usd or ablation.CASE_CAP_USD
+    unknown = sorted(set(case_ids or ()) - set(cases.case_ids()))
+    if unknown:
+        raise SystemExit(f"no such case in the {cases.name} set: {', '.join(unknown)}")
+    cap = budget.max_cost_usd or INVESTIGATION_CAP_USD
     stage = _Stage(
         "investigation",
         budget_usd,
         cap,
+        min(cap, INVESTIGATION_START_USD),
         journal=journal,
         served_by=served_by,
         stop_after_unanswered=stop_after_unanswered,
@@ -712,6 +851,7 @@ def investigate(
     checked = False
     with reader(admin_dsn) as as_reader, databases(admin_dsn) as new_database:
         reference_dsn = cases.reference(new_database)
+        staged: list[tuple[dict[str, Any], ToolContext, uuid.UUID]] = []
         for case_id in cases.case_ids():
             if (case_ids and case_id not in case_ids) or case_id in skip:
                 continue
@@ -736,6 +876,7 @@ def investigate(
                 "cache_write_tokens": 0,
                 "cache_read_tokens": 0,
             }
+            row["_checks"], row["_evidence"] = checks, evidence
             context = ToolContext(
                 checks=checks,
                 evidence=evidence,
@@ -747,10 +888,15 @@ def investigate(
                 },
                 changed_paths=tuple(cases.changed(case_id)),
             )
-            for rep in range(1, reps + 1):
-                key = f"{case_id}.rep{rep}"
+            staged.append((row, context, run_id))
+        # In rounds: every case once, then every case again. If a stage ends early, by its
+        # budget or its stop rule, what is missing is a round, the same for every case, and
+        # not the last cases of the set.
+        for rep in range(1, reps + 1):
+            for row, context, run_id in staged:
+                key = f"{row['case_id']}.rep{rep}"
                 recorder = Recorder(model_for())
-                investigator = Investigator(recorder, budget)
+                investigator = Investigator(recorder, stage.limited(budget))
                 kept = stage.kept(key, rep, _interrupted(investigator, run_id))
                 if kept is not None:
                     row["runs"].append(kept)
@@ -765,7 +911,7 @@ def investigate(
                 if journal is not None:
                     recorder.on_turn = journal.start(key)
                 investigation = investigator.investigate(run_id, context)
-                texts = evidence_texts(checks, evidence, recorder.tool_evidence())
+                texts = evidence_texts(row["_checks"], row["_evidence"], recorder.tool_evidence())
                 written, read = recorder.cache_tokens()
                 measured = measures(investigation, texts, recorder.final_text() or "")
                 run = {
@@ -784,6 +930,9 @@ def investigate(
                     journal.finish(key, run)
                 row["runs"].append(run)
                 stage.count(key, run)
+    for row in rows:
+        row.pop("_checks", None)
+        row.pop("_evidence", None)
     return rows
 
 
@@ -793,23 +942,48 @@ def _texts(investigation: Mapping[str, Any]) -> list[str]:
     return texts + ([action] if action else [])
 
 
+def other_rubrics(
+    labels: Mapping[str, Mapping[str, Any]], case_id: str
+) -> list[Sequence[Sequence[str]]]:
+    """The distinct rubrics of the set's other cases, for ``hedged``."""
+    own = labels[case_id].get("rubric")
+    seen: list[Sequence[Sequence[str]]] = []
+    for other, label in sorted(labels.items()):
+        groups = label.get("rubric")
+        if other != case_id and groups and groups != own and groups not in seen:
+            seen.append(groups)
+    return seen
+
+
 def grade(
-    investigation: Mapping[str, Any], measured: Mapping[str, Any], label: Mapping[str, Any]
+    investigation: Mapping[str, Any],
+    measured: Mapping[str, Any],
+    label: Mapping[str, Any],
+    others: Sequence[Sequence[Sequence[str]]] = (),
 ) -> dict[str, Any]:
-    """One investigation against its label. Causes and locations are graded on answers only:
-    an investigation that gave none is ``answered: False``, and nothing more is claimed."""
+    """One investigation against its label, by the mechanical graders.
+
+    Causes and locations are graded on answers only: an investigation that gave none is
+    ``answered: False``, and nothing more is claimed. They are graded where an answer commits
+    itself: the cause in the first hypothesis, the statement in the first hypothesis or the
+    suggested action. Ten hypotheses of 2,000 characters are room to mention everything.
+    """
     texts = _texts(investigation)
     answered = investigation["status"] == "COMPLETED"
-    first = texts[:1]
+    first = [h["statement"] for h in investigation["hypotheses"][:1]]
+    action = investigation.get("suggested_action")
+    pointed = first + ([action] if action else [])
     usage = investigation["usage"]
     outcomes = Counter(c["outcome"] for c in investigation["tool_calls"])
     affected = {int(n) for n in label.get("affected") or []}
+    gradable = answered and label["rubric"] is not None
+    hedge = hedged(first, others) if gradable else None
     return {
         "status": investigation["status"],
         "answered": answered,
-        "root_cause": rubric(label["rubric"], texts) if answered else None,
-        "root_cause_first": rubric(label["rubric"], first) if answered else None,
-        "located": located(texts, label["fault_lines"]) if answered else None,
+        "root_cause": bool(named(label["rubric"], first)) and not hedge if gradable else None,
+        "hedged": hedge,
+        "located": located(pointed, label["fault_lines"], label.get("path")) if answered else None,
         "named_affected": len(ablation.mentioned_numbers(texts) & affected),
         "citations": measured["citations"],
         "valid_citations": measured["valid_citations"],
@@ -825,6 +999,14 @@ def grade(
         "latency_ms": measured["latency_ms"],
         "texts": texts,
         "failure": investigation["failure"],
+        # The whole answer, as it was given: confidence, citations and caveat included.
+        "answer": {
+            "hypotheses": investigation["hypotheses"],
+            "suggested_action": action,
+            "caveat": investigation.get("caveat"),
+        }
+        if answered
+        else None,
     }
 
 
@@ -841,8 +1023,9 @@ def scored(
     cases = []
     for row in rows:
         label = labels[row["case_id"]]
+        others = other_rubrics(labels, row["case_id"])
         runs = [
-            grade(run["investigation"], run["measures"], label) | {"rep": run["rep"]}
+            grade(run["investigation"], run["measures"], label, others) | {"rep": run["rep"]}
             for run in row["runs"]
             if "investigation" in run
         ]
@@ -856,7 +1039,7 @@ def scored(
                 "fault_lines": label["fault_lines"],
                 "failed": row.get("failed", []),
                 "skipped": row["skipped"],
-                "rules": grade(row["rules"], row["rules_measures"], label)
+                "rules": grade(row["rules"], row["rules_measures"], label, others)
                 if row["rules"]
                 else None,
                 "runs": runs,
@@ -886,18 +1069,19 @@ def _arm(grades: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     answered = [g for g in grades if g["answered"]]
     costs = [Decimal(g["cost_usd"]) for g in grades]
     stated = sum(g["specifics"] for g in grades)
+    # What a case's label cannot grade (no rubric, no faulty statement) is in no denominator.
+    with_rubric = [g for g in answered if g["root_cause"] is not None]
+    with_lines = [g for g in answered if g["located"] is not None]
     return {
         "investigations": len(grades),
         "statuses": dict(sorted(Counter(g["status"] for g in grades).items())),
         "answered": _rate(len(answered), len(grades)),
         "root_cause_of_all": _rate(sum(bool(g["root_cause"]) for g in grades), len(grades)),
         "root_cause_of_answered": _rate(
-            sum(bool(g["root_cause"]) for g in answered), len(answered)
+            sum(bool(g["root_cause"]) for g in with_rubric), len(with_rubric)
         ),
-        "root_cause_first_of_answered": _rate(
-            sum(bool(g["root_cause_first"]) for g in answered), len(answered)
-        ),
-        "located_of_answered": _rate(sum(bool(g["located"]) for g in answered), len(answered)),
+        "hedged_of_answered": _rate(sum(bool(g["hedged"]) for g in with_rubric), len(with_rubric)),
+        "located_of_answered": _rate(sum(bool(g["located"]) for g in with_lines), len(with_lines)),
         "citations": sum(g["citations"] for g in grades),
         "valid_citations": sum(g["valid_citations"] for g in grades),
         "specifics": stated,
@@ -915,28 +1099,77 @@ def _arm(grades: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
-def summarize(cases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def summarize(cases: Sequence[Mapping[str, Any]], reps: int = 1) -> dict[str, Any]:
     investigated = [c for c in cases if c["rules"] is not None]
     with_model = [c for c in investigated if c["model"] is not None]
+    gradable = [c for c in with_model if c["rules"]["root_cause"] is not None]
+    runs = [run for c in investigated for run in c["runs"]]
     return {
         "cases": len(cases),
         "investigated": len(investigated),
+        # Every failing case, every repeat: what a rate is "of", whether or not it ran.
+        "investigations_expected": len(investigated) * reps,
+        "investigations_run": len(runs),
         "skipped": dict(Counter(c["skipped"] for c in cases if c["skipped"])),
         "rules": _arm([c["rules"] for c in investigated]),
-        "model": _arm([run for c in investigated for run in c["runs"]]),
+        "model": _arm(runs),
         "by_case": {
             "cases_with_a_model_run": len(with_model),
+            "cases_with_a_rubric": len(gradable),
             "model_answered": sum(bool(c["model"]["answered"]) for c in with_model),
-            "model_named_root_cause": sum(bool(c["model"]["root_cause"]) for c in with_model),
-            "rules_named_root_cause": sum(bool(c["rules"]["root_cause"]) for c in with_model),
+            "model_named_root_cause": sum(bool(c["model"]["root_cause"]) for c in gradable),
+            "rules_named_root_cause": sum(bool(c["rules"]["root_cause"]) for c in gradable),
             "model_only": sum(
-                bool(c["model"]["root_cause"]) and not c["rules"]["root_cause"] for c in with_model
+                bool(c["model"]["root_cause"]) and not c["rules"]["root_cause"] for c in gradable
             ),
             "rules_only": sum(
-                bool(c["rules"]["root_cause"]) and not c["model"]["root_cause"] for c in with_model
+                bool(c["rules"]["root_cause"]) and not c["model"]["root_cause"] for c in gradable
             ),
             "model_located": sum(bool(c["model"]["located"]) for c in with_model),
         },
+    }
+
+
+def _git(folder: Path, *arguments: str) -> str | None:
+    try:
+        done = subprocess.run(  # noqa: S603 - fixed arguments, no shell
+            ["git", "-C", str(folder), *arguments],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+def provenance(cases: EvalSet) -> dict[str, Any]:
+    """Which code produced a results file. The first evaluation's files did not say, and a
+    review found that this machine's environment could run another checkout's code than the
+    one a command was started in. No local path is recorded: a results file is published."""
+    import dataproof_investigator
+
+    here = Path(__file__).resolve().parent
+    package = Path(dataproof_investigator.__file__).resolve().parent
+    labels = HELDOUT_LABELS if cases.name == "heldout" else None
+    try:
+        from importlib.metadata import version
+
+        sdk: str | None = version("anthropic")
+    except Exception:
+        sdk = None
+    frozen = ("benchmarks", "packages", "examples/subscriptions", "sample-app")
+    return {
+        "harness_commit": _git(here, "rev-parse", "HEAD"),
+        "harness_modified": bool(_git(harness.REPOSITORY, "status", "--porcelain", "--", *frozen)),
+        "investigator_commit": _git(package, "rev-parse", "HEAD"),
+        "investigator_in_this_checkout": package.is_relative_to(harness.REPOSITORY),
+        "labels_sha256": hashlib.sha256(labels.read_bytes()).hexdigest() if labels else None,
+        "dev_seed": DEV_SEED if cases.name == "dev" else None,
+        "max_output_tokens": ablation.MAX_TOKENS,
+        "python": platform.python_version(),
+        "anthropic_sdk": sdk,
+        "written_at": datetime.now(UTC).isoformat(timespec="seconds"),
     }
 
 
@@ -949,7 +1182,7 @@ def results(
     effort: str,
     reps: int,
     budget_usd: Decimal,
-    budget: Budget = ablation.BUDGET,
+    budget: Budget = BUDGET,
 ) -> dict[str, Any]:
     from dataproof_investigator import PROMPT_VERSION, TOOL_VERSION
 
@@ -966,11 +1199,13 @@ def results(
         "budget": {
             "approved_usd": str(budget_usd) if live else None,
             "case_cap_usd": str(budget.max_cost_usd),
+            "start_usd": str(INVESTIGATION_START_USD),
             "max_tool_calls": budget.max_tool_calls,
             "max_turns": budget.max_turns,
         },
+        "provenance": provenance(cases),
         "cases": graded,
-        "summary": summarize(graded),
+        "summary": summarize(graded, reps),
     }
 
 
@@ -1017,6 +1252,14 @@ def health(kept: Mapping[str, Sequence[Mapping[str, Any]]], served_by: str | Non
                 problems.append(f"{key} turn {index}: {str(turn['error'])[:200]}")
             elif served_by is not None and turn.get("served_by") != served_by:
                 problems.append(f"{key} turn {index}: served by {turn.get('served_by')}")
+            # A database this harness staged did not answer a tool: what the model then says
+            # is about the harness, not about the migration.
+            if any(
+                phrase in str(result.get("content", ""))
+                for result in turn.get("tool_results", [])
+                for phrase in ("could not be asked just now", "the tool could not run just now")
+            ):
+                problems.append(f"{key} turn {index}: a tool could not reach its database")
     return problems
 
 
@@ -1082,9 +1325,15 @@ def report(document: Mapping[str, Any]) -> str:
         f"{budget['approved_usd'] or 'no'} USD approved.",
         f"- {summary['investigated']} of {summary['cases']} cases had a failed check to explain.",
         "",
+        f"- {summary['investigations_run']} of {summary['investigations_expected']} "
+        "investigations ran (every failing case, every repeat).",
+        "",
         "Rates are followed by their 95% Wilson interval. A cause or a location is graded only "
         "on an answer: an investigation that gave none is counted under Answered and nowhere "
-        "else.",
+        "else. **These are the mechanical graders.** The cause is a keyword proxy on the "
+        "first hypothesis; it misses a correct explanation in other words, and the owner's "
+        "blinded marks decide (`eval2-verdict`). The location is a stated line range within "
+        "the faulty statement's lines.",
         "",
         "| | Rules | Model |",
         "| --- | --- | --- |",
@@ -1092,8 +1341,8 @@ def report(document: Mapping[str, Any]) -> str:
     for title, key in (
         ("Answered", "answered"),
         ("Root cause named, of all investigations", "root_cause_of_all"),
-        ("Root cause named, of answers", "root_cause_of_answered"),
-        ("Root cause in the first hypothesis, of answers", "root_cause_first_of_answered"),
+        ("Root cause named in the first hypothesis, of answers", "root_cause_of_answered"),
+        ("First hypothesis hedged over several causes, of answers", "hedged_of_answered"),
         ("Faulty statement's lines stated, of answers", "located_of_answered"),
     ):
         lines.append(
@@ -1156,14 +1405,19 @@ def _word(value: bool | None) -> str:
 
 
 def dry_run_analyst(path: str) -> InvestigatorModel:
-    """A scripted analyst with a real price: it reads the start of the change, then cites it."""
+    """A scripted analyst with a real price: the briefing, the start of the change, an answer
+    citing the read."""
     final = (
         '{"hypotheses": [{"statement": "Scripted: the change was read.", '
-        '"cited_evidence_ids": ["investigation.tool.1"], "confidence": "LOW"}], '
+        '"cited_evidence_ids": ["investigation.tool.2"], "confidence": "LOW"}], '
         '"suggested_action": null, "caveat": "A dry run: no model was called."}'
     )
     return ScriptedModel(
-        [call("read_source", {"path": path, "start_line": 1, "end_line": 40}), answer(final)],
+        [
+            call("get_briefing", {}, "t1"),
+            call("read_source", {"path": path, "start_line": 1, "end_line": 40}, "t2"),
+            answer(final),
+        ],
         name="scripted:dry-run",
         turn_ceiling_usd=ablation.DRY_RUN_CEILING_USD * ANALYST_MAX_TOKENS / ablation.MAX_TOKENS,
     )
@@ -1179,16 +1433,27 @@ def analyze(
     skip: Sequence[str] = (),
     journal: Journal | None = None,
     served_by: str | None = None,
+    stop_after_unanswered: int | None = None,
 ) -> list[dict[str, Any]]:
     """Analyze every case's change before anything runs; labels are not read here.
 
-    The stage stops, and keeps its records, as ``investigate`` does.
+    The stage runs in rounds, stops, and keeps its records, as ``investigate`` does.
     """
     rows: list[dict[str, Any]] = []
+    unknown = sorted(set(case_ids or ()) - set(cases.case_ids()))
+    if unknown:
+        raise SystemExit(f"no such case in the {cases.name} set: {', '.join(unknown)}")
     stage = _Stage(
-        "analysis", budget_usd, ANALYST_CASE_CAP_USD, journal=journal, served_by=served_by
+        "analysis",
+        budget_usd,
+        ANALYST_CASE_CAP_USD,
+        ANALYSIS_START_USD,
+        journal=journal,
+        served_by=served_by,
+        stop_after_unanswered=stop_after_unanswered,
     )
     checked = False
+    staged: list[tuple[dict[str, Any], ToolContext, uuid.UUID, str]] = []
     for case_id in cases.case_ids():
         if (case_ids and case_id not in case_ids) or case_id in skip:
             continue
@@ -1198,8 +1463,6 @@ def analyze(
         row: dict[str, Any] = {"case_id": case_id, "rules": rules.model_dump(mode="json")}
         row["runs"] = []
         rows.append(row)
-        if model_for is None:
-            continue
         context = ToolContext(
             checks={},
             evidence={},
@@ -1208,10 +1471,14 @@ def analyze(
             databases={},
             changed_paths=tuple(files),
         )
-        for rep in range(1, reps + 1):
-            key = f"{case_id}.rep{rep}"
-            recorder = Recorder(model_for(next(iter(files))))
-            analyst = change_analyst(recorder, ANALYST_BUDGET)
+        staged.append((row, context, run_id, next(iter(files))))
+    if model_for is None:
+        return rows
+    for rep in range(1, reps + 1):  # in rounds, as ``investigate``
+        for row, context, run_id, first_file in staged:
+            key = f"{row['case_id']}.rep{rep}"
+            recorder = Recorder(model_for(first_file))
+            analyst = change_analyst(recorder, stage.limited(ANALYST_BUDGET))
             kept = stage.kept(key, rep, _interrupted(analyst, run_id))
             if kept is not None:
                 row["runs"].append(kept)
@@ -1248,10 +1515,17 @@ def grade_analysis(
     turns: int | None,
     measured: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    """One analysis against its label. ``turns`` is None for the rules, which call no model.
+    """One analysis against its label. ``turns`` is None for the rules, which call no model;
+    for a model it counts the turns that were answered.
 
     A model that sent no turn is ``called: False`` and nothing else is graded: in the first
     evaluation 34 such analyses were recorded as zero faults anticipated and zero false alarms.
+
+    What is graded is a risk raised at MEDIUM or HIGH confidence. On a fault, ``flagged``:
+    one of them points at the faulty statement's lines. That is the measure both arms are
+    held to, because a rule states where it matched in fixed words and can never use a
+    rubric's vocabulary; ``anticipated`` is the keyword proxy, reported beside it. On a clean
+    control, ``alarmed``: any such risk at all.
     """
     raised = [
         h
@@ -1263,13 +1537,18 @@ def grade_analysis(
     # The rules always answer: no match is their answer that nothing was flagged.
     answered = called and (turns is None or analysis["status"] == "COMPLETED")
     fault = label["kind"] == "fault"
+    lines = label["fault_lines"]
     graded: dict[str, Any] = {
         "status": analysis["status"],
         "called": called,
         "answered": answered,
         "risks": len(raised) if answered else None,
-        "anticipated": rubric(label["rubric"], texts) if answered and fault else None,
-        "located": located(texts, label["fault_lines"]) if answered and fault else None,
+        "flagged": any(bool(located([text], lines, label.get("path"))) for text in texts)
+        if answered and fault and lines
+        else None,
+        "anticipated": named(label["rubric"], texts)
+        if answered and fault and label["rubric"]
+        else None,
         "alarmed": bool(raised) if answered and not fault else None,
         "cost_usd": analysis["usage"]["cost_usd"],
         "latency_ms": analysis["usage"]["latency_ms"],
@@ -1281,6 +1560,13 @@ def grade_analysis(
             "citations": measured["citations"],
             "valid_citations": measured["valid_citations"],
             "unsupported_specifics": measured.get("unsupported_specifics", []),
+            "answer": {
+                "hypotheses": analysis["hypotheses"],
+                "suggested_action": analysis.get("suggested_action"),
+                "caveat": analysis.get("caveat"),
+            }
+            if answered
+            else None,
         }
     return graded
 
@@ -1293,28 +1579,51 @@ def analysis_results(
     model: str | None,
     reps: int,
     budget_usd: Decimal | None,
+    effort: str | None = None,
 ) -> dict[str, Any]:
+    from dataproof_investigator import TOOL_VERSION
+    from dataproof_investigator.analyst import ANALYST_PROMPT_VERSION
+
     labels = cases.labels()
     graded = []
     for row in rows:
         label = labels[row["case_id"]]
         runs = [
             grade_analysis(
-                run["analysis"], label, turns=len(run["transcript"]), measured=run["measures"]
+                run["analysis"],
+                label,
+                turns=sum("error" not in turn for turn in run["transcript"]),
+                measured=run["measures"],
             )
             | {"rep": run["rep"]}
             for run in row["runs"]
             if "analysis" in run
         ]
+        fault = label["kind"] == "fault"
+        complete = len(runs) == reps and all(run["answered"] for run in runs)
         graded.append(
             {
                 "case_id": row["case_id"],
                 "kind": label["kind"],
                 "family": label["family"],
                 "variant": label["variant"],
+                "fault_lines": label["fault_lines"],
                 "rules": grade_analysis(row["rules"], label, turns=None, measured=None),
                 "runs": runs,
                 "not_run": [run for run in row["runs"] if "analysis" not in run],
+                # By case: a fault is flagged only if every repeat flags it, and a clean
+                # control is alarmed if any repeat alarms. Both lean against the model.
+                "model": {
+                    "answered": complete,
+                    "flagged": all(bool(run["flagged"]) for run in runs)
+                    if fault and complete
+                    else None,
+                    "alarmed": any(bool(run["alarmed"]) for run in runs)
+                    if not fault and runs
+                    else None,
+                }
+                if model is not None
+                else None,
             }
         )
     faults = [c for c in graded if c["kind"] == "fault"]
@@ -1324,40 +1633,142 @@ def analysis_results(
         fault_runs = [g for c in faults for g in pick(c)]
         clean_runs = [g for c in clean for g in pick(c)]
         every = fault_runs + clean_runs
-        answered_faults = [g for g in fault_runs if g["answered"]]
+        located_faults = [g for g in fault_runs if g["answered"] and g["flagged"] is not None]
+        worded_faults = [g for g in fault_runs if g["answered"] and g["anticipated"] is not None]
         answered_clean = [g for g in clean_runs if g["answered"]]
+        costs = [Decimal(g["cost_usd"]) for g in every]
         return {
             "analyses": len(every),
             "not_called": sum(not g["called"] for g in every),
             "answered": _rate(sum(bool(g["answered"]) for g in every), len(every)),
+            "faults_flagged_of_answered": _rate(
+                sum(bool(g["flagged"]) for g in located_faults), len(located_faults)
+            ),
             "faults_anticipated_of_answered": _rate(
-                sum(bool(g["anticipated"]) for g in answered_faults), len(answered_faults)
+                sum(bool(g["anticipated"]) for g in worded_faults), len(worded_faults)
             ),
             "clean_alarmed_of_answered": _rate(
                 sum(bool(g["alarmed"]) for g in answered_clean), len(answered_clean)
             ),
-            "cost_usd": str(sum((Decimal(g["cost_usd"]) for g in every), Decimal(0))),
+            "cost_usd": str(sum(costs, Decimal(0))),
+            "cost_usd_median": str(statistics.median(costs)) if costs else None,
+            "latency_ms_median": statistics.median([g["latency_ms"] for g in every])
+            if every
+            else None,
         }
 
+    with_model = model is not None
     return {
         "evaluation": "ai-eval-v2: the Change Analyst against the static risk rules",
         "set": cases.name,
-        "dry_run": model is not None and not live,
+        "dry_run": with_model and not live,
         "model": model,
+        "effort": effort,
         "reps": reps,
+        "prompt_version": ANALYST_PROMPT_VERSION,
+        "tool_version": TOOL_VERSION,
         "budget": {
             "approved_usd": str(budget_usd) if live else None,
             "case_cap_usd": str(ANALYST_CASE_CAP_USD),
+            "start_usd": str(ANALYSIS_START_USD),
             "max_output_tokens": ANALYST_MAX_TOKENS,
         },
+        "provenance": provenance(cases),
         "cases": graded,
         "summary": {
             "faults": len(faults),
             "clean": len(clean),
+            "analyses_expected": len(graded) * reps if with_model else 0,
+            "analyses_run": sum(len(c["runs"]) for c in graded),
             "rules": arm(lambda c: [c["rules"]]),
             "model": arm(lambda c: c["runs"]),
+            "by_case": {
+                "rules_flagged": sum(bool(c["rules"]["flagged"]) for c in faults),
+                "rules_alarmed": sum(bool(c["rules"]["alarmed"]) for c in clean),
+                "model_answered": sum(bool(c["model"]["answered"]) for c in graded)
+                if with_model
+                else None,
+                "model_flagged": sum(bool(c["model"]["flagged"]) for c in faults)
+                if with_model
+                else None,
+                "model_alarmed": sum(bool(c["model"]["alarmed"]) for c in clean)
+                if with_model
+                else None,
+            },
         },
     }
+
+
+def analysis_report(document: Mapping[str, Any]) -> str:
+    """The Markdown report of a v2 Change Analyst run."""
+    summary = document["summary"]
+    by_case = summary["by_case"]
+    lines = [
+        f"# AI evaluation v2: the Change Analyst on the {document['set']} set",
+        "",
+        "Generated by `python -m dataproof_benchmark eval2-report`. Do not edit by hand.",
+        "",
+    ]
+    if document["dry_run"]:
+        lines += ["**A dry run with a scripted model. These are not results.**", ""]
+    if document["set"] == "dev":
+        lines += ["**The development set: never a headline, whatever it shows.**", ""]
+    lines += [
+        f"- Model `{document['model']}`, effort {document['effort']}; prompt "
+        f"`{document['prompt_version']}`, tools `{document['tool_version']}`; analyses a "
+        f"change: {document['reps']}.",
+        f"- {summary['faults']} faults and {summary['clean']} clean controls; "
+        f"{summary['analyses_run']} of {summary['analyses_expected']} analyses ran, and "
+        f"{summary['model']['not_called']} of those sent no request.",
+        "",
+        "A risk counts when it is raised at MEDIUM or HIGH confidence. Flagged: one of them "
+        "states lines within the faulty statement. Anticipated: the keyword proxy. Alarmed: "
+        "any such risk on a clean control. Rates are followed by their 95% Wilson interval.",
+        "",
+        "| | Rules | Model |",
+        "| --- | --- | --- |",
+    ]
+    for title, key in (
+        ("Answered", "answered"),
+        ("Faults flagged at the faulty statement, of answers", "faults_flagged_of_answered"),
+        ("Faults anticipated by keyword, of answers", "faults_anticipated_of_answered"),
+        ("Clean controls alarmed, of answers", "clean_alarmed_of_answered"),
+    ):
+        lines.append(
+            f"| {title} | {_shown(summary['rules'][key])} | {_shown(summary['model'][key])} |"
+        )
+    lines += [
+        f"| Cost, USD: total and median | 0 | {summary['model']['cost_usd']} and "
+        f"{summary['model']['cost_usd_median']} |",
+        "",
+        f"By case (a fault is flagged only if every repeat flags it; a clean control is alarmed "
+        f"if any repeat alarms): the model flagged {by_case['model_flagged']} of "
+        f"{summary['faults']} faults (the rules {by_case['rules_flagged']}) and alarmed on "
+        f"{by_case['model_alarmed']} of {summary['clean']} clean controls (the rules "
+        f"{by_case['rules_alarmed']}).",
+        "",
+        "## Cases",
+        "",
+    ]
+    for case in document["cases"]:
+        rules = case["rules"]
+        lines += [f"### `{case['case_id']}` ({case['kind']})", ""]
+        lines.append(
+            f"- **Rules:** flagged {_word(rules['flagged'])}; alarmed {_word(rules['alarmed'])}."
+        )
+        lines += [f"  - {text}" for text in rules["texts"]]
+        for run in case["runs"]:
+            lines.append(
+                f"- **Model, repeat {run['rep']}:** {run['status']}; flagged "
+                f"{_word(run['flagged'])}; alarmed {_word(run['alarmed'])}; "
+                f"{run['cost_usd']} USD; {run['latency_ms']} ms."
+            )
+            if run["failure"]:
+                lines.append(f"  - No answer: {run['failure']}")
+            lines += [f"  - {text}" for text in run["texts"]]
+        lines += [f"- Repeat {run['rep']} not run: {run['skipped']}." for run in case["not_run"]]
+        lines.append("")
+    return "\n".join(lines)
 
 
 def live_model(model: str, effort: str, max_tokens: int) -> InvestigatorModel:
@@ -1368,8 +1779,15 @@ def live_model(model: str, effort: str, max_tokens: int) -> InvestigatorModel:
 
     if model not in PRICES:
         raise SystemExit(f"no price is recorded for {model}, so its spend could not be capped")
+    # The SDK's own retries are off: a request that timed out may have been billed, and a
+    # second copy would be billed again, outside the cap. The adapter sends again only what
+    # the provider said it did not process.
     return AnthropicModel(
-        anthropic.Anthropic(), model=model, effort=effort, max_tokens=max_tokens, fallbacks=False
+        anthropic.Anthropic(max_retries=0),
+        model=model,
+        effort=effort,
+        max_tokens=max_tokens,
+        fallbacks=False,
     )
 
 

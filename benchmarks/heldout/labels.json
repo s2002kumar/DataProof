@@ -1,6 +1,6 @@
 {
   "set": "heldout-v1",
-  "provenance": "The subscriptions example's fourteen change sets (examples/subscriptions/changes), written before the investigator's first live run for the Action's tests, on a schema no investigator prompt, tool description or test names. Eight fault patterns come from publicly documented incidents, linked in examples/subscriptions/README.md; the implementations, the rubrics and the fault markers are the author's. The rubrics and markers below were written on 2026-11-19, before any model had seen a case.",
+  "provenance": "The subscriptions example's fourteen change sets (examples/subscriptions/changes), written before the investigator's first live run for the Action's tests, on a schema no investigator prompt, tool description or test names. Eight fault patterns come from publicly documented incidents, linked in examples/subscriptions/README.md; the implementations, the rubrics and the fault markers are the author's. The rubrics and markers below were written on 2026-11-19, before any model had seen a case. Revised on 2026-11-20, still before any model had seen a case, after an independent review of the graders: held-06 lost the term \"batch\", a word of the code outside the statement at fault, so that quoting the file did not pass for naming the cause. The rubric is now a proxy beside the owner's blinded marks, which decide (docs/AI_EVALUATION_V2.md).",
   "reading": "The evaluator's manifest. A model reads none of it: the archive it reads holds only the blinded migrations. rubric: every group must match one term in an answer's text. fault_markers: text of the statements at fault; the grader derives their lines in the blinded revision.",
   "cases": [
     {
@@ -50,7 +50,7 @@
       "kind": "fault",
       "origin": "sourced",
       "family": "a batch window that excludes its start skips a row",
-      "rubric": [["batch", "window", "range", "boundary", "bound", "exclusive", "off-by-one", "off by one", "> :start", "strict"]],
+      "rubric": [["window", "range", "boundary", "bound", "exclusive", "off-by-one", "off by one", "> :start", "strict"]],
       "fault_markers": ["WHERE invoice_id > :start AND invoice_id <= :stop"]
     },
     {

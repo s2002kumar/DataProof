@@ -25,6 +25,11 @@ What it holds to, and what the first evaluation's launcher did not:
 * **A stage's folder is sealed:** every file's SHA-256, chained to the stage before, and the
   files made read-only. ``status`` checks every seal.
 * **The gate is code under test** (``gates``), and a stage that sent no request fails it.
+* **The key and the model are checked before anything is billed:** the launcher asks the
+  provider, at no cost, whether the key works and serves the pinned model.
+* **A held-out stage is refused if its budget would not cover it** at what the development
+  stage measured an investigation costs: running out part-way would spend the held-out set
+  on a partial result.
 """
 
 import argparse
@@ -159,7 +164,15 @@ PLANS: Mapping[str, Plan] = {
         Plan(
             "analyst-pilot",
             "analyst-development",
-            ("eval2-analyze", "--set", "dev", "--only", *ANALYST_PILOT_CASES),
+            (
+                "eval2-analyze",
+                "--set",
+                "dev",
+                "--only",
+                *ANALYST_PILOT_CASES,
+                "--stop-after-unanswered",
+                "1",
+            ),
             kind="pilot",
             role="analyst",
             most_usd=Decimal("1.00"),
@@ -228,16 +241,34 @@ class Attempt:
     def journal(self) -> Path:
         return self.folder / "journal"
 
+    def _turns(self, path: Path) -> list[dict[str, Any]]:
+        turns = []
+        for line in path.read_text("utf-8").splitlines()[1:]:
+            try:
+                turns.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return turns
+
     def recorded_usd(self) -> Decimal:
-        """What the stage's journal says it spent, turn by turn."""
+        """What the stage's journal says it spent, turn by turn, with every request that got
+        no answer counted at the most it could have cost."""
         total = Decimal(0)
         for path in sorted(self.journal.glob("*.turns.jsonl")):
-            for line in path.read_text("utf-8").splitlines()[1:]:
-                try:
-                    total += Decimal(str(json.loads(line).get("cost_usd", "0")))
-                except json.JSONDecodeError:
-                    continue
+            for turn in self._turns(path):
+                total += Decimal(str(turn.get("cost_usd", "0")))
+                total += Decimal(str(turn.get("unconfirmed_usd", "0")))
         return total
+
+    def open_investigation_usd(self) -> Decimal | None:
+        """What the investigation that was running when the process ended had spent, or None
+        if none was running."""
+        for path in sorted(self.journal.glob("*.turns.jsonl")):
+            if not path.with_name(path.name.replace(".turns.jsonl", ".run.json")).is_file():
+                return sum(
+                    (Decimal(str(t.get("cost_usd", "0"))) for t in self._turns(path)), Decimal(0)
+                )
+        return None
 
     def charged_usd(self) -> Decimal:
         """What the stage takes from its pool: what its seal records, which for a stage closed
@@ -379,16 +410,90 @@ def check(state: State, plan: Plan) -> tuple[str, Decimal]:
                 "a pilot first, on the code being run"
             )
     budget = state.budget(plan)
-    least = (
-        ablation.CASE_CAP_USD if plan.role == "investigator" else evaluation.ANALYST_CASE_CAP_USD
-    )
+    least = start_usd(plan)
     if budget < least:
         raise Refused(
-            f"{plan.pool} has {budget} USD left, less than one investigation's cap of {least} USD"
+            f"{plan.pool} has {budget} USD left, less than the {least} USD an investigation "
+            "needs to start"
         )
+    if plan.once:
+        projected = projection(state, plan)
+        if projected is not None and projected["needs_usd"] > budget:
+            raise Refused(
+                f"at what the development stage measured (an investigation costing "
+                f"{projected['per_run_usd']} USD or less three times in four), {plan.name}'s "
+                f"{projected['runs']} investigations need about {projected['needs_usd']} USD, "
+                f"and it would be given {budget}. A held-out stage that runs out part-way is a "
+                "partial result that cannot be repeated. Raising its budget is the owner's "
+                "decision."
+            )
     if plan.old_arm and not state.dry_run:
         old_checkout(state, make=False)
     return head, budget
+
+
+def start_usd(plan: Plan) -> Decimal:
+    """What a stage must have left to start one more investigation."""
+    if plan.role == "investigator":
+        return evaluation.INVESTIGATION_START_USD
+    return evaluation.ANALYSIS_START_USD
+
+
+def cap_usd(plan: Plan) -> Decimal:
+    """The most one investigation of the stage may cost."""
+    if plan.role == "investigator":
+        return evaluation.INVESTIGATION_CAP_USD
+    return evaluation.ANALYST_CASE_CAP_USD
+
+
+EXPECTED_RUNS: Mapping[str, int] = {"heldout": 33, "old-arm": 11, "analyst-heldout": 28}
+"""How many investigations a held-out stage runs: its cases times its repeats."""
+
+
+def projection(state: State, plan: Plan) -> dict[str, Any] | None:
+    """What a held-out stage would need, from the costs its role's development stages
+    measured: the third quartile of an investigation's cost for every run but the last, which
+    must still find the stage's start amount left. None before any development stage ran."""
+    import statistics
+
+    role = [p.name for p in PLANS.values() if p.role == plan.role and not p.once]
+    costs: list[Decimal] = []
+    for attempt in state.attempts():
+        if attempt.name not in role or not _passed(attempt):
+            continue
+        for path in sorted(attempt.journal.glob("*.run.json")):
+            run = _read(path)
+            record = run.get("investigation") or run.get("analysis") or {}
+            if "usage" in record:
+                costs.append(Decimal(str(record["usage"]["cost_usd"])))
+    if not costs or state.dry_run:
+        return None
+    quartiles = statistics.quantiles(costs, n=4) if len(costs) > 1 else [costs[0]] * 3
+    per_run = Decimal(str(quartiles[2])).quantize(Decimal("0.0001"))
+    runs = EXPECTED_RUNS[plan.name]
+    return {
+        "runs": runs,
+        "per_run_usd": per_run,
+        "needs_usd": (per_run * (runs - 1) + start_usd(plan)).quantize(Decimal("0.01")),
+    }
+
+
+def preflight(key: str, model: str) -> None:
+    """Whether the key works and the pinned model is served to it, asked at no cost (the
+    models endpoint is not billed). A paid request is never the first thing that fails."""
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=key, max_retries=0, timeout=30)
+    try:
+        found = client.models.retrieve(model)
+    except anthropic.AuthenticationError as exc:
+        raise Refused("the key was not accepted: nothing was sent and nothing spent") from exc
+    except anthropic.NotFoundError as exc:
+        raise Refused(f"{model} is not served to this key: nothing was spent") from exc
+    except anthropic.APIError as exc:
+        raise Refused(f"the provider could not be asked ({type(exc).__name__})") from exc
+    if found.id != model:
+        raise Refused(f"asked for {model}, the provider named {found.id}")
 
 
 def old_checkout(state: State, *, make: bool) -> Path:
@@ -511,7 +616,8 @@ def _gate(plan: Plan, state: State, folder: Path, budget: Decimal) -> dict[str, 
         live=live,
         model=MODEL,
         versions=versions,
-        need_cache_read=plan.role == "investigator",
+        need_cache_read=True,
+        complete=plan.kind == "pilot" or plan.once,
     )
 
 
@@ -524,13 +630,12 @@ def seal(
     recorded = attempt.recorded_usd()
     plan = PLANS[attempt.name]
     allowance = Decimal(0)
-    if abandoned:
-        # A request may have been answered, and billed, after the last turn on disk.
-        allowance = (
-            ablation.CASE_CAP_USD
-            if plan.role == "investigator"
-            else evaluation.ANALYST_CASE_CAP_USD
-        )
+    spent_by_open = attempt.open_investigation_usd() if abandoned else None
+    if spent_by_open is not None:
+        # A request may have been answered, and billed, after the last turn on disk. The loop
+        # sends a turn only if its worst case fits in what the investigation has left, so
+        # what that request could have cost is at most the cap less what was spent.
+        allowance = max(Decimal(0), cap_usd(plan) - spent_by_open)
     files = {
         path.relative_to(attempt.folder).as_posix(): _sha256(path)
         for path in sorted(attempt.folder.rglob("*"))
@@ -595,6 +700,7 @@ def run(state: State, name: str, approve: Decimal | None, dsn: str, key: str | N
             raise Refused("a paid stage needs the API key, from the launcher's hidden prompt")
         if approve != budget:
             raise Refused(f"this stage would be given {budget} USD; --approve said {approve}")
+        preflight(key, ablation.MODEL)
     number = len(state.attempts()) + 1
     folder = state.stages / f"{number:02d}-{name}"
     folder.mkdir(parents=True)
@@ -643,6 +749,7 @@ def resume(state: State, approve: Decimal | None, dsn: str, key: str | None) -> 
         left = budget - attempt.recorded_usd()
         if approve != left:
             raise Refused(f"{left} USD of this stage's budget is unspent; --approve said {approve}")
+        preflight(key, ablation.MODEL)
     print(
         f"\n=== {attempt.name}: taken up again; what its journal holds is not sent ===", flush=True
     )
@@ -713,7 +820,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status")
     planned = commands.add_parser("plan")
-    planned.add_argument("stage", choices=sorted(PLANS))
+    planned.add_argument("stage", choices=[*sorted(PLANS), "resume"])
     started = commands.add_parser("run")
     started.add_argument("stage", choices=sorted(PLANS))
     started.add_argument("--approve", type=Decimal)
@@ -734,6 +841,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print("\n".join(["", "RECORDS HAVE CHANGED:", *problems]), file=sys.stderr)
                 return 3
             return 0
+        if args.command == "plan" and args.stage == "resume":
+            attempt = state.open_attempt()
+            if attempt is None:
+                raise Refused("no stage is open: there is nothing to take up again")
+            left = Decimal(str(attempt.started["budget_usd"])) - attempt.recorded_usd()
+            print(f"stage:   {attempt.name}, taken up again; what its journal holds is not sent")
+            print(f"commit:  {attempt.started['commit']}")
+            print(f"budget:  {left} USD at most, what is left of its budget")
+            print(f"approve: {left}")
+            return 0
         if args.command == "plan":
             plan = PLANS[args.stage]
             head, budget = check(state, plan)
@@ -741,6 +858,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"commit:  {head}")
             print(f"runs:    dataproof_benchmark {' '.join(plan.arguments)}")
             print(f"budget:  {budget} USD at most, from the {plan.pool} pool")
+            projected = projection(state, plan) if plan.once else None
+            if projected is not None:
+                print(
+                    f"expects: about {projected['needs_usd']} USD for {projected['runs']} "
+                    f"investigations, at {projected['per_run_usd']} USD each (development)"
+                )
             print(f"approve: {budget}")
             return 0
         if args.command == "run":

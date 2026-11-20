@@ -46,12 +46,14 @@ def turn_cost(turn: Mapping[str, Any]) -> Decimal | None:
 
 def spend(kept: Transcripts) -> dict[str, Any]:
     """A stage's spend added up twice: as recorded turn by turn, and recomputed from tokens."""
-    recorded, recomputed = Decimal(0), Decimal(0)
+    recorded, recomputed, unconfirmed = Decimal(0), Decimal(0), Decimal(0)
     differing: list[str] = []
     unpriced = 0
     for key, turns in sorted(kept.items()):
         for index, turn in enumerate(turns, 1):
             if "error" in turn:
+                # No answer came back: it may still have been billed, at most this much.
+                unconfirmed += Decimal(str(turn.get("unconfirmed_usd", "0")))
                 continue
             cost = Decimal(str(turn.get("cost_usd", "0")))
             recorded += cost
@@ -65,6 +67,7 @@ def spend(kept: Transcripts) -> dict[str, Any]:
     return {
         "recorded_usd": recorded,
         "recomputed_usd": recomputed,
+        "unconfirmed_usd": unconfirmed,
         "differing": differing,
         "unpriced_turns": unpriced,
     }
@@ -88,6 +91,7 @@ def gate(
     model: str | None = None,
     versions: Mapping[str, str] | None = None,
     need_cache_read: bool = False,
+    complete: bool = False,
 ) -> dict[str, Any]:
     """Whether a stage's records are a measurement, and for a pilot whether the stage it
     precedes may start. ``reasons`` is empty exactly when ``pass`` is true.
@@ -98,7 +102,8 @@ def gate(
     cap, and a transcript exists for every run.
 
     A pilot, besides: every investigation answered, no turn missed a cached prefix, and (with
-    ``need_cache_read``) the cache was read at all.
+    ``need_cache_read``) the cache was read at all. With ``complete`` (a pilot, a held-out
+    stage): every investigation the stage was to run, ran.
     """
     reasons: list[str] = []
     if document.get("dry_run") is live:
@@ -111,6 +116,10 @@ def gate(
     runs = _runs(document)
     if not runs:
         reasons.append("no investigation was run")
+    summary = document.get("summary", {})
+    expected = summary.get("investigations_expected", summary.get("analyses_expected"))
+    if complete and expected is not None and len(runs) < expected:
+        reasons.append(f"{len(runs)} of the {expected} investigations it was to run ran")
     for key, _ in runs:
         if key not in kept:
             reasons.append(f"{key}: no transcript")
@@ -124,8 +133,9 @@ def gate(
     reasons += costs["differing"][:10]
     if live and costs["unpriced_turns"]:
         reasons.append(f"{costs['unpriced_turns']} turns were served by a model with no price")
-    if costs["recorded_usd"] > cap_usd:
-        reasons.append(f"spent {costs['recorded_usd']} USD, more than the {cap_usd} USD cap")
+    charged = costs["recorded_usd"] + costs["unconfirmed_usd"]
+    if charged > cap_usd:
+        reasons.append(f"spent up to {charged} USD, more than the {cap_usd} USD cap")
     misses = evaluation.cache_misses(kept)
     statuses = Counter(str(run["status"]) for _, run in runs)
     answered = sum(bool(run.get("answered")) for _, run in runs)

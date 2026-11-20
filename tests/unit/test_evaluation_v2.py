@@ -99,9 +99,23 @@ def test_what_a_model_can_read_of_a_heldout_case_says_nothing_about_it(case_id: 
         assert change not in text, "the change set's name is not in what a model reads"
         for telling in ("Sourced", "sourced", "fault", "incident", "wrong", "bug"):
             assert telling not in text, (name, telling)
+        # And no string says what the code does: a downgrade held one that named its fault.
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                assert "not restored" not in node.value, name
+                assert "not recoverable" not in node.value, name
+    # What the revision says outside the statement at fault does not name the cause: quoting
+    # the file is not an answer (a review found that it was, for five cases of eleven).
+    label = LABELS[case_id]
+    if label["kind"] == "fault":
+        lines = HELDOUT.changed(case_id)[evaluation.HELDOUT_REVISION].splitlines()
+        low, high = label["fault_lines"]
+        margin = evaluation.LOCATED_MARGIN
+        outside = lines[: max(0, low - 1 - margin)] + lines[high + margin :]
+        assert evaluation.named(label["rubric"], ["\n".join(outside)]) is False, case_id
 
 
-def test_blinding_removes_comments_and_docstrings_and_nothing_else() -> None:
+def test_blinding_removes_what_speaks_and_nothing_that_runs() -> None:
     source = (
         '"""Converts cents. The division is integer division: a fault."""\n'
         "\n"
@@ -112,9 +126,14 @@ def test_blinding_removes_comments_and_docstrings_and_nothing_else() -> None:
         '    """Run it."""\n'
         "    # integer / integer is integer division\n"
         '    op.execute("UPDATE t SET a = b / 100")  # loses the cents\n'
+        '    "a bare string in the middle of a body"\n'
         '    op.execute("""\n'
         "        SELECT 1  -- kept: it is inside the statement\n"
         '    """)\n'
+        "\n"
+        "\n"
+        "def downgrade() -> None:\n"
+        '    raise NotImplementedError("the original cents are not restored")\n'
     )
     assert evaluation.blind(source) == (
         "from alembic import op\n"
@@ -125,6 +144,10 @@ def test_blinding_removes_comments_and_docstrings_and_nothing_else() -> None:
         '    op.execute("""\n'
         "        SELECT 1  -- kept: it is inside the statement\n"
         '    """)\n'
+        "\n"
+        "\n"
+        "def downgrade() -> None:\n"
+        "    raise NotImplementedError\n"
     )
 
 
@@ -143,20 +166,54 @@ def test_every_heldout_fault_has_lines_and_they_hold_its_statement(case_id: str)
 @pytest.mark.parametrize("case_id", FAULTS)
 def test_the_rubric_passes_the_true_cause_and_fails_no_answer(case_id: str) -> None:
     label = LABELS[case_id]
-    assert evaluation.rubric(label["rubric"], [TRUE_CAUSES[case_id]]) is True
+    others = evaluation.other_rubrics(LABELS, case_id)
+    assert evaluation.named(label["rubric"], [TRUE_CAUSES[case_id]]) is True
+    assert evaluation.hedged([TRUE_CAUSES[case_id]], others) is False
     for empty in ("", "I could not determine the cause.", "The check failed with mismatches."):
-        assert evaluation.rubric(label["rubric"], [empty]) is False, empty
+        assert evaluation.named(label["rubric"], [empty]) is False, empty
     # A true cause of another case does not pass for this one, in all but a few pairs.
-    others = [
-        evaluation.rubric(label["rubric"], [text])
-        for c, text in TRUE_CAUSES.items()
-        if c != case_id
+    passing = [
+        evaluation.named(label["rubric"], [text]) for c, text in TRUE_CAUSES.items() if c != case_id
     ]
-    assert sum(bool(o) for o in others) <= 2, others
+    assert sum(bool(o) for o in passing) <= 2, passing
 
 
-def test_lines_are_located_only_when_stated_narrowly_and_on_the_statement() -> None:
-    fault = (22, 30)
+#: What a review wrote to break the graders: one answer, the same for every case, that names
+#: no cause and read nothing. It met A1 to A4 on every held-out fault.
+HEDGE = (
+    "I could not single out a cause. It might involve a float or a time zone, a join that "
+    "counts rows twice, a batch boundary, the scale of a column, a placeholder date, a WHERE "
+    "filter on free plans, column position, a NULL key inserted again, a naive timestamp, or "
+    "truncation. See lines 10-29."
+)
+
+
+@pytest.mark.parametrize("case_id", FAULTS)
+def test_an_answer_that_lists_every_cause_names_none_and_locates_nothing(case_id: str) -> None:
+    label = LABELS[case_id] | {"path": evaluation.HELDOUT_REVISION}
+    graded = evaluation.grade(
+        investigation("COMPLETED", [HEDGE]),
+        MEASURED,
+        label,
+        evaluation.other_rubrics(LABELS, case_id),
+    )
+    assert graded["answered"] is True
+    assert graded["hedged"] is True
+    assert graded["root_cause"] is False
+    assert graded["located"] is False
+
+
+def test_a_term_matches_the_start_of_a_word_only() -> None:
+    assert evaluation.named([["round"]], ["The amounts are rounded down."]) is True
+    for text in ("A forecast.", "Restricted.", "Somewhere."):
+        assert evaluation.named([["cast", "strict", "where"]], [text]) is False, text
+    # A prefix is still a prefix: "against" starts with "again". The proxy stays a proxy.
+    assert evaluation.named([["again"]], ["Against the ledger."]) is True
+    assert evaluation.named(None, ["anything"]) is None
+
+
+def test_lines_are_located_only_within_the_statement_of_the_changed_file() -> None:
+    fault, path = (22, 30), "migrations/versions/0002_change.py"
     assert evaluation.stated_ranges("see lines 22-30 and line 41; also 0002_change.py:25") == [
         (22, 30),
         (41, 41),
@@ -167,12 +224,21 @@ def test_lines_are_located_only_when_stated_narrowly_and_on_the_statement() -> N
         (5, 9),
         (12, 14),
     ]
-    assert evaluation.located(["The UPDATE at lines 24-27 divides integers."], fault) is True
-    assert evaluation.located(["migrations/versions/0002_change.py:30"], fault) is True
-    assert evaluation.located(["The file, lines 1-200, is at fault."], fault) is False
-    assert evaluation.located(["The ALTER at lines 5-9."], fault) is False
-    assert evaluation.located(["The division loses 1999 cents on 187 invoices."], fault) is False
-    assert evaluation.located(["lines 24-27"], None) is None
+    # "and" joins two things, not the ends of a range.
+    assert evaluation.stated_ranges("line 20 and 187 invoices") == [(20, 20)]
+    assert evaluation.located(["The UPDATE at lines 24-27 divides integers."], fault, path)
+    assert evaluation.located(["migrations/versions/0002_change.py:30"], fault, path)
+    assert evaluation.located(["The call at lines 20-31 wraps it."], fault, path), "a margin"
+    for wrong in (
+        "The file, lines 1-200, is at fault.",
+        "The ALTER at lines 5-9.",
+        "The division loses 1999 cents on 187 invoices.",
+        "Lines 10-29 hold it.",  # overlaps, but is not the statement
+        "In 0001_base.py, lines 24-27 define the table.",  # another file
+        "I read lines 1-20, lines 21-40, lines 41-60, lines 61-80 and lines 24-25.",  # a list
+    ):
+        assert evaluation.located([wrong], fault, path) is False, wrong
+    assert evaluation.located(["lines 24-27"], None, path) is None
 
 
 def test_the_wilson_interval_is_honest_at_small_counts() -> None:
@@ -187,9 +253,12 @@ def test_the_wilson_interval_is_honest_at_small_counts() -> None:
     assert round(high, 2) == 0.26
 
 
-def test_the_development_set_is_new_instances_of_the_first_evaluations_templates(
+def test_the_development_set_is_the_first_evaluations_templates_under_new_names(
     tmp_path: Path,
 ) -> None:
+    """Not new cases: the same generator with another seed, and a review found 22 of its 31
+    migrations identical to a first-evaluation case but for the revision ID. That is why it is
+    for development only, and the held-out set, another schema, is the result."""
     dev = evaluation.DevSet(tmp_path)
     labels = dev.labels()
     assert dev.seed != CORPUS_SEED
@@ -240,12 +309,13 @@ def test_a_dry_run_now_meets_a_live_turns_price() -> None:
     assert PRICES[ablation.MODEL][1] == ablation.OUTPUT_USD_PER_MILLION
     assert Decimal("0.16") == ablation.DRY_RUN_CEILING_USD
     turns = ablation.MIN_TURNS_COVERED
-    # The second evaluation's caps hold two worst-case turns of output alone.
-    assert ablation.DRY_RUN_CEILING_USD * turns <= ablation.CASE_CAP_USD
+    # The second evaluation's caps hold two worst-case turns of output alone, and an
+    # investigation starts only when what it can be given holds them too.
+    assert ablation.DRY_RUN_CEILING_USD * turns <= evaluation.INVESTIGATION_START_USD
     analyst_turn = (
         ablation.DRY_RUN_CEILING_USD * evaluation.ANALYST_MAX_TOKENS / ablation.MAX_TOKENS
     )
-    assert analyst_turn * turns <= evaluation.ANALYST_CASE_CAP_USD
+    assert analyst_turn * turns <= evaluation.ANALYSIS_START_USD
     # The first evaluation's analyst cap does not hold one, which a dry run would now show.
     assert ablation.DRY_RUN_CEILING_USD > change_analysis.CASE_CAP_USD
     # At the first evaluation's cap even the analyst's smaller turn is refused: 2 x 0.08 > 0.15.
@@ -258,8 +328,12 @@ def test_a_dry_run_now_meets_a_live_turns_price() -> None:
 def investigation(status: str, statements: list[str]) -> dict[str, Any]:
     return {
         "status": status,
-        "hypotheses": [{"statement": s, "confidence": "MEDIUM"} for s in statements],
+        "hypotheses": [
+            {"statement": s, "confidence": "MEDIUM", "cited_evidence_ids": ["x"]}
+            for s in statements
+        ],
         "suggested_action": None,
+        "caveat": "c" if status == "COMPLETED" else None,
         "tool_calls": [],
         "failure": None if status == "COMPLETED" else "stopped",
         "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": "0", "latency_ms": 0},
@@ -274,15 +348,17 @@ def test_an_investigation_that_gave_no_answer_is_not_graded_as_a_wrong_one() -> 
     label = LABELS["held-14"]
     stopped = evaluation.grade(investigation("BUDGET_EXHAUSTED", []), MEASURED, label)
     assert stopped["answered"] is False
-    assert (stopped["root_cause"], stopped["root_cause_first"], stopped["located"]) == (
-        None,
-        None,
-        None,
-    )
+    assert (stopped["root_cause"], stopped["located"], stopped["answer"]) == (None, None, None)
     start, end = label["fault_lines"]
     right = f"The UPDATE at lines {start}-{end} is integer division, which truncates the cents."
     answered = evaluation.grade(investigation("COMPLETED", [right]), MEASURED, label)
     assert (answered["answered"], answered["root_cause"], answered["located"]) == (True,) * 3
+    assert answered["answer"]["hypotheses"][0]["statement"] == right, "the whole answer is kept"
+    # The cause is graded on the first hypothesis: a list that gets to it last has not said it.
+    later = evaluation.grade(
+        investigation("COMPLETED", ["A time zone shifted it.", right]), MEASURED, label
+    )
+    assert later["root_cause"] is False
     wrong = evaluation.grade(
         investigation("COMPLETED", ["A time zone shifted it."]), MEASURED, label
     )
@@ -301,6 +377,7 @@ def test_an_analysis_that_sent_no_turn_is_not_a_score() -> None:
         graded = evaluation.grade_analysis(silent, label, turns=0, measured=None)
         assert graded["called"] is False
         assert (graded["answered"], graded["alarmed"], graded["anticipated"]) == (False, None, None)
+        assert graded["flagged"] is None
     # The rules call no model, and matching nothing is their answer: no alarm.
     quiet = investigation(InvestigationStatus.NOT_AVAILABLE.value, [])
     graded = evaluation.grade_analysis(quiet, clean, turns=None, measured=None)
@@ -312,6 +389,12 @@ def test_an_analysis_that_sent_no_turn_is_not_a_score() -> None:
     medium = investigation("COMPLETED", ["The division may truncate."])
     assert evaluation.grade_analysis(medium, clean, turns=2, measured=None)["alarmed"] is True
     assert evaluation.grade_analysis(medium, fault, turns=2, measured=None)["anticipated"] is True
+    # Flagged means pointing at the faulty statement: what a rule can do too, in its words.
+    start, end = fault["fault_lines"]
+    pointed = investigation("COMPLETED", [f"0002_change.py:{start}-{end}: integer division."])
+    graded = evaluation.grade_analysis(pointed, fault, turns=2, measured=None)
+    assert graded["flagged"] is True
+    assert evaluation.grade_analysis(medium, fault, turns=2, measured=None)["flagged"] is False
 
 
 def test_a_dry_run_analyzes_every_heldout_case_without_a_database() -> None:
@@ -329,7 +412,11 @@ def test_a_dry_run_analyzes_every_heldout_case_without_a_database() -> None:
     assert summary["model"]["cost_usd"] == "0"
     assert summary["rules"]["analyses"] == 14
     assert summary["rules"]["answered"]["n"] == 14
+    assert (summary["analyses_expected"], summary["analyses_run"]) == (14, 14)
+    assert document["prompt_version"] == "change-analyst/3"
     assert len(evaluation.analysis_transcripts(rows)) == 14
+    # The report of an analyst stage is written (it used to fail on a missing key).
+    assert "Faults flagged at the faulty statement" in evaluation.analysis_report(document)
     for row in rows:
         (run,) = row["runs"]
         assert run["analysis"]["status"] == "COMPLETED", run["analysis"]["failure"]
@@ -339,14 +426,16 @@ def test_a_dry_run_analyzes_every_heldout_case_without_a_database() -> None:
 def test_a_stage_whose_plumbing_failed_is_not_a_measurement() -> None:
     pinned = "anthropic:claude-opus-5-5"
     good: list[dict[str, Any]] = [
-        {"served_by": pinned, "cache_read_tokens": 0},
-        {"served_by": pinned, "cache_read_tokens": 2136},
+        {"served_by": pinned, "cache_write_tokens": 2136, "cache_read_tokens": 0},
+        {"served_by": pinned, "cache_write_tokens": 100, "cache_read_tokens": 2136},
     ]
     assert evaluation.health({"held-14.rep1": good}, pinned) == []
+    assert evaluation.cache_misses({"held-14.rep1": good}) == []
     # A dry run has no pinned model and no cache to read.
     assert (
         evaluation.health({"held-14.rep1": [{"served_by": None}, {"served_by": None}]}, None) == []
     )
+    unreachable = {"content": '{"failed": "the candidate database could not be asked just now."}'}
     kept: dict[str, list[dict[str, Any]]] = {
         "held-02.rep1": [],
         "held-03.rep1": [
@@ -355,10 +444,17 @@ def test_a_stage_whose_plumbing_failed_is_not_a_measurement() -> None:
         ],
         "held-05.rep1": [good[0], {"served_by": pinned, "cache_read_tokens": 0}],
         "held-06.rep1": [{"error": "APIStatusError: overloaded"}],
+        "held-07.rep1": [good[0], {"served_by": pinned, "tool_results": [unreachable]}],
     }
     assert evaluation.health(kept, pinned) == [
         "held-02.rep1: no request was sent",
         "held-03.rep1 turn 2: served by anthropic:claude-opus-4-8",
-        "held-05.rep1 turn 2: nothing was read from the cache",
         "held-06.rep1 turn 1: APIStatusError: overloaded",
+        "held-07.rep1 turn 2: a tool could not reach its database",
     ]
+    # A cached prefix that was not read is a miss; a prompt too short to cache is not.
+    assert evaluation.cache_misses(kept) == [
+        "held-05.rep1 turn 2: nothing was read from the cache, where turn 1 left 2136 tokens",
+        "held-07.rep1 turn 2: nothing was read from the cache, where turn 1 left 2136 tokens",
+    ]
+    assert evaluation.cache_misses({"x": [{"cache_write_tokens": 0}, {}]}) == []

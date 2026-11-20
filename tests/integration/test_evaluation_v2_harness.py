@@ -46,14 +46,18 @@ def test_a_dry_run_investigates_the_fault_and_skips_the_clean_control(postgres_d
     for run in fault["runs"]:
         assert run["status"] == "COMPLETED", run["failure"]
         assert (run["answered"], run["root_cause"], run["located"]) == (True, False, False)
-        assert (run["valid_citations"], run["citations"]) == (1, 1)
-        assert run["turns"] == 2
+        # The dry run does what a live investigator is asked to: the briefing, the change.
+        assert run["tool_calls"] == {"OK": 2}
+        assert (run["valid_citations"], run["citations"]) == (2, 2)
+        assert run["turns"] == 3
     assert fault["model"] == {"answered": True, "root_cause": False, "located": False}
     assert evaluation.uncalled(document) == []
     assert sorted(evaluation.transcripts(rows)) == [f"{FAULT}.rep1", f"{FAULT}.rep2"]
 
     summary = document["summary"]
     assert (summary["cases"], summary["investigated"]) == (2, 1)
+    assert (summary["investigations_expected"], summary["investigations_run"]) == (2, 2)
+    assert document["provenance"]["labels_sha256"] is not None
     assert summary["model"]["answered"] == {"n": 2, "of": 2, "wilson_95": [0.342, 1.0]}
     assert summary["by_case"]["rules_only"] == 1
     report = evaluation.report(document)
@@ -93,10 +97,10 @@ def test_the_graders_pass_a_true_answer_given_through_the_real_tools(postgres_ds
     (case,) = evaluation.scored(rows, cases.labels())
     (run,) = case["runs"]
     assert run["status"] == "COMPLETED", run["failure"]
-    assert (run["answered"], run["root_cause"], run["root_cause_first"], run["located"]) == (
+    assert (run["answered"], run["root_cause"], run["hedged"], run["located"]) == (
         True,
         True,
-        True,
+        False,
         True,
     )
     assert (run["valid_citations"], run["citations"]) == (2, 2)
@@ -108,14 +112,15 @@ def test_the_graders_pass_a_true_answer_given_through_the_real_tools(postgres_ds
     assert [c["path"] for c in briefing["changed_files"]] == [evaluation.HELDOUT_REVISION]
     assert "invoices" in briefing["tables"]["CANDIDATE"]
     source = json.loads(seen["model"].received[2][0].content)["data"]
-    statement = " ".join(source["lines"][str(n)] for n in range(start, end + 1))
+    statement = " ".join(text for number, text in source["lines"] if start <= number <= end)
     assert "subtotal_cents / 100" in statement
     assert "integer division" not in json.dumps(source), "the revision's comment is not readable"
 
 
 def test_a_cap_no_turn_could_meet_stops_the_run_before_it_starts(postgres_dsn: str) -> None:
     def costly() -> InvestigatorModel:
-        return ScriptedModel([answer("{}")], turn_ceiling_usd=Decimal("0.30"))
+        # Two such turns are more than an investigation's cap of 1.00 USD.
+        return ScriptedModel([answer("{}")], turn_ceiling_usd=Decimal("0.60"))
 
     with pytest.raises(SystemExit, match="cannot work"):
         evaluation.investigate(
@@ -159,4 +164,4 @@ def test_the_stop_rule_starts_no_investigation_after_too_many_gave_no_answer(
     model = document["summary"]["model"]
     assert (model["answered"]["n"], model["answered"]["of"]) == (0, 1)
     assert model["root_cause_of_answered"]["wilson_95"] is None
-    assert "No answer: no answer: it was told its budget was spent" in evaluation.report(document)
+    assert "No answer: no answer: it was asked for its answer twice" in evaluation.report(document)
