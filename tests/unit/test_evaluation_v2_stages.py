@@ -374,7 +374,7 @@ def state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[launcher.
     yield launcher.State(tmp_path / "state")
     for path in (tmp_path / "state").rglob("*"):
         if path.is_file():
-            path.chmod(stat.S_IWRITE)
+            path.chmod(stat.S_IREAD | stat.S_IWRITE)
 
 
 def attempt(
@@ -469,7 +469,7 @@ def test_a_record_changed_after_its_seal_is_found(state: launcher.State) -> None
     assert problems == []
     assert "dev-pilot" in text
     target = made.journal / "case-1.rep1.run.json"
-    target.chmod(stat.S_IWRITE)
+    target.chmod(stat.S_IREAD | stat.S_IWRITE)
     target.write_text("{}", "utf-8")
     (made.folder / "added.txt").write_text("x", "utf-8")
     _, problems = launcher.status(state)
@@ -501,3 +501,45 @@ def test_a_paid_stage_is_refused_without_a_key_or_the_exact_approval(
     with pytest.raises(launcher.Refused, match=r"would be given 1.00 USD; --approve said 2"):
         launcher.run(state, "dev-pilot", Decimal(2), "dsn", "sk-ant-not-a-real-key")
     assert state.attempts() == [], "nothing was started"
+
+
+def models_api(status: int, body: dict[str, Any]) -> Any:
+    import anthropic
+    import httpx2
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        assert request.method == "GET", "the check sends nothing billed"
+        assert request.url.path.startswith("/v1/models/")
+        return httpx2.Response(status, json=body)
+
+    return anthropic.Anthropic(
+        api_key="test-key-not-real",
+        max_retries=0,
+        http_client=anthropic.DefaultHttpxClient(transport=httpx2.MockTransport(handle)),
+    )
+
+
+def model_info(model_id: str) -> dict[str, Any]:
+    return {
+        "type": "model",
+        "id": model_id,
+        "display_name": "x",
+        "created_at": "2026-01-01T00:00:00Z",
+    }
+
+
+def test_the_key_and_the_model_are_checked_at_no_cost_before_anything_is_billed() -> None:
+    model = "claude-opus-5-5"
+    launcher.preflight("k", model, models_api(200, model_info(model)))
+    launcher.preflight("k", model, models_api(200, model_info(f"{model}-20261001")))
+    with pytest.raises(launcher.Refused, match="named claude-opus-5"):
+        launcher.preflight("k", model, models_api(200, model_info("claude-opus-5")))
+    error = {
+        "type": "error",
+        "error": {"type": "authentication_error", "message": "invalid x-api-key"},
+    }
+    with pytest.raises(launcher.Refused, match="the key was not accepted"):
+        launcher.preflight("k", model, models_api(401, error))
+    missing = {"type": "error", "error": {"type": "not_found_error", "message": "model: x"}}
+    with pytest.raises(launcher.Refused, match="is not served to this key"):
+        launcher.preflight("k", model, models_api(404, missing))

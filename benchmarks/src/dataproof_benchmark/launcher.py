@@ -478,12 +478,12 @@ def projection(state: State, plan: Plan) -> dict[str, Any] | None:
     }
 
 
-def preflight(key: str, model: str) -> None:
+def preflight(key: str, model: str, client: Any = None) -> None:
     """Whether the key works and the pinned model is served to it, asked at no cost (the
     models endpoint is not billed). A paid request is never the first thing that fails."""
     import anthropic
 
-    client = anthropic.Anthropic(api_key=key, max_retries=0, timeout=30)
+    client = client or anthropic.Anthropic(api_key=key, max_retries=0, timeout=30)
     try:
         found = client.models.retrieve(model)
     except anthropic.AuthenticationError as exc:
@@ -492,7 +492,9 @@ def preflight(key: str, model: str) -> None:
         raise Refused(f"{model} is not served to this key: nothing was spent") from exc
     except anthropic.APIError as exc:
         raise Refused(f"the provider could not be asked ({type(exc).__name__})") from exc
-    if found.id != model:
+    # The endpoint may name a dated snapshot of the model; a turn served by anything but the
+    # pinned name still fails the stage's gate.
+    if found.id != model and not found.id.startswith(f"{model}-"):
         raise Refused(f"asked for {model}, the provider named {found.id}")
 
 
@@ -877,7 +879,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if state.root.is_dir():
             for path in state.root.rglob("*"):
                 if path.is_file():
-                    path.chmod(stat.S_IWRITE)
+                    path.chmod(stat.S_IREAD | stat.S_IWRITE)
             shutil.rmtree(state.root)
         return 0
     except Refused as refused:
