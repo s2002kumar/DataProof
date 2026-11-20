@@ -686,7 +686,8 @@ def test_a_removed_stage_or_a_rewritten_seal_is_found(state: launcher.State) -> 
     seal.write_text(json.dumps(rewritten), "utf-8")
     assert any("seals do not match" in p for p in launcher.status(state)[1])
     for path in last.folder.rglob("*"):
-        path.chmod(stat.S_IREAD | stat.S_IWRITE)
+        if path.is_file():  # a directory needs its execute bit to be entered, on Linux
+            path.chmod(stat.S_IREAD | stat.S_IWRITE)
     import shutil
 
     shutil.rmtree(last.folder)
