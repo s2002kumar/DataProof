@@ -172,8 +172,10 @@ def require_feasible_cap(investigator: Investigator, context: ToolContext, cap: 
         )
 
 
-TRANSCRIPT_RESULT_CHARS = 2000
-"""Tool results are kept in a transcript up to this length, with the full result's hash."""
+TRANSCRIPT_RESULT_CHARS = 16000
+"""Tool results are kept in a transcript up to this length, with the full result's hash. The
+first evaluation kept 2,000 characters; a briefing is longer, and a reader of a transcript
+needs to see what the model saw."""
 
 
 @dataclass
@@ -187,10 +189,19 @@ class Recorder:
     model: InvestigatorModel
     turns: list[dict[str, Any]] = field(default_factory=list)
     results: list[ToolResult] = field(default_factory=list)
+    on_turn: Callable[[Mapping[str, Any]], None] | None = None
+    """Called with each turn's record as soon as it exists, a failed request's included: a
+    paid stage writes it to disk then, so that what was spent is known even if the process
+    ends before the investigation does."""
     name: str = field(init=False)
 
     def __post_init__(self) -> None:
         self.name = self.model.name
+
+    def keep(self, turn: dict[str, Any]) -> None:
+        self.turns.append(turn)
+        if self.on_turn is not None:
+            self.on_turn(turn)
 
     def open(
         self,
@@ -254,9 +265,9 @@ class _RecordingSession:
             else:
                 turn = self._session.send(tool_results, notice)
         except Exception as exc:
-            self._recorder.turns.append(sent | {"error": f"{type(exc).__name__}: {exc}"})
+            self._recorder.keep(sent | {"error": f"{type(exc).__name__}: {exc}"})
             raise
-        self._recorder.turns.append(
+        self._recorder.keep(
             sent
             | {
                 "stop": turn.stop,

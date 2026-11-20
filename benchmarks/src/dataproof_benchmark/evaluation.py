@@ -39,7 +39,8 @@ import tokenize
 import uuid
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Protocol
@@ -59,7 +60,9 @@ from dataproof_contracts import (
     Confidence,
     DataContract,
     Environment,
+    Investigation,
     InvestigationStatus,
+    InvestigationUsage,
 )
 from dataproof_investigator import (
     Budget,
@@ -104,6 +107,194 @@ ANALYST_BUDGET = Budget(max_tool_calls=8, max_turns=10, max_cost_usd=ANALYST_CAS
 
 ModelFactory = Callable[[], InvestigatorModel]
 STOPPED = "the stop rule: too many investigations gave no answer"
+HALTED = "halted: an earlier investigation of this stage showed a fault in the plumbing"
+INTERRUPTED = (
+    "interrupted: the process ended before the investigation did. It was started, so it is "
+    "counted as it stands and is not sent again"
+)
+
+
+# A stage's records, as they happen -------------------------------------------------------------
+
+
+class Journal:
+    """A stage's records on disk as they happen, each file created once and never rewritten.
+
+    ``<key>.turns.jsonl`` gets a line when an investigation starts, and one for each turn as
+    soon as the turn's record exists, a failed request's included. ``<key>.run.json`` is
+    written when the investigation has ended. So what a stage spent is on disk even if its
+    process dies; the first evaluation wrote everything at the end of a stage, and a crash
+    would have left its spend unknown.
+
+    A stage taken up again from the same journal starts only what was never started. An
+    investigation with a turns file and no run record was interrupted: it is counted as it
+    stands, unanswered, and never sent again.
+    """
+
+    def __init__(self, folder: Path) -> None:
+        self.folder = folder
+        folder.mkdir(parents=True, exist_ok=True)
+
+    def _turns(self, key: str) -> Path:
+        return self.folder / f"{key}.turns.jsonl"
+
+    def _run(self, key: str) -> Path:
+        return self.folder / f"{key}.run.json"
+
+    def finished(self, key: str) -> dict[str, Any] | None:
+        """The record of an investigation that ended, or None."""
+        path = self._run(key)
+        if not path.is_file():
+            return None
+        loaded: dict[str, Any] = json.loads(path.read_text("utf-8"))
+        return loaded
+
+    def interrupted(self, key: str) -> list[dict[str, Any]] | None:
+        """The turns of an investigation that started and never ended, or None."""
+        path = self._turns(key)
+        if not path.is_file() or self._run(key).is_file():
+            return None
+        turns = []
+        for line in path.read_text("utf-8").splitlines()[1:]:
+            try:
+                turns.append(json.loads(line))
+            except json.JSONDecodeError:  # a line cut off as the process died
+                turns.append({"error": "a turn's record was cut off as the process ended"})
+        return turns
+
+    def start(self, key: str) -> Callable[[Mapping[str, Any]], None]:
+        """Mark an investigation started, which it must not have been, and return the
+        function that writes each of its turns."""
+        path = self._turns(key)
+        with path.open("x", encoding="utf-8", newline="\n") as file:
+            file.write(json.dumps({"started": key, "at": datetime.now(UTC).isoformat()}) + "\n")
+
+        def write(turn: Mapping[str, Any]) -> None:
+            with path.open("a", encoding="utf-8", newline="\n") as file:
+                file.write(json.dumps(turn, default=str) + "\n")
+                file.flush()
+                os.fsync(file.fileno())
+
+        return write
+
+    def finish(self, key: str, run: Mapping[str, Any]) -> None:
+        with self._run(key).open("x", encoding="utf-8", newline="\n") as file:
+            file.write(json.dumps(run, indent=2, default=str) + "\n")
+            file.flush()
+            os.fsync(file.fileno())
+
+
+@dataclass
+class _Stage:
+    """What a stage counts while it runs, and the rules that stop it starting another
+    investigation. ``record`` is where a run keeps its result: an investigation or an analysis."""
+
+    record: str
+    budget_usd: Decimal
+    cap: Decimal
+    journal: Journal | None = None
+    served_by: str | None = None
+    """The pinned model of a live stage: a turn another model served halts the stage."""
+    stop_after_unanswered: int | None = None
+    spent: Decimal = Decimal(0)
+    unanswered: int = 0
+    halted: str | None = None
+    counted: int = 0
+
+    def blocked(self) -> str | None:
+        """Why the next investigation is not started, or None."""
+        if self.halted is not None:
+            return f"{HALTED}: {self.halted}"
+        if self.budget_usd - self.spent < self.cap:
+            return "the budget left cannot cover it"
+        if self.stop_after_unanswered is not None and self.unanswered >= self.stop_after_unanswered:
+            return STOPPED
+        return None
+
+    def kept(self, key: str, rep: int, interrupted: Investigation) -> dict[str, Any] | None:
+        """The record of an investigation that a run of this stage already started, which this
+        one continues: it is counted, and nothing is sent. ``interrupted`` is the record it
+        gets if it never ended. None if it was never started."""
+        if self.journal is None:
+            return None
+        run = self.journal.finished(key)
+        if run is None:
+            turns = self.journal.interrupted(key)
+            if turns is None:
+                return None
+            investigation = _with_usage(interrupted, turns)
+            run = {
+                "rep": rep,
+                self.record: investigation.model_dump(mode="json"),
+                "measures": measures(investigation, {}, "") | _turn_measures(turns),
+                "transcript": turns,
+                "interrupted": True,
+            }
+            self.journal.finish(key, run)
+        self.count(key, run, check=False)
+        return run
+
+    def count(self, key: str, run: Mapping[str, Any], *, check: bool = True) -> None:
+        """Count a finished run: its cost, whether it answered, and whether it shows a fault in
+        the plumbing that must stop the stage (not for a run kept from before: taking the
+        stage up again was a decision made knowing of it)."""
+        record = run[self.record]
+        self.counted += 1
+        self.spent += Decimal(record["usage"]["cost_usd"])
+        self.unanswered += record["status"] != InvestigationStatus.COMPLETED.value
+        if check and self.halted is None:
+            problems = health({key: run["transcript"]}, self.served_by)
+            self.halted = problems[0] if problems else None
+        say(
+            f"[{self.counted}] {key}: {record['status']}, {len(run['transcript'])} turns, "
+            f"{len(record['tool_calls'])} tool calls, {record['usage']['cost_usd']} USD, "
+            f"{record['usage']['latency_ms'] / 1000:.1f} s; the stage has spent {self.spent} "
+            f"of {self.budget_usd} USD" + (" (kept from before)" if not check else "")
+        )
+
+
+def say(text: str) -> None:
+    """A line of progress, flushed: a paid stage is watched while it runs."""
+    print(text, flush=True)
+
+
+def _turn_measures(turns: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    return {
+        "latency_ms": sum(int(t.get("latency_ms", 0)) for t in turns),
+        "cache_write_tokens": sum(int(t.get("cache_write_tokens", 0)) for t in turns),
+        "cache_read_tokens": sum(int(t.get("cache_read_tokens", 0)) for t in turns),
+        "turns": len(turns),
+    }
+
+
+def _with_usage(investigation: Investigation, turns: Sequence[Mapping[str, Any]]) -> Investigation:
+    """An interrupted investigation's record with what its recorded turns used."""
+    usage = InvestigationUsage(
+        input_tokens=sum(int(t.get("input_tokens", 0)) for t in turns),
+        output_tokens=sum(int(t.get("output_tokens", 0)) for t in turns),
+        cost_usd=sum((Decimal(str(t.get("cost_usd", "0"))) for t in turns), Decimal(0)),
+        latency_ms=sum(int(t.get("latency_ms", 0)) for t in turns),
+    )
+    return investigation.model_copy(update={"usage": usage})
+
+
+def _interrupted(investigator: Investigator, run_id: uuid.UUID) -> Investigation:
+    from dataproof_investigator import TOOL_VERSION
+
+    now = datetime.now(UTC)
+    return Investigation(
+        investigation_id=uuid.uuid4(),
+        run_id=run_id,
+        role=investigator.role,
+        status=InvestigationStatus.NOT_AVAILABLE,
+        model=investigator.model.name,
+        prompt_version=investigator.prompt_version,
+        tool_version=TOOL_VERSION,
+        failure=INTERRUPTED,
+        usage=InvestigationUsage(cost_usd=Decimal(0), latency_ms=0),
+        started_at=now,
+        finished_at=now,
+    )
 
 
 # Blinding and line ranges ----------------------------------------------------------------------
@@ -494,23 +685,35 @@ def investigate(
     *,
     reps: int = 1,
     case_ids: Sequence[str] | None = None,
+    skip: Sequence[str] = (),
     budget: Budget = ablation.BUDGET,
     stop_after_unanswered: int | None = None,
+    journal: Journal | None = None,
+    served_by: str | None = None,
 ) -> list[dict[str, Any]]:
     """Investigate every failing case ``reps`` times; labels are not read here.
 
     ``stop_after_unanswered`` is the stop rule: once that many investigations have given no
-    answer, no further one is started. It needs no label: answering is not a label.
+    answer, no further one is started. It needs no label: answering is not a label. A fault
+    in the plumbing (no request sent, a failed request, a turn ``served_by`` did not serve)
+    stops the stage at once. With a ``journal`` every turn is on disk as it happens, and what
+    the journal already holds is counted and not sent again.
     """
-    unanswered = 0
     rows: list[dict[str, Any]] = []
-    spent = Decimal(0)
     cap = budget.max_cost_usd or ablation.CASE_CAP_USD
+    stage = _Stage(
+        "investigation",
+        budget_usd,
+        cap,
+        journal=journal,
+        served_by=served_by,
+        stop_after_unanswered=stop_after_unanswered,
+    )
     checked = False
     with reader(admin_dsn) as as_reader, databases(admin_dsn) as new_database:
         reference_dsn = cases.reference(new_database)
         for case_id in cases.case_ids():
-            if case_ids and case_id not in case_ids:
+            if (case_ids and case_id not in case_ids) or case_id in skip:
                 continue
             row: dict[str, Any] = {"case_id": case_id, "rules": None, "runs": [], "skipped": None}
             rows.append(row)
@@ -545,37 +748,42 @@ def investigate(
                 changed_paths=tuple(cases.changed(case_id)),
             )
             for rep in range(1, reps + 1):
-                if budget_usd - spent < cap:
-                    row["runs"].append({"rep": rep, "skipped": "the budget left cannot cover it"})
-                    continue
-                if stop_after_unanswered is not None and unanswered >= stop_after_unanswered:
-                    row["runs"].append({"rep": rep, "skipped": STOPPED})
-                    continue
+                key = f"{case_id}.rep{rep}"
                 recorder = Recorder(model_for())
                 investigator = Investigator(recorder, budget)
+                kept = stage.kept(key, rep, _interrupted(investigator, run_id))
+                if kept is not None:
+                    row["runs"].append(kept)
+                    continue
+                blocked = stage.blocked()
+                if blocked is not None:
+                    row["runs"].append({"rep": rep, "skipped": blocked})
+                    continue
                 if not checked:
                     ablation.require_feasible_cap(investigator, context, cap)
                     checked = True
+                if journal is not None:
+                    recorder.on_turn = journal.start(key)
                 investigation = investigator.investigate(run_id, context)
                 texts = evidence_texts(checks, evidence, recorder.tool_evidence())
                 written, read = recorder.cache_tokens()
                 measured = measures(investigation, texts, recorder.final_text() or "")
-                row["runs"].append(
-                    {
-                        "rep": rep,
-                        "investigation": investigation.model_dump(mode="json"),
-                        "measures": measured
-                        | {
-                            "latency_ms": investigation.usage.latency_ms,
-                            "cache_write_tokens": written,
-                            "cache_read_tokens": read,
-                            "turns": len(recorder.turns),
-                        },
-                        "transcript": recorder.turns,
-                    }
-                )
-                spent += investigation.usage.cost_usd
-                unanswered += investigation.status is not InvestigationStatus.COMPLETED
+                run = {
+                    "rep": rep,
+                    "investigation": investigation.model_dump(mode="json"),
+                    "measures": measured
+                    | {
+                        "latency_ms": investigation.usage.latency_ms,
+                        "cache_write_tokens": written,
+                        "cache_read_tokens": read,
+                        "turns": len(recorder.turns),
+                    },
+                    "transcript": recorder.turns,
+                }
+                if journal is not None:
+                    journal.finish(key, run)
+                row["runs"].append(run)
+                stage.count(key, run)
     return rows
 
 
@@ -776,18 +984,29 @@ def transcripts(rows: Sequence[Mapping[str, Any]]) -> dict[str, list[dict[str, A
     }
 
 
+def not_started(document: Mapping[str, Any], reason: str) -> list[str]:
+    """The investigations a stage did not start for ``reason`` (``STOPPED``, ``HALTED``, or
+    the budget), as ``case rep``."""
+    return [
+        f"{case['case_id']} rep {run['rep']}"
+        for case in document["cases"]
+        for run in case["not_run"]
+        if str(run.get("skipped", "")).startswith(reason)
+    ]
+
+
 def stopped(document: Mapping[str, Any]) -> bool:
     """Whether the stop rule ended the stage before every investigation ran."""
-    return any(run["skipped"] == STOPPED for case in document["cases"] for run in case["not_run"])
+    return bool(not_started(document, STOPPED))
 
 
 def health(kept: Mapping[str, Sequence[Mapping[str, Any]]], served_by: str | None) -> list[str]:
-    """What is wrong with a stage's plumbing, from its transcripts; empty when nothing is.
+    """Faults in a stage's plumbing, from its transcripts; empty when there is none.
 
-    A run that sent no request, an API error, and, for a live run (``served_by`` is the
-    pinned model), a turn another model served or a later turn that read nothing from the
-    cache. The first evaluation's gate checked spend and errors, and passed a stage in which
-    no request was sent.
+    A run that sent no request, a request that failed, and, for a live run (``served_by`` is
+    the pinned model), a turn another model served. A stage stops at the first: the rest of
+    its budget would buy nothing that could be reported. The first evaluation's gate checked
+    spend and errors, and passed a stage in which no request was sent.
     """
     problems = []
     for key, turns in sorted(kept.items()):
@@ -798,9 +1017,28 @@ def health(kept: Mapping[str, Sequence[Mapping[str, Any]]], served_by: str | Non
                 problems.append(f"{key} turn {index}: {str(turn['error'])[:200]}")
             elif served_by is not None and turn.get("served_by") != served_by:
                 problems.append(f"{key} turn {index}: served by {turn.get('served_by')}")
-            elif served_by is not None and index > 1 and not turn.get("cache_read_tokens"):
-                problems.append(f"{key} turn {index}: nothing was read from the cache")
     return problems
+
+
+def cache_misses(kept: Mapping[str, Sequence[Mapping[str, Any]]]) -> list[str]:
+    """Turns that read nothing from the prompt cache although the turn before left a prefix
+    in it. A prompt shorter than the model's minimum is never cached, and that is not a miss:
+    only a prefix that was written or read, and then not read, is."""
+    misses = []
+    for key, turns in sorted(kept.items()):
+        for index in range(1, len(turns)):
+            before, turn = turns[index - 1], turns[index]
+            if "error" in before or "error" in turn:
+                continue
+            cached = int(before.get("cache_write_tokens", 0)) + int(
+                before.get("cache_read_tokens", 0)
+            )
+            if cached and not turn.get("cache_read_tokens"):
+                misses.append(
+                    f"{key} turn {index + 1}: nothing was read from the cache, where turn "
+                    f"{index} left {cached} tokens"
+                )
+    return misses
 
 
 def uncalled(document: Mapping[str, Any]) -> list[str]:
@@ -937,12 +1175,23 @@ def analyze(
     budget_usd: Decimal,
     *,
     reps: int = 1,
+    case_ids: Sequence[str] | None = None,
+    skip: Sequence[str] = (),
+    journal: Journal | None = None,
+    served_by: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Analyze every case's change before anything runs; labels are not read here."""
+    """Analyze every case's change before anything runs; labels are not read here.
+
+    The stage stops, and keeps its records, as ``investigate`` does.
+    """
     rows: list[dict[str, Any]] = []
-    spent = Decimal(0)
+    stage = _Stage(
+        "analysis", budget_usd, ANALYST_CASE_CAP_USD, journal=journal, served_by=served_by
+    )
     checked = False
     for case_id in cases.case_ids():
+        if (case_ids and case_id not in case_ids) or case_id in skip:
+            continue
         files = cases.changed(case_id)
         run_id = uuid.uuid4()
         rules = risk_rules(run_id, files, cases.migration_roots)
@@ -960,26 +1209,35 @@ def analyze(
             changed_paths=tuple(files),
         )
         for rep in range(1, reps + 1):
-            if budget_usd - spent < ANALYST_CASE_CAP_USD:
-                row["runs"].append({"rep": rep, "skipped": "the budget left cannot cover it"})
-                continue
+            key = f"{case_id}.rep{rep}"
             recorder = Recorder(model_for(next(iter(files))))
             analyst = change_analyst(recorder, ANALYST_BUDGET)
+            kept = stage.kept(key, rep, _interrupted(analyst, run_id))
+            if kept is not None:
+                row["runs"].append(kept)
+                continue
+            blocked = stage.blocked()
+            if blocked is not None:
+                row["runs"].append({"rep": rep, "skipped": blocked})
+                continue
             if not checked:
                 ablation.require_feasible_cap(analyst, context, ANALYST_CASE_CAP_USD)
                 checked = True
+            if journal is not None:
+                recorder.on_turn = journal.start(key)
             analysis = analyst.investigate(run_id, context)
-            row["runs"].append(
-                {
-                    "rep": rep,
-                    "analysis": analysis.model_dump(mode="json"),
-                    "measures": measures(
-                        analysis, recorder.tool_evidence(), recorder.final_text() or ""
-                    ),
-                    "transcript": recorder.turns,
-                }
-            )
-            spent += analysis.usage.cost_usd
+            run = {
+                "rep": rep,
+                "analysis": analysis.model_dump(mode="json"),
+                "measures": measures(
+                    analysis, recorder.tool_evidence(), recorder.final_text() or ""
+                ),
+                "transcript": recorder.turns,
+            }
+            if journal is not None:
+                journal.finish(key, run)
+            row["runs"].append(run)
+            stage.count(key, run)
     return rows
 
 

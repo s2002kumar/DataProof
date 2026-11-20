@@ -136,9 +136,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         second.add_argument("--effort", choices=("low", "medium", "high"), default="medium")
         second.add_argument("--workdir", type=Path, default=ROOT / ".work")
         second.add_argument("--out", type=Path)
+        second.add_argument("--only", nargs="*", help="case IDs (default: every case)")
+        second.add_argument("--skip", nargs="*", default=[], help="case IDs to leave out")
+        second.add_argument(
+            "--journal",
+            type=Path,
+            help="keep each turn here as it happens, and send nothing this folder already "
+            "holds (a live stage always keeps one, beside its results)",
+        )
         if name == "eval2-investigate":
             second.add_argument("--database", required=True, help="an admin DSN")
-            second.add_argument("--only", nargs="*", help="case IDs (default: every case)")
             second.add_argument(
                 "--stop-after-unanswered",
                 type=int,
@@ -223,6 +230,18 @@ def second_evaluation(args: argparse.Namespace) -> int:
     # The paid model is built only for a live run: a dry run needs no key and sends nothing.
     live = evaluation.live_model(args.model, args.effort, tokens) if args.live else None
     served = live.name if live is not None else "scripted:dry-run"
+    name = f"eval2-{args.cases}-{stage}" + ("" if args.live else "-dry-run")
+    folder = (ROOT / "results" / "ai-eval-v2") if args.live else args.workdir
+    out = args.out or folder / f"{name}-results.json"
+    stem = out.stem.removesuffix("-results")
+    transcripts = out.with_name(f"{stem}-transcripts")
+    if args.live and (out.exists() or transcripts.exists()):
+        # A paid stage's results are written once. Taking a stage up again is the journal's
+        # job, and it writes its results only when none exist.
+        raise SystemExit(f"{out} or its transcripts already exist: a paid stage is not rerun")
+    kept_in = args.journal or (out.with_name(f"{stem}-journal") if args.live else None)
+    journal = evaluation.Journal(kept_in) if kept_in is not None else None
+    pinned = live.name if live is not None else None
     if investigating:
         rows = evaluation.investigate(
             args.database,
@@ -231,7 +250,10 @@ def second_evaluation(args: argparse.Namespace) -> int:
             budget,
             reps=args.reps,
             case_ids=args.only,
+            skip=args.skip,
             stop_after_unanswered=args.stop_after_unanswered,
+            journal=journal,
+            served_by=pinned,
         )
         document = evaluation.results(
             rows,
@@ -243,37 +265,46 @@ def second_evaluation(args: argparse.Namespace) -> int:
             budget_usd=budget,
         )
         kept = evaluation.transcripts(rows)
-        ended_early = evaluation.stopped(document)
     else:
         rows = evaluation.analyze(
             cases,
             (lambda _: live) if live is not None else evaluation.dry_run_analyst,
             budget,
             reps=args.reps,
+            case_ids=args.only,
+            skip=args.skip,
+            journal=journal,
+            served_by=pinned,
         )
         document = evaluation.analysis_results(
             rows, cases, live=args.live, model=served, reps=args.reps, budget_usd=budget
         )
         kept = evaluation.analysis_transcripts(rows)
-        ended_early = False
-    name = f"eval2-{args.cases}-{stage}" + ("" if args.live else "-dry-run")
-    folder = (ROOT / "results" / "ai-eval-v2") if args.live else args.workdir
-    out = args.out or folder / f"{name}-results.json"
+    problems = evaluation.health(kept, pinned)
+    document["plumbing"] = {
+        "problems": problems,
+        "cache_misses": evaluation.cache_misses(kept),
+        "not_started": {
+            "halted": evaluation.not_started(document, evaluation.HALTED),
+            "stop_rule": evaluation.not_started(document, evaluation.STOPPED),
+            "budget": evaluation.not_started(document, "the budget"),
+        },
+    }
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(document, indent=2) + "\n", "utf-8", newline="\n")
-    transcripts = out.with_name(out.stem.removesuffix("-results") + "-transcripts")
-    transcripts.mkdir(exist_ok=True)
+    # "x": never over an existing file. A dry run may be repeated, so it replaces its own.
+    with out.open("x" if args.live else "w", encoding="utf-8", newline="\n") as file:
+        file.write(json.dumps(document, indent=2) + "\n")
+    transcripts.mkdir(exist_ok=not args.live)
     for key, turns in kept.items():
         text = json.dumps(turns, indent=2, default=str) + "\n"
         (transcripts / f"{key}.json").write_text(text, "utf-8", newline="\n")
     print(json.dumps(document["summary"], indent=2))
     print(f"results: {out}; transcripts: {transcripts}")
-    problems = evaluation.health(kept, live.name if live is not None else None)
     if problems:
         listed = "\n  ".join(problems)
         print(f"this stage is not a measurement as it stands:\n  {listed}", file=sys.stderr)
         return 3
-    if ended_early:
+    if evaluation.stopped(document):
         print(f"stopped early: {evaluation.STOPPED}", file=sys.stderr)
         return 4
     return 0
