@@ -645,7 +645,7 @@ def test_an_investigation_that_reaches_its_limit_is_asked_for_its_answer(f1: Run
     ran, *not_run = model.received[2]
     assert not ran.is_error
     assert [json.loads(r.content) for r in not_run] == [
-        {"not_run": "not run: the budget of 3 tool calls is spent"}
+        {"not_run": "not run: no more tool calls can be made in this investigation"}
     ] * 2
     assert all(r.is_error for r in not_run)
     first, second, third = model.notices

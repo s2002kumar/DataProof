@@ -50,6 +50,8 @@ class ModelTurn:
     served_by: str | None = None
     """``provider:model`` that produced this turn, when it differs from the one asked for
     (for example after a refusal fallback)."""
+    us_only: bool = False
+    """Whether the provider says the turn ran in the United States only, which costs more."""
 
 
 class ModelSession(Protocol):

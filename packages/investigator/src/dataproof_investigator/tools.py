@@ -562,10 +562,20 @@ def _briefing(context: ToolContext) -> str:
     briefing = _json(rest | {"failed_checks": failed})
     if len(briefing.encode()) <= MAX_RESULT_BYTES:
         return briefing
-    # Too large to send whole: the counts and the files stay, and the examples are a call away.
+    # Too large to send whole: the counts stay, the examples are a call away, and the file
+    # lists are cut until it fits, with what was cut counted.
     for check in failed:
         check["mismatch_examples"] = "left out: the briefing was too large. Use get_check_result."
         check["evidence"] = [{"evidence_id": e["evidence_id"]} for e in check["evidence"]]
+    for key, counted in (
+        ("source_files", "source_files_not_listed"),
+        ("changed_files", "changed_files_not_listed"),
+    ):
+        while (
+            len(_json(rest | {"failed_checks": failed}).encode()) > MAX_RESULT_BYTES and rest[key]
+        ):
+            rest[key] = rest[key][:-1]
+            rest[counted] += 1
     return _json(rest | {"failed_checks": failed})
 
 
@@ -591,6 +601,12 @@ def _run(context: ToolContext, name: str, arguments: Mapping[str, Any]) -> str:
         parsed = model.model_validate(dict(arguments))
     except ValidationError as exc:
         raise ToolDenied(f"invalid arguments: {exc.errors()[0]['msg']}") from exc
+    for value in parsed.model_dump().values():
+        if isinstance(value, str):
+            try:
+                value.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise ToolDenied("invalid arguments: a character that cannot be sent") from exc
     if isinstance(parsed, _BriefingArguments):
         return _briefing(context)
     if isinstance(parsed, _CheckArguments):

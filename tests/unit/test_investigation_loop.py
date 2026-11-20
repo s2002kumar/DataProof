@@ -114,7 +114,7 @@ def investigate(model: ScriptedModel, budget: Budget | None = None, **more: Any)
         (final(statement="x" * 2001), "hypotheses.0.statement: String should have at most 2000"),
         (final(cited=[]), "hypotheses.0.cited_evidence_ids: List should have at least 1 item"),
         (final(hypotheses=[]), "hypotheses: List should have at least 1 item"),
-        (final(cited=[EVIDENCE, "investigation.tool.9"]), "investigation.tool.9"),
+        (final(cited=[EVIDENCE, "investigation.tool.9"]), "cites 1 evidence ID(s) that do not"),
         ("The refund doubled.", "the JSON: Invalid JSON"),
     ],
 )
@@ -386,3 +386,106 @@ def test_several_calls_in_one_turn_past_the_limit_are_each_answered() -> None:
     assert [result.tool_use_id for result in model.received[1]] == [f"u{n}" for n in range(5)]
     assert [result.is_error for result in model.received[1]] == [False] * 3 + [True] * 2
     assert len(investigation.tool_calls) == 3
+
+
+# What a second review found ---------------------------------------------------------------------
+
+
+class _PricedByBytes:
+    """A scripted model whose next turn costs more the more its results carry."""
+
+    def __init__(self, model: ScriptedModel) -> None:
+        self.model = model
+        self.name = model.name
+
+    def open(self, **kwargs: Any) -> Any:
+        session = self.model.open(**kwargs)
+
+        def ceiling(results: Sequence[ToolResult], notice: str | None = None) -> Decimal:
+            carried = sum(len(result.content) for result in results)
+            return Decimal("0.05") + Decimal(carried) / Decimal(10_000)
+
+        session.ceiling_usd = ceiling  # type: ignore[method-assign,assignment]
+        return session
+
+
+def test_results_the_cost_limit_cannot_cover_are_withheld_and_the_answer_asked_for() -> None:
+    """A batch of large results used to make the next turn too dear to send: the investigation
+    ended with no answer, its results never seen."""
+    large = context({REVISION: "\n".join("x" * 500 for _ in range(200))})
+    uses = tuple(
+        ToolUse(f"u{n}", "read_source", {"path": REVISION, "start_line": 1, "end_line": 100})
+        for n in range(3)
+    )
+    model = ScriptedModel([ModelTurn(stop="tool_use", tool_uses=uses), answer(final())])
+    budget = Budget(max_cost_usd=Decimal("0.20"))
+    investigation = Investigator(_PricedByBytes(model), budget).investigate(uuid.uuid4(), large)
+    assert investigation.status is InvestigationStatus.COMPLETED, investigation.failure
+    assert all(r.is_error and "not returned" in r.content for r in model.received[1])
+    assert model.finals[1] is True
+    assert (model.notices[1] or "").startswith("The cost budget of this investigation allows")
+    assert {c.outcome for c in investigation.tool_calls} == {ToolCallOutcome.FAILED}
+    assert all(c.evidence_id is None for c in investigation.tool_calls), "nothing it can cite"
+
+
+def test_a_tool_name_is_recorded_only_if_it_is_an_identifier() -> None:
+    for name in ("r\u00e9ad_source", "_briefing", "-x"):
+        investigation = investigate(ScriptedModel([call(name, {}), answer(final())]))
+        assert investigation.status is InvestigationStatus.COMPLETED, (name, investigation.failure)
+        assert investigation.tool_calls[0].tool == "unknown"
+
+
+def test_a_citation_with_a_control_character_is_not_the_id_it_resembles() -> None:
+    bell = final(cited=["investigation.tool.1\u0007"])
+    model = ScriptedModel([read(), answer(bell), answer(final())])
+    investigation = investigate(model)
+    assert investigation.status is InvestigationStatus.COMPLETED, investigation.failure
+    assert (model.notices[2] or "").startswith("That answer cannot be accepted"), "sent back"
+
+
+def test_a_call_past_the_turns_is_not_said_to_be_past_the_calls() -> None:
+    uses = tuple(ToolUse(f"u{n}", "get_briefing", {}) for n in range(2))
+    model = ScriptedModel([ModelTurn(stop="tool_use", tool_uses=uses)] * 3 + [answer(final())])
+    investigate(model, Budget(max_tool_calls=12, max_turns=3))
+    not_run = [r.content for results in model.received for r in results if '"not_run"' in r.content]
+    assert not_run
+    assert all("budget of 12 tool calls" not in text for text in not_run)
+
+
+def test_an_argument_that_cannot_be_sent_is_refused_before_it_reaches_the_database() -> None:
+    request = {"environment": "CANDIDATE", "sql": "SELECT '\ud800'", "max_rows": 1}
+    # Refused as an argument: it never reaches the database driver, which would raise.
+    with pytest.raises(ToolDenied, match="invalid arguments"):
+        run_tool(context(), "run_readonly_query", request)
+
+
+def test_an_empty_answer_is_asked_for_again_once() -> None:
+    model = ScriptedModel([answer(""), answer(final())])
+    assert investigate(model).status is InvestigationStatus.COMPLETED
+    assert model.received[1] == ()
+    assert model.notices[1] is None, "the same request, nothing added"
+    twice = ScriptedModel([answer("  "), answer("")])
+    assert investigate(twice).failure == "the model gave an empty answer twice"
+
+
+def test_a_briefing_that_is_too_large_cuts_its_file_lists_until_it_fits() -> None:
+    names = [f"migrations/versions/{n:03d}_{'a' * 270}.py" for n in range(100)]
+    checks = {
+        f"commerce.c{number}": CheckResult(
+            check_id=f"commerce.c{number}",
+            contract_id=f"commerce.c{number}",
+            contract_version=1,
+            required=True,
+            outcome=CheckOutcome.FAIL,
+            mismatch_count=1,
+            evidence_ids=(f"commerce.c{number}:candidate:binding",),
+            dataset_digest="d" * 64,
+        )
+        for number in range(8)
+    }
+    crowded = context(dict.fromkeys(names, "x = 1\n"), changed_paths=tuple(names), checks=checks)
+    briefing = run_tool(crowded, "get_briefing", {})
+    assert len(briefing.encode()) <= MAX_RESULT_BYTES
+    loaded = json.loads(briefing)
+    assert loaded["changed_files_not_listed"] + len(loaded["changed_files"]) == 100
+    assert loaded["source_files_not_listed"] + len(loaded["source_files"]) == 100

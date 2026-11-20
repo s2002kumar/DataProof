@@ -438,9 +438,12 @@ def changed_files(archive: bytes, paths: Iterable[str], roots: Sequence[str]) ->
     wanted = {p for p in paths if p.startswith(tuple(roots))}
     files: dict[str, str] = {}
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
-        for member in tar.getmembers():
-            if member.name in wanted and member.isfile():
+        # A name that occurs twice is its last member, as an extraction would give it, and is
+        # read only if that member is a regular file (as ``tools`` reads it).
+        last = {member.name: member for member in tar.getmembers()}
+        for name, member in last.items():
+            if name in wanted and member.isfile():
                 extracted = tar.extractfile(member)
                 if extracted is not None:
-                    files[member.name] = extracted.read().decode("utf-8", errors="replace")
+                    files[name] = extracted.read().decode("utf-8", errors="replace")
     return files
