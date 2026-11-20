@@ -253,19 +253,37 @@ class _RecordingSession:
             return self._session.ceiling_usd(tool_results)
         return self._session.ceiling_usd(tool_results, notice)
 
-    def send(self, tool_results: Sequence[ToolResult], notice: str | None = None) -> ModelTurn:
+    def send(
+        self,
+        tool_results: Sequence[ToolResult],
+        notice: str | None = None,
+        *,
+        final: bool = False,
+    ) -> ModelTurn:
         self._recorder.results.extend(tool_results)
         sent: dict[str, Any] = {"tool_results": [_kept(result) for result in tool_results]}
         if notice is not None:
             sent["notice"] = notice
+        if final:
+            sent["final"] = True
+        at_most = self.ceiling_usd(tool_results, notice)
         started = time.monotonic()
         try:
-            if notice is None:
+            # An investigator from before ADR-0009 sends neither a notice nor a final turn,
+            # and its sessions take neither.
+            if final:
+                turn = self._session.send(tool_results, notice, final=True)
+            elif notice is None:
                 turn = self._session.send(tool_results)
             else:
                 turn = self._session.send(tool_results, notice)
         except Exception as exc:
-            self._recorder.keep(sent | {"error": f"{type(exc).__name__}: {exc}"})
+            failed = sent | {"error": f"{type(exc).__name__}: {exc}"[:500]}
+            if getattr(exc, "status_code", None) is None and at_most is not None:
+                # No answer came back, so the provider may have processed the request and
+                # billed it. A refusal with a status was not billed.
+                failed["unconfirmed_usd"] = str(at_most)
+            self._recorder.keep(failed)
             raise
         self._recorder.keep(
             sent
