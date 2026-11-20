@@ -204,14 +204,25 @@ class _RecordingSession:
     ) -> Decimal | None:
         return self._session.ceiling_usd(tool_results, notice)
 
-    def send(self, tool_results: Sequence[ToolResult], notice: str | None = None) -> ModelTurn:
+    def send(
+        self,
+        tool_results: Sequence[ToolResult],
+        notice: str | None = None,
+        *,
+        final: bool = False,
+    ) -> ModelTurn:
         self._recorder.results.extend(tool_results)
         sent: dict[str, Any] = {"tool_results": [_kept(result) for result in tool_results]}
         if notice is not None:
             sent["notice"] = notice
+        if final:
+            sent["final"] = True
         started = time.monotonic()
         try:
-            turn = self._session.send(tool_results, notice)
+            if final:
+                turn = self._session.send(tool_results, notice, final=True)
+            else:
+                turn = self._session.send(tool_results, notice)
         except Exception as exc:
             self._recorder.turns.append(sent | {"error": f"{type(exc).__name__}: {exc}"})
             raise

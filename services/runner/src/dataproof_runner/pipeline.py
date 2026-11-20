@@ -427,7 +427,8 @@ class Pipeline:
         migrations = (f"{PurePosixPath(self.project.alembic_config).parent}/migrations/",)
         files = changed_files(head.data, paths, roots)
         analyses = [risk_rules(run.run_id, files, migrations)]
-        if self.analyst is not None:
+        # With nothing changed that it could read, a model would have nothing to cite.
+        if self.analyst is not None and files:
             context.ensure_lease()
             source = ToolContext(
                 checks={},
