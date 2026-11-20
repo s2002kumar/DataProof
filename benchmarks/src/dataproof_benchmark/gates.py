@@ -99,6 +99,7 @@ def gate(
     expected_runs: int | None = None,
     must_answer: bool = True,
     commit: str | None = None,
+    retired_usd: Decimal = Decimal(0),
 ) -> dict[str, Any]:
     """Whether a stage's records are a measurement, and for a pilot whether the stage it
     precedes may start. ``reasons`` is empty exactly when ``pass`` is true.
@@ -158,7 +159,9 @@ def gate(
     reasons += costs["differing"][:10]
     if live and costs["unpriced_turns"]:
         reasons.append(f"{costs['unpriced_turns']} turns were served by a model with no price")
-    charged = costs["recorded_usd"] + costs["unconfirmed_usd"]
+    # Attempts of investigations started again after a provider error are not in the
+    # transcripts, and were paid for.
+    charged = costs["recorded_usd"] + costs["unconfirmed_usd"] + retired_usd
     if charged > cap_usd:
         reasons.append(f"spent up to {charged} USD, more than the {cap_usd} USD cap")
     misses = evaluation.cache_misses(kept)

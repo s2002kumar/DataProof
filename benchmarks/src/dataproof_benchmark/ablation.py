@@ -190,6 +190,7 @@ class Recorder:
     turns: list[dict[str, Any]] = field(default_factory=list)
     results: list[ToolResult] = field(default_factory=list)
     on_turn: Callable[[Mapping[str, Any]], None] | None = None
+    surcharge_pending: Decimal = Decimal(0)
     """Called with each turn's record as soon as it exists, a failed request's included: a
     paid stage writes it to disk then, so that what was spent is known even if the process
     ends before the investigation does."""
@@ -280,12 +281,19 @@ class _RecordingSession:
         except Exception as exc:
             failed = sent | {"error": f"{type(exc).__name__}: {exc}"[:500]}
             failed["status_code"] = getattr(exc, "status_code", None)
-            if getattr(exc, "status_code", None) is None and at_most is not None:
+            failed["transport"] = transport_failure(exc)
+            if failed["transport"] and at_most is not None:
                 # No answer came back, so the provider may have processed the request and
-                # billed it. A refusal with a status was not billed.
+                # billed it. A refusal with a status was not billed, and a request that failed
+                # here, before it was sent, never reached the provider.
                 failed["unconfirmed_usd"] = str(at_most)
             self._recorder.keep(failed)
             raise
+        if not hasattr(turn, "us_only"):
+            # An investigator from before ADR-0009 does not say where a turn ran, so it does
+            # not price the surcharge for inference kept in the United States: it is allowed
+            # for, so that what a stage records stays an upper bound.
+            self._recorder.surcharge_pending = turn.cost_usd * Decimal("0.1")
         self._recorder.keep(
             sent
             | {
@@ -304,8 +312,31 @@ class _RecordingSession:
                 "us_only": getattr(turn, "us_only", False),
                 "latency_ms": round((time.monotonic() - started) * 1000),
             }
+            | (
+                {"unconfirmed_usd": str(self._recorder.surcharge_pending)}
+                if self._recorder.surcharge_pending
+                else {}
+            )
         )
+        self._recorder.surcharge_pending = Decimal(0)
         return turn
+
+
+_TRANSPORT_MODULES = frozenset({"httpx", "httpx2", "httpcore", "httpcore2", "h11", "h2", "ssl"})
+
+
+def transport_failure(exc: BaseException) -> bool:
+    """Whether a request failed in transit, with no answer: a timeout or a lost connection,
+    raised by the SDK with a transport error as its cause. Anything else raised with no
+    status (an encoding error, a bug here) happened before the request left, or after the
+    answer came, and is the investigation's own."""
+    if type(exc).__name__ not in ("APIConnectionError", "APITimeoutError"):
+        return False
+    cause = exc.__cause__
+    if cause is None:
+        return True
+    module = type(cause).__module__.split(".")[0]
+    return module in _TRANSPORT_MODULES or isinstance(cause, OSError | TimeoutError)
 
 
 def _kept(result: ToolResult) -> dict[str, Any]:

@@ -132,6 +132,18 @@ ANALYST_BUDGET = Budget(max_tool_calls=8, max_turns=10, max_cost_usd=ANALYST_CAS
 
 ModelFactory = Callable[[], InvestigatorModel]
 STOPPED = "the stop rule: too many investigations gave no answer"
+FROZEN = (
+    "benchmarks/src",
+    "benchmarks/heldout",
+    "benchmarks/launcher",
+    "packages",
+    "examples/subscriptions",
+    "sample-app",
+    "docs/AI_EVALUATION_V2.md",
+)
+"""What a stage's outcome depends on: a results file says whether any of it differed from the
+commit, and the launcher refuses a paid stage if it does. Results kept elsewhere in the
+repository are not part of it."""
 PROVIDER_SIDE = frozenset({401, 402, 403, 404, 408, 409, 429, 500, 502, 503, 504, 529})
 """Statuses that say nothing about the investigation: the key, the account, the model's
 availability, the provider's load. An error the SDK raised with no status (a timeout, a lost
@@ -153,7 +165,7 @@ def provider_side(turn: Mapping[str, Any]) -> bool:
         return False
     status = turn.get("status_code")
     if status is None:
-        return True
+        return bool(turn.get("transport"))
     return status in PROVIDER_SIDE or (status == 400 and "credit balance" in str(turn["error"]))
 
 
@@ -183,7 +195,7 @@ class Journal:
 
     A stage taken up again from the same journal starts only what was never started. An
     investigation with a turns file and no run record was interrupted: it is counted as it
-    stands, unanswered, and never sent again.
+    stands, unanswered, and never sent again, unless the provider stopped it (``_Stage.kept``).
     """
 
     def __init__(self, folder: Path) -> None:
@@ -224,6 +236,20 @@ class Journal:
         number = 1 + len(list(self.folder.glob(f"{key}.retired-*.jsonl")))
         self._turns(key).rename(self.folder / f"{key}.retired-{number}.jsonl")
         return turns
+
+    def retired_usd(self, key: str) -> Decimal:
+        """What the attempts of an investigation set aside after provider errors spent."""
+        total = Decimal(0)
+        for path in sorted(self.folder.glob(f"{key}.retired-*.jsonl")):
+            for line in path.read_text("utf-8").splitlines()[1:]:
+                try:
+                    turn = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                total += Decimal(str(turn.get("cost_usd", "0"))) + Decimal(
+                    str(turn.get("unconfirmed_usd", "0"))
+                )
+        return total
 
     def start(self, key: str) -> Callable[[Mapping[str, Any]], None]:
         """Mark an investigation started, which it must not have been, and return the
@@ -285,20 +311,34 @@ class _Stage:
         """The record of an investigation that a run of this stage already finished, which this
         one continues: it is counted, and nothing is sent. None if it is to be run.
 
-        An investigation that started and never ended (the provider failed it, or the process
-        died) is started again: what stopped it says nothing about the investigation. What it
-        had spent is charged, and its turns are kept in the journal.
+        An investigation the provider stopped (its last record is a request the provider
+        failed) is started again: that says nothing about the investigation. Any other that
+        started and never ended (the process died, or was stopped) is counted as it stands,
+        unanswered: starting it again would give a second draw to an investigation that may
+        have been stopped for what it was doing. What every earlier attempt spent is charged
+        each time the stage is taken up, as the journal holds it.
         """
         if self.journal is None:
             return None
         run = self.journal.finished(key)
         if run is None:
-            if self.journal.interrupted(key) is not None:
-                turns = self.journal.retire(key)
-                self.spent += sum(
-                    (Decimal(str(t.get("cost_usd", "0"))) for t in turns), Decimal(0)
-                ) + unconfirmed(turns)
-                say(f"{key}: started again; what it spent before is charged")
+            turns = self.journal.interrupted(key)
+            if turns is not None and turns and provider_side(turns[-1]):
+                self.journal.retire(key)
+                say(f"{key}: started again after a provider error; what it spent is charged")
+                turns = None
+            if turns is not None:
+                investigation = _with_usage(interrupted, turns)
+                run = {
+                    "rep": rep,
+                    self.record: investigation.model_dump(mode="json"),
+                    "measures": measures(investigation, {}, "") | _turn_measures(turns),
+                    "transcript": turns,
+                    "interrupted": True,
+                }
+                self.journal.finish(key, run)
+        self.spent += self.journal.retired_usd(key)
+        if run is None:
             return None
         self.count(key, run, check=False)
         return run
@@ -460,6 +500,7 @@ _RANGE = re.compile(
 )
 _FILE = re.compile(r"[\w./-]*\w\.py\b")
 _NEAR = 80
+_AFTER = re.compile(r"\s*\)?\s*(?:of|in)\s+(?:the\s+file\s+)?`?([\w./-]*\w\.py)\b", re.IGNORECASE)
 """How far from a stated range a file name is taken to be the file it speaks of."""
 
 
@@ -476,10 +517,17 @@ def stated_ranges(text: str, path: str | None = None) -> list[tuple[int, int]]:
         start = int(found.group(1))
         end = int(found.group(2)) if found.group(2) else start
         if name is not None:
-            before = text[max(0, found.start() - _NEAR) : found.end()]
-            before = re.split(r"[.;!?]\s", before)[-1]
-            named_files = [match.rsplit("/", 1)[-1] for match in _FILE.findall(before)]
-            if named_files and named_files[-1] != name:
+            # "line 40 of app/models.py" names its file after the range; "in 0002_change.py,
+            # lines 18-20" before it.
+            after = _AFTER.match(text, found.end())
+            if after is not None:
+                attributed: str | None = after.group(1).rsplit("/", 1)[-1]
+            else:
+                before = text[max(0, found.start() - _NEAR) : found.start()]
+                before = re.split(r"[.;!?]\s", before)[-1]
+                named_files = [match.rsplit("/", 1)[-1] for match in _FILE.findall(before)]
+                attributed = named_files[-1] if named_files else None
+            if attributed is not None and attributed != name:
                 continue
         ranges.append((min(start, end), max(start, end)))
     return ranges
@@ -503,7 +551,11 @@ def located(
     ranges = {span for text in texts for span in stated_ranges(text, path)}
     if not ranges or len(ranges) > MAX_STATED_RANGES:
         return False
-    return all(low <= start and end <= high for start, end in ranges)
+    inside = [low <= start and end <= high for start, end in ranges]
+    # A range that holds the whole statement is context ("in upgrade(), lines 10-30"); one
+    # that misses it, or cuts across its edge, points elsewhere.
+    around = [start <= low and high <= end for start, end in ranges]
+    return any(inside) and all(i or a for i, a in zip(inside, around, strict=True))
 
 
 def named(groups: Sequence[Sequence[str]] | None, texts: Sequence[str]) -> bool | None:
@@ -1201,7 +1253,7 @@ def provenance(cases: EvalSet) -> dict[str, Any]:
         sdk: str | None = version("anthropic")
     except Exception:
         sdk = None
-    frozen = ("benchmarks", "packages", "examples/subscriptions", "sample-app")
+    frozen = FROZEN
     return {
         "harness_commit": _git(here, "rev-parse", "HEAD"),
         "harness_modified": bool(_git(harness.REPOSITORY, "status", "--porcelain", "--", *frozen)),

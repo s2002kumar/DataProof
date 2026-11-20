@@ -280,8 +280,11 @@ def second_evaluation(args: argparse.Namespace) -> int:
         raise SystemExit(f"{out} or its transcripts already exist: a paid stage is not rerun")
     kept_in = args.journal or (out.with_name(f"{stem}-journal") if args.live else None)
     journal = evaluation.Journal(kept_in) if kept_in is not None else None
+    started = evaluation.provenance(cases)  # what ran, as it was when the stage started
     try:
-        return _stage(args, cases, budget, investigating, live, served, out, transcripts, journal)
+        return _stage(
+            args, cases, budget, investigating, live, served, out, transcripts, journal, started
+        )
     except evaluation.ProviderStopped as stopped:
         print(
             f"STOPPED: {stopped}\nNo results are written. The investigation it stopped is open "
@@ -302,6 +305,7 @@ def _stage(
     out: Path,
     transcripts: Path,
     journal: Any,
+    started: Mapping[str, Any],
 ) -> int:
     pinned = live.name if live is not None else None
     if investigating:
@@ -349,6 +353,7 @@ def _stage(
             effort=args.effort,
         )
         kept = evaluation.analysis_transcripts(rows)
+    document["provenance"] = dict(started) | {"finished_at": document["provenance"]["written_at"]}
     problems = evaluation.health(kept, pinned)
     document["plumbing"] = {
         "problems": problems,

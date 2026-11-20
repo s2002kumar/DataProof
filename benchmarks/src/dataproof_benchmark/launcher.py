@@ -81,16 +81,9 @@ ANALYST_PILOT_CASES = ("dev-101", "dev-102")
 """The Change Analyst's pilot: a fault and a clean control of the development set."""
 OLD_COMMIT = "fe75bce"
 """The commit whose investigator package is the old arm: the first evaluation's, published."""
-FROZEN = (
-    "benchmarks/src",
-    "benchmarks/heldout",
-    "benchmarks/launcher",
-    "packages",
-    "examples/subscriptions",
-    "sample-app",
-    "docs/AI_EVALUATION_V2.md",
-)
-"""What a stage's outcome depends on: none of it may differ from the commit being run."""
+FROZEN = evaluation.FROZEN
+"""What a stage's outcome depends on: none of it may differ from the commit being run. The
+same list a results file's provenance is taken over."""
 RESULTS = "stage-results.json"
 TRANSCRIPTS = "stage-transcripts"
 """A stage's results and transcripts in its folder, as the harness names them."""
@@ -124,6 +117,9 @@ class Plan:
     answered: bool = True
     """For a pilot: whether every investigation must answer. The old arm's pilot checks the
     plumbing only: the old investigator is expected not to answer, which is what it shows."""
+    cache: bool = True
+    """Whether the gate requires a cache read: not of a single investigation that may end in
+    one turn."""
 
 
 PLANS: Mapping[str, Plan] = {
@@ -182,6 +178,7 @@ PLANS: Mapping[str, Plan] = {
             most_usd=Decimal("0.70"),
             old_arm=True,
             answered=False,
+            cache=False,
         ),
         Plan(
             "old-arm",
@@ -308,15 +305,46 @@ class Attempt:
                 total += Decimal(str(turn.get("unconfirmed_usd", "0")))
         return total
 
-    def open_investigation_usd(self) -> Decimal | None:
-        """What the investigation that was running when the process ended had spent, or None
-        if none was running."""
+    def open_investigation(self) -> tuple[str, int, Decimal, bool] | None:
+        """The investigation that was running when the process ended: its key, how many turns
+        its record holds, what they spent, and whether a request may have been in flight (the
+        record does not end with a request that failed). None if none was running."""
         for path in sorted(self.journal.glob("*.turns.jsonl")):
-            if not path.with_name(path.name.replace(".turns.jsonl", ".run.json")).is_file():
-                return sum(
-                    (Decimal(str(t.get("cost_usd", "0"))) for t in self._turns(path)), Decimal(0)
-                )
+            if path.with_name(path.name.replace(".turns.jsonl", ".run.json")).is_file():
+                continue
+            turns = self._turns(path)
+            spent = sum((Decimal(str(t.get("cost_usd", "0"))) for t in turns), Decimal(0))
+            in_flight = not turns or "error" not in turns[-1]
+            return path.name.removesuffix(".turns.jsonl"), len(turns), spent, in_flight
         return None
+
+    def open_investigation_usd(self) -> Decimal | None:
+        found = self.open_investigation()
+        return found[2] if found is not None else None
+
+    def in_flight_usd(self, plan: "Plan") -> Decimal:
+        """The most the request in flight when the process ended could have cost, charged once:
+        nothing if no request can have been in flight, or if a resume already charged it. The
+        loop sends a turn only if its worst case fits in what the investigation has left, so
+        it is at most the cap less what the investigation had spent."""
+        found = self.open_investigation()
+        if found is None or not found[3]:
+            return Decimal(0)
+        key, count = found[0], found[1]
+        for path in sorted(self.folder.glob("resumed-*.json")):
+            charged = _read(path)
+            if charged.get("open") == key and charged.get("turns") == count:
+                return Decimal(0)
+        return max(Decimal(0), cap_usd(plan) - found[2])
+
+    def retired_usd(self) -> Decimal:
+        """What attempts of investigations set aside after provider errors spent."""
+        total = Decimal(0)
+        for path in sorted(self.journal.glob("*.retired-*.jsonl")):
+            for turn in self._turns(path):
+                total += Decimal(str(turn.get("cost_usd", "0")))
+                total += Decimal(str(turn.get("unconfirmed_usd", "0")))
+        return total
 
     def resume_allowances_usd(self) -> Decimal:
         """What the requests in flight when its process died could have cost, one for each
@@ -621,10 +649,10 @@ def preflight(key: str, model: str, client: Any = None) -> None:
         raise Refused(f"{model} is not served to this key: nothing was spent") from exc
     except anthropic.APIError as exc:
         raise Refused(f"the provider could not be asked ({type(exc).__name__})") from exc
-    # The endpoint may name a dated snapshot of the model; a turn served by anything but the
-    # pinned name still fails the stage's gate.
-    if found.id != model and not found.id.startswith(f"{model}-"):
-        raise Refused(f"asked for {model}, the provider named {found.id}")
+    # Exactly the pinned name: a turn served by anything else fails the stage's gate, and it
+    # is better found here, where it costs nothing.
+    if found.id != model:
+        raise Refused(f"asked for {model}, the provider named {found.id}: nothing was spent")
 
 
 def old_checkout(state: State, *, make: bool) -> Path:
@@ -750,7 +778,8 @@ def _gate(plan: Plan, attempt: Attempt, budget: Decimal) -> dict[str, Any]:
         live=live,
         model=MODEL,
         versions=versions,
-        need_cache_read=True,
+        need_cache_read=plan.cache,
+        retired_usd=attempt.retired_usd(),
         complete=plan.kind == "pilot" or plan.once,
         expected_runs=EXPECTED_RUNS.get(plan.name),
         must_answer=plan.answered,
@@ -766,13 +795,8 @@ def seal(
     previous = _sha256(before[-1].folder / "sealed.json") if before else None
     recorded = attempt.recorded_usd()
     plan = PLANS[attempt.name]
-    allowance = Decimal(0)
-    spent_by_open = attempt.open_investigation_usd() if abandoned else None
-    if spent_by_open is not None:
-        # A request may have been answered, and billed, after the last turn on disk. The loop
-        # sends a turn only if its worst case fits in what the investigation has left, so
-        # what that request could have cost is at most the cap less what was spent.
-        allowance = max(Decimal(0), cap_usd(plan) - spent_by_open)
+    # A request may have been answered, and billed, after the last turn on disk.
+    allowance = attempt.in_flight_usd(plan) if abandoned else Decimal(0)
     resumed = attempt.resume_allowances_usd()
     files = {
         path.relative_to(attempt.folder).as_posix(): _sha256(path)
@@ -792,12 +816,20 @@ def seal(
         "files": files,
     }
     _write_once(attempt.folder / "sealed.json", sealed)
-    with state.chain.open("a", encoding="utf-8", newline="\n") as chain:
-        chain.write(f"{attempt.folder.name} {_sha256(attempt.folder / 'sealed.json')}\n")
+    _chain(state, f"sealed {attempt.folder.name} {_sha256(attempt.folder / 'sealed.json')}")
     for path in attempt.folder.rglob("*"):
         if path.is_file():
             path.chmod(stat.S_IREAD)
     return sealed
+
+
+def _chain(state: State, line: str) -> None:
+    """Record a stage's start or seal outside its folder, so that removing a stage is seen."""
+    state.chain.parent.mkdir(parents=True, exist_ok=True)
+    with state.chain.open("a", encoding="utf-8", newline="\n") as chain:
+        chain.write(line + "\n")
+        chain.flush()
+        os.fsync(chain.fileno())
 
 
 def _close(state: State, attempt: Attempt, plan: Plan, code: int, key: str | None) -> int:
@@ -849,6 +881,7 @@ def run(state: State, name: str, approve: Decimal | None, dsn: str, key: str | N
         old_checkout(state, make=True)  # before anything is recorded: it can fail
     number = 1 + (len(list(state.stages.iterdir())) if state.stages.is_dir() else 0)
     folder = state.stages / f"{number:02d}-{name}"
+    _chain(state, f"started {folder.name}")
     folder.mkdir(parents=True)
     command = _command(plan, state, folder, budget, dsn)
     frozen = {
@@ -901,9 +934,15 @@ def resume(state: State, approve: Decimal | None, dsn: str, key: str | None) -> 
             raise Refused(f"{left} USD of this stage's budget is unspent; --approve said {approve}")
         preflight(key, ablation.MODEL)
     number = 1 + len(list(attempt.folder.glob("resumed-*.json")))
+    open_one = attempt.open_investigation()
     _write_once(
         attempt.folder / f"resumed-{number}.json",
-        {"at": datetime.now(UTC).isoformat(), "allowance_usd": str(allowance)},
+        {
+            "at": datetime.now(UTC).isoformat(),
+            "allowance_usd": str(allowance),
+            "open": open_one[0] if open_one else None,
+            "turns": open_one[1] if open_one else None,
+        },
     )
     print(
         f"\n=== {attempt.name}: taken up again; what its journal holds is not sent ===", flush=True
@@ -928,12 +967,17 @@ def resumable(state: State, attempt: Attempt) -> tuple[Decimal, Decimal]:
             f"{attempt.folder.name} already holds a fault that makes it no measurement "
             f"({faults[0]}); close it as it stands (abandon)"
         )
-    spent_by_open = attempt.open_investigation_usd()
-    allowance = Decimal(0)
-    if spent_by_open is not None:
-        allowance = max(Decimal(0), cap_usd(plan) - spent_by_open)
+    allowance = attempt.in_flight_usd(plan)
     budget = Decimal(str(attempt.started["budget_usd"]))
     left = budget - attempt.recorded_usd() - attempt.resume_allowances_usd() - allowance
+    given = budget - attempt.resume_allowances_usd() - allowance
+    if given <= 0:
+        raise Refused(
+            f"{attempt.folder.name} would be given {given:f} USD once the request in flight is "
+            "charged: taking it up again could do nothing. Close it as it stands (abandon)."
+        )
+    # The harness counts what every earlier attempt spent, and starts an investigation only
+    # while what it is given covers the start amount: nothing is sent past the budget.
     return max(Decimal(0), left), allowance
 
 
@@ -976,13 +1020,19 @@ def status(state: State) -> tuple[str, list[str]]:
             f"{attempt.folder.name:<26} {gate:<8} {started['budget_usd']:>6}  "
             f"{attempt.recorded_usd():>9.4f}  {charged:>7.4f}  {started['commit'][:10]}"
         )
-    sealed_ones = [a for a in state.attempts() if a.sealed is not None]
     chained = state.chain.read_text("utf-8").splitlines() if state.chain.is_file() else []
-    expected = [f"{a.folder.name} {_sha256(a.folder / 'sealed.json')}" for a in sealed_ones]
+    expected = []
+    for attempt in state.attempts():
+        expected.append(f"started {attempt.folder.name}")
+        if attempt.sealed is not None:
+            expected.append(
+                f"sealed {attempt.folder.name} {_sha256(attempt.folder / 'sealed.json')}"
+            )
     if chained != expected:
         problems.append(
-            f"the seals do not match {state.chain.name}: {len(expected)} sealed stages here, "
-            f"{len(chained)} recorded there. A sealed stage was removed, or a seal rewritten"
+            f"the stages here do not match {state.chain.name}: {len(expected)} starts and seals "
+            f"here, {len(chained)} recorded there. A stage was removed, or a seal rewritten (or "
+            "the launcher stopped between writing a seal and recording it: compare the two)"
         )
     lines.append("")
     lines.append("Pool                   Limit  Charged     Left")

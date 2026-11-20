@@ -10,6 +10,7 @@ import json
 import re
 import stat
 import sys
+import uuid
 from collections.abc import Iterator
 from decimal import Decimal
 from pathlib import Path
@@ -481,6 +482,7 @@ def attempt(
     budget: str = "1.00",
 ) -> launcher.Attempt:
     folder = state.stages / f"{len(state.attempts()) + 1:02d}-{name}"
+    launcher._chain(state, f"started {folder.name}")  # as run() records a start
     (folder / "journal").mkdir(parents=True)
     started = {
         "stage": name,
@@ -636,7 +638,6 @@ def model_info(model_id: str) -> dict[str, Any]:
 def test_the_key_and_the_model_are_checked_at_no_cost_before_anything_is_billed() -> None:
     model = "claude-opus-5-5"
     launcher.preflight("k", model, models_api(200, model_info(model)))
-    launcher.preflight("k", model, models_api(200, model_info(f"{model}-20261001")))
     with pytest.raises(launcher.Refused, match="named claude-opus-5"):
         launcher.preflight("k", model, models_api(200, model_info("claude-opus-5")))
     error = {
@@ -684,7 +685,7 @@ def test_a_removed_stage_or_a_rewritten_seal_is_found(state: launcher.State) -> 
     seal.chmod(stat.S_IREAD | stat.S_IWRITE)
     rewritten = json.loads(seal.read_text("utf-8")) | {"charged_usd": "0"}
     seal.write_text(json.dumps(rewritten), "utf-8")
-    assert any("seals do not match" in p for p in launcher.status(state)[1])
+    assert any("do not match" in p for p in launcher.status(state)[1])
     for path in last.folder.rglob("*"):
         if path.is_file():  # a directory needs its execute bit to be entered, on Linux
             path.chmod(stat.S_IREAD | stat.S_IWRITE)
@@ -692,7 +693,7 @@ def test_a_removed_stage_or_a_rewritten_seal_is_found(state: launcher.State) -> 
 
     shutil.rmtree(last.folder)
     problems = launcher.status(state)[1]
-    assert any("1 sealed stages here, 2 recorded there" in p for p in problems), problems
+    assert any("2 starts and seals here, 4 recorded there" in p for p in problems), problems
     assert "have changed" in refused(state, "heldout")
 
 
@@ -812,3 +813,157 @@ def test_a_provider_error_stops_the_stage_and_its_investigation_is_started_again
     assert run["analysis"]["status"] == "COMPLETED"
     retired = list((tmp_path / "journal").glob("held-14.rep1.retired-*.jsonl"))
     assert len(retired) == 1, "the first attempt's turns are kept"
+
+
+# What a third review found ---------------------------------------------------------------------
+
+
+def test_a_request_that_failed_is_not_charged_as_one_in_flight(state: launcher.State) -> None:
+    """After a provider error nothing was in flight: charging up to the cap for it, on every
+    resume and again on abandoning, used to take more than a whole pool."""
+    attempt(state, "dev-pilot")
+    open_one = attempt(state, "dev", sealed=False, budget="2.20")
+    (open_one.journal / "case-9.rep1.turns.jsonl").write_text(
+        '{"started": "x"}\n{"cost_usd": "0.12"}\n'
+        '{"error": "OverloadedError", "status_code": 529}\n',
+        "utf-8",
+    )
+    left, allowance = launcher.resumable(state, open_one)
+    assert allowance == 0
+    assert left == Decimal("2.20") - Decimal("0.22")
+
+
+def test_a_request_in_flight_is_charged_once_whatever_the_resumes(state: launcher.State) -> None:
+    attempt(state, "dev-pilot")
+    open_one = attempt(state, "dev", sealed=False, budget="2.20")
+    (open_one.journal / "case-9.rep1.turns.jsonl").write_text(
+        '{"started": "x"}\n{"cost_usd": "0.12"}\n', "utf-8"
+    )
+    _, first = launcher.resumable(state, open_one)
+    assert first == Decimal("0.88")
+    # The resume that charged it is on record; a second, with the same open investigation,
+    # does not charge it again.
+    record = {"allowance_usd": str(first), "open": "case-9.rep1", "turns": 1}
+    (open_one.folder / "resumed-1.json").write_text(json.dumps(record), "utf-8")
+    left, second = launcher.resumable(state, open_one)
+    assert second == 0
+    assert left == Decimal("2.20") - Decimal("0.22") - Decimal("0.88")
+
+
+def test_a_resume_that_could_be_given_nothing_is_refused(state: launcher.State) -> None:
+    attempt(state, "dev-pilot")
+    open_one = attempt(state, "dev", sealed=False, budget="0.80")
+    (open_one.journal / "case-9.rep1.turns.jsonl").write_text(
+        '{"started": "x"}\n{"cost_usd": "0.10"}\n', "utf-8"
+    )
+    with pytest.raises(launcher.Refused, match="could do nothing"):
+        launcher.resumable(state, open_one)
+
+
+def test_a_removed_open_stage_is_found(state: launcher.State) -> None:
+    attempt(state, "dev-pilot")
+    open_one = attempt(state, "heldout", sealed=False)
+    assert launcher.status(state)[1] == []
+    for path in open_one.folder.rglob("*"):
+        if path.is_file():
+            path.chmod(stat.S_IREAD | stat.S_IWRITE)
+    import shutil
+
+    shutil.rmtree(open_one.folder)
+    assert any("do not match" in problem for problem in launcher.status(state)[1])
+
+
+def test_a_failure_is_the_providers_only_if_it_came_from_the_transport() -> None:
+    import anthropic
+    import httpx2
+
+    from dataproof_benchmark.ablation import transport_failure
+
+    request = httpx2.Request("POST", "https://example.invalid/v1/messages")
+
+    def raised(cause: BaseException) -> BaseException:
+        exc = anthropic.APIConnectionError(request=request)
+        exc.__cause__ = cause
+        return exc
+
+    assert transport_failure(raised(httpx2.ConnectError("refused")))
+    assert transport_failure(raised(httpx2.ReadTimeout("slow")))
+    assert not transport_failure(raised(UnicodeEncodeError("utf-8", "x", 0, 1, "surrogate")))
+    assert not transport_failure(RuntimeError("unexpected stop reason"))
+    assert evaluation.provider_side({"error": "x", "status_code": None, "transport": True})
+    assert not evaluation.provider_side({"error": "x", "status_code": None, "transport": False})
+    assert not evaluation.provider_side({"error": "x", "status_code": 400})
+    assert evaluation.provider_side({"error": "credit balance is too low", "status_code": 400})
+
+
+def test_an_investigation_the_process_stopped_is_counted_not_run_again(tmp_path: Path) -> None:
+    """Only a provider error starts an investigation again. One stopped otherwise (the process
+    died, or was stopped) may have been stopped for what it was doing: a second draw of it
+    would be a choice made on the held-out set."""
+    from dataproof_investigator import ScriptedModel, answer, call
+
+    cases = evaluation.HeldoutSet()
+    journal = evaluation.Journal(tmp_path / "journal")
+    write = journal.start("held-14.rep1")
+    write({"stop": "tool_use", "cost_usd": "0.03", "served_by": PINNED})
+
+    def model(path: str) -> Any:
+        return ScriptedModel([call("get_briefing", {}), answer("{}")])
+
+    rows = evaluation.analyze(cases, model, Decimal(2), case_ids=["held-14"], journal=journal)
+    (run,) = rows[0]["runs"]
+    assert run["interrupted"] is True
+    assert run["analysis"]["status"] == "NOT_AVAILABLE"
+    assert run["analysis"]["usage"]["cost_usd"] == "0.03"
+    assert not list((tmp_path / "journal").glob("*.retired-*.jsonl"))
+
+
+def test_every_earlier_attempt_is_charged_each_time_a_stage_is_taken_up(tmp_path: Path) -> None:
+    journal = evaluation.Journal(tmp_path / "journal")
+    (tmp_path / "journal" / "held-14.rep1.retired-1.jsonl").write_text(
+        '{"started": "x"}\n{"cost_usd": "0.30"}\n', "utf-8"
+    )
+    (tmp_path / "journal" / "held-14.rep1.retired-2.jsonl").write_text(
+        '{"started": "x"}\n{"cost_usd": "0.20", "unconfirmed_usd": "0.05"}\n', "utf-8"
+    )
+    journal.finish("held-14.rep1", {"rep": 1, "analysis": record(cost="0.10"), "transcript": []})
+    stage = evaluation._Stage(
+        "analysis", Decimal(2), Decimal("0.40"), Decimal("0.30"), journal=journal
+    )
+    from dataproof_investigator import ScriptedModel, change_analyst
+
+    interrupted = evaluation._interrupted(change_analyst(ScriptedModel([])), uuid.uuid4())
+    assert stage.kept("held-14.rep1", 1, interrupted) is not None
+    assert stage.spent == Decimal("0.65"), "the finished run and both earlier attempts"
+
+
+def test_a_line_range_is_attributed_to_the_file_named_after_it() -> None:
+    path, fault = "migrations/versions/0002_change.py", (18, 20)
+    right = (
+        "In 0002_change.py lines 18-20 truncate; the model is defined at line 40 of app/models.py."
+    )
+    assert evaluation.located([right], fault, path) is True
+    other = "The cause is at line 19 of sample-app/app/models.py."
+    assert evaluation.located([other], fault, path) is False
+    context = "In upgrade() (lines 10-30), the UPDATE at lines 18-20 divides integers."
+    assert evaluation.located([context], fault, path) is True
+    assert evaluation.located(["Lines 10-30 hold upgrade()."], fault, path) is False
+
+
+def test_the_free_check_holds_to_the_exact_model_name() -> None:
+    model = "claude-opus-5-5"
+    with pytest.raises(launcher.Refused, match="nothing was spent"):
+        launcher.preflight("k", model, models_api(200, model_info(f"{model}-20261001")))
+
+
+def test_a_gate_counts_the_attempts_started_again() -> None:
+    verdict = gates.gate(
+        stage_document(),
+        {"dev-101.rep1": COSTED},
+        kind="stage",
+        cap_usd=Decimal("0.05"),
+        live=True,
+        model=PINNED,
+        retired_usd=Decimal("0.04"),
+    )
+    assert any("more than the 0.05 USD cap" in reason for reason in verdict["reasons"])

@@ -90,7 +90,7 @@ $dry = $DryRun -or ($Stage -eq 'DryRunAll')
 # Relative to where the command was typed, not to the .NET process's own working directory.
 $State = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($State.TrimEnd([char]92, [char]47))
 if ($dry) { $State = "$State-dryrun" }
-if ($State.StartsWith($Repo, [StringComparison]::OrdinalIgnoreCase)) {
+if (($State -eq $Repo) -or $State.StartsWith($Repo + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
     Stop-Eval "keep the state outside the repository, not in $State"
 }
 
