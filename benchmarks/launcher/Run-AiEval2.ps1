@@ -13,9 +13,11 @@
 
   The key:
     * is read with Read-Host -AsSecureString (masked, never echoed);
-    * is put only into the environment block of the stage's process, never into this
+    * is put only into the environment block of the launcher's process, which takes it out of
+      its own environment at once and gives it to the stage's process alone; never into this
       session's environment, a file, the repository or a log;
-    * is zeroed and dropped from memory when the stage's process has started;
+    * is dropped when the stage's process has started: the unmanaged copy is zeroed, and the
+      managed strings .NET makes on the way are released, though they cannot be zeroed;
     * is searched for in everything the stage printed and in every file it wrote. A match
       stops everything.
 
@@ -28,7 +30,7 @@
 
 .PARAMETER Stage
   Status (the default: what has been spent, and whether every record is as it was sealed),
-  DevPilot, Dev, Heldout, OldArm, AnalystPilot, AnalystDev, AnalystHeldout,
+  DevPilot, Dev, Heldout, OldArmPilot, OldArm, AnalystPilot, AnalystDev, AnalystHeldout,
   Resume (take up a stage whose process died: only what was never started is sent),
   Abandon (close such a stage as it stands), or
   DryRunAll (every stage in order with scripted models: no key, no spend).
@@ -49,7 +51,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Status', 'DevPilot', 'Dev', 'Heldout', 'OldArm', 'AnalystPilot', 'AnalystDev',
+    [ValidateSet('Status', 'DevPilot', 'Dev', 'Heldout', 'OldArmPilot', 'OldArm', 'AnalystPilot', 'AnalystDev',
         'AnalystHeldout', 'Resume', 'Abandon', 'DryRunAll')]
     [string]$Stage = 'Status',
     [switch]$DryRun,
@@ -65,21 +67,32 @@ $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $Bench = Join-Path $Repo 'benchmarks'
 $KeyVars = @('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_LOG', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_PROFILE')
 $Names = @{
-    DevPilot = 'dev-pilot'; Dev = 'dev'; Heldout = 'heldout'; OldArm = 'old-arm'
+    DevPilot = 'dev-pilot'; Dev = 'dev'; Heldout = 'heldout'; OldArmPilot = 'old-arm-pilot'; OldArm = 'old-arm'
     AnalystPilot = 'analyst-pilot'; AnalystDev = 'analyst-dev'; AnalystHeldout = 'analyst-heldout'
 }
-$Order = @('DevPilot', 'Dev', 'Heldout', 'OldArm', 'AnalystPilot', 'AnalystDev', 'AnalystHeldout')
+$Order = @('DevPilot', 'Dev', 'Heldout', 'OldArmPilot', 'OldArm', 'AnalystPilot', 'AnalystDev', 'AnalystHeldout')
 
 function Say([string]$Text, [string]$Color = 'Gray') { Write-Host $Text -ForegroundColor $Color }
 function Stop-Eval([string]$Why) { Say "STOPPED: $Why" 'Red'; throw "STOPPED: $Why" }
-function Quote([string]$Arg) { '"' + $Arg.Replace('"', '\"') + '"' }
+function Quote([string]$Arg) {
+    # A backslash before the closing quote would escape it: double any run of them there.
+    $escaped = $Arg.Replace('"', '\"')
+    $trailing = $escaped.Length - $escaped.TrimEnd([char]92).Length
+    if ($trailing -gt 0) { $escaped += ([string][char]92) * $trailing }
+    '"' + $escaped + '"'
+}
 
 if (-not $Python) { $Python = Join-Path $Repo '.venv\Scripts\python.exe' }
 if (-not (Test-Path -LiteralPath $Python)) {
     Stop-Eval "no Python at $Python. Pass -Python or set DATAPROOF_PYTHON to the project environment's python.exe."
 }
 $dry = $DryRun -or ($Stage -eq 'DryRunAll')
+# Relative to where the command was typed, not to the .NET process's own working directory.
+$State = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($State.TrimEnd([char]92, [char]47))
 if ($dry) { $State = "$State-dryrun" }
+if ($State.StartsWith($Repo, [StringComparison]::OrdinalIgnoreCase)) {
+    Stop-Eval "keep the state outside the repository, not in $State"
+}
 
 # Start the launcher module. The key, if any, goes into the child's environment block only.
 function Invoke-Launcher([string[]]$LauncherArgs, [Security.SecureString]$Secure, [switch]$Capture) {
@@ -141,8 +154,13 @@ function Invoke-Paid([string[]]$PlanArgs, [string[]]$RunArgs) {
     Say $plan.Text
     if ($plan.Code -ne 0) { Stop-Eval 'the stage may not start (see above). Nothing was sent.' }
     $approve = $null
+    $repository = $null
     foreach ($line in ($plan.Text -split "`n")) {
         if ($line -match '^approve:\s*([0-9.]+)\s*$') { $approve = $Matches[1] }
+        if ($line -match '^repository:\s*(.+?)\s*$') { $repository = $Matches[1] }
+    }
+    if ($repository -and ($repository -ne $Repo)) {
+        Stop-Eval "the launcher runs the code of $repository, not of this script's repository $Repo. Pass -Python for this checkout's environment."
     }
     if (-not $approve) { Stop-Eval 'the launcher named no amount to approve' }
     if ($dry) { return (Invoke-Launcher $RunArgs $null).Code }
@@ -182,7 +200,8 @@ try {
     }
     if ($Stage -ne 'Status') {
         Say ''
-        Invoke-Launcher @('status') $null | Out-Null
+        $after = (Invoke-Launcher @('status') $null).Code
+        if ($after -ne 0 -and $code -eq 0) { $code = $after }
     }
     if ($code -eq 0) { Say "DONE: $Stage. Records: $State" 'Green' }
     else { Say "$Stage ended with exit code $code. Read the lines above before anything else is started. Records: $State" 'Red' }

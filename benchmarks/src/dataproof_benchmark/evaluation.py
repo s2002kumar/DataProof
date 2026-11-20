@@ -102,9 +102,9 @@ HELDOUT_REVISION = "migrations/versions/0002_change.py"
 MAX_LOCATED_WIDTH = 20
 """The widest stated line range that counts as locating a statement: naming a whole file as
 "lines 1-200" locates nothing."""
-LOCATED_MARGIN = 2
-"""A stated range locates the statement at fault if it lies within the statement's lines,
-give or take this many: the call that wraps it, or its closing bracket."""
+LOCATED_MARGIN = 0
+"""How far past the statement's own lines a stated range may reach. None: two lines reached
+the neighbouring statement in two held-out cases."""
 MAX_STATED_RANGES = 4
 """An answer that states more ranges than this has not located anything: it has listed the
 file."""
@@ -132,6 +132,36 @@ ANALYST_BUDGET = Budget(max_tool_calls=8, max_turns=10, max_cost_usd=ANALYST_CAS
 
 ModelFactory = Callable[[], InvestigatorModel]
 STOPPED = "the stop rule: too many investigations gave no answer"
+PROVIDER_SIDE = frozenset({401, 402, 403, 404, 408, 409, 429, 500, 502, 503, 504, 529})
+"""Statuses that say nothing about the investigation: the key, the account, the model's
+availability, the provider's load. An error the SDK raised with no status (a timeout, a lost
+connection) is the provider's side too."""
+
+
+class ProviderStopped(Exception):  # noqa: N818 - an outcome the owner reads, not a program error
+    """The provider failed an investigation's request after every resend. The stage stops at
+    once, and the investigation's record is left open: taking the stage up again starts that
+    investigation again, charged what it had already spent."""
+
+    def __init__(self, key: str, error: str) -> None:
+        super().__init__(f"{key}: the provider failed a request after every resend: {error}")
+
+
+def provider_side(turn: Mapping[str, Any]) -> bool:
+    """Whether a failed request failed on the provider's side, not the investigation's."""
+    if "error" not in turn:
+        return False
+    status = turn.get("status_code")
+    if status is None:
+        return True
+    return status in PROVIDER_SIDE or (status == 400 and "credit balance" in str(turn["error"]))
+
+
+def _stopped_by_provider(key: str, turns: Sequence[Mapping[str, Any]]) -> None:
+    if turns and provider_side(turns[-1]):
+        raise ProviderStopped(key, str(turns[-1]["error"])[:300])
+
+
 HALTED = "halted: an earlier investigation of this stage showed a fault in the plumbing"
 INTERRUPTED = (
     "interrupted: the process ended before the investigation did. It was started, so it is "
@@ -185,6 +215,14 @@ class Journal:
                 turns.append(json.loads(line))
             except json.JSONDecodeError:  # a line cut off as the process died
                 turns.append({"error": "a turn's record was cut off as the process ended"})
+        return turns
+
+    def retire(self, key: str) -> list[dict[str, Any]]:
+        """Set aside the record of an investigation that never ended, so that it can be started
+        again; its turns stay in the journal under another name, and are charged."""
+        turns = self.interrupted(key) or []
+        number = 1 + len(list(self.folder.glob(f"{key}.retired-*.jsonl")))
+        self._turns(key).rename(self.folder / f"{key}.retired-{number}.jsonl")
         return turns
 
     def start(self, key: str) -> Callable[[Mapping[str, Any]], None]:
@@ -244,25 +282,24 @@ class _Stage:
         return replace(budget, max_cost_usd=min(self.cap, self.budget_usd - self.spent))
 
     def kept(self, key: str, rep: int, interrupted: Investigation) -> dict[str, Any] | None:
-        """The record of an investigation that a run of this stage already started, which this
-        one continues: it is counted, and nothing is sent. ``interrupted`` is the record it
-        gets if it never ended. None if it was never started."""
+        """The record of an investigation that a run of this stage already finished, which this
+        one continues: it is counted, and nothing is sent. None if it is to be run.
+
+        An investigation that started and never ended (the provider failed it, or the process
+        died) is started again: what stopped it says nothing about the investigation. What it
+        had spent is charged, and its turns are kept in the journal.
+        """
         if self.journal is None:
             return None
         run = self.journal.finished(key)
         if run is None:
-            turns = self.journal.interrupted(key)
-            if turns is None:
-                return None
-            investigation = _with_usage(interrupted, turns)
-            run = {
-                "rep": rep,
-                self.record: investigation.model_dump(mode="json"),
-                "measures": measures(investigation, {}, "") | _turn_measures(turns),
-                "transcript": turns,
-                "interrupted": True,
-            }
-            self.journal.finish(key, run)
+            if self.journal.interrupted(key) is not None:
+                turns = self.journal.retire(key)
+                self.spent += sum(
+                    (Decimal(str(t.get("cost_usd", "0"))) for t in turns), Decimal(0)
+                ) + unconfirmed(turns)
+                say(f"{key}: started again; what it spent before is charged")
+            return None
         self.count(key, run, check=False)
         return run
 
@@ -429,8 +466,9 @@ _NEAR = 80
 def stated_ranges(text: str, path: str | None = None) -> list[tuple[int, int]]:
     """Line ranges a text states: "lines 22-30", "line 25", "L22-L30", "0002_change.py:25".
 
-    With ``path``, a range stated of another file is left out: one with a file name near it,
-    none of which is ``path``'s. "Line 20 and 187 invoices" is one line, not a range.
+    With ``path``, a range stated of another file is left out: one whose nearest file name
+    before it, in the same sentence, is not ``path``'s. "Line 20 and 187 invoices" is one line,
+    not a range.
     """
     ranges = []
     name = path.rsplit("/", 1)[-1] if path else None
@@ -438,9 +476,10 @@ def stated_ranges(text: str, path: str | None = None) -> list[tuple[int, int]]:
         start = int(found.group(1))
         end = int(found.group(2)) if found.group(2) else start
         if name is not None:
-            nearby = text[max(0, found.start() - _NEAR) : found.end() + _NEAR]
-            named_files = {match.rsplit("/", 1)[-1] for match in _FILE.findall(nearby)}
-            if named_files and name not in named_files:
+            before = text[max(0, found.start() - _NEAR) : found.end()]
+            before = re.split(r"[.;!?]\s", before)[-1]
+            named_files = [match.rsplit("/", 1)[-1] for match in _FILE.findall(before)]
+            if named_files and named_files[-1] != name:
                 continue
         ranges.append((min(start, end), max(start, end)))
     return ranges
@@ -449,21 +488,22 @@ def stated_ranges(text: str, path: str | None = None) -> list[tuple[int, int]]:
 def located(
     texts: Sequence[str], fault: Sequence[int] | None, path: str | None = None
 ) -> bool | None:
-    """Whether the texts point at the statement at fault: a stated range of the changed file
-    that lies within the statement's lines, give or take ``LOCATED_MARGIN``.
+    """Whether the texts point at the statement at fault: they state at least one line range
+    of the changed file, at most ``MAX_STATED_RANGES``, and every one lies within the
+    statement's lines.
 
     A range that merely overlaps the statement does not count (a constant "lines 10-29"
-    overlapped every fault of the held-out set), and neither does an answer that states more
-    than ``MAX_STATED_RANGES`` ranges: it has listed the file. What this cannot see is a
-    negation ("not at lines 18-25"); the owner's reading is the check on that.
+    overlapped every fault of the held-out set), nor does an answer that also names another
+    statement ("see line 10 and line 26" passed eleven of eleven when one range sufficed). It
+    is a mechanical proxy: the owner's mark on each answer decides A4.
     """
     if fault is None:
         return None
     low, high = fault[0] - LOCATED_MARGIN, fault[1] + LOCATED_MARGIN
     ranges = {span for text in texts for span in stated_ranges(text, path)}
-    if len(ranges) > MAX_STATED_RANGES:
+    if not ranges or len(ranges) > MAX_STATED_RANGES:
         return False
-    return any(low <= start and end <= high for start, end in ranges)
+    return all(low <= start and end <= high for start, end in ranges)
 
 
 def named(groups: Sequence[Sequence[str]] | None, texts: Sequence[str]) -> bool | None:
@@ -911,6 +951,7 @@ def investigate(
                 if journal is not None:
                     recorder.on_turn = journal.start(key)
                 investigation = investigator.investigate(run_id, context)
+                _stopped_by_provider(key, recorder.turns)
                 texts = evidence_texts(row["_checks"], row["_evidence"], recorder.tool_evidence())
                 written, read = recorder.cache_tokens()
                 measured = measures(investigation, texts, recorder.final_text() or "")
@@ -1068,7 +1109,8 @@ def _rate(successes: int, trials: int) -> dict[str, Any]:
 def _arm(grades: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     answered = [g for g in grades if g["answered"]]
     costs = [Decimal(g["cost_usd"]) for g in grades]
-    stated = sum(g["specifics"] for g in grades)
+    # Over answers only: a rejected answer is never shown, so what it stated is not counted.
+    stated = sum(g["specifics"] for g in answered)
     # What a case's label cannot grade (no rubric, no faulty statement) is in no denominator.
     with_rubric = [g for g in answered if g["root_cause"] is not None]
     with_lines = [g for g in answered if g["located"] is not None]
@@ -1085,7 +1127,7 @@ def _arm(grades: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "citations": sum(g["citations"] for g in grades),
         "valid_citations": sum(g["valid_citations"] for g in grades),
         "specifics": stated,
-        "unsupported_specifics": sum(len(g["unsupported_specifics"]) for g in grades),
+        "unsupported_specifics": sum(len(g["unsupported_specifics"]) for g in answered),
         "tool_calls": dict(
             sorted(sum((Counter(g["tool_calls"]) for g in grades), Counter()).items())
         ),
@@ -1137,6 +1179,7 @@ def _git(folder: Path, *arguments: str) -> str | None:
             capture_output=True,
             text=True,
             check=False,
+            env={k: v for k, v in os.environ.items() if not k.startswith("ANTHROPIC_")},
         )
     except OSError:
         return None
@@ -1257,7 +1300,7 @@ def health(kept: Mapping[str, Sequence[Mapping[str, Any]]], served_by: str | Non
             if any(
                 phrase in str(result.get("content", ""))
                 for result in turn.get("tool_results", [])
-                for phrase in ("could not be asked just now", "the tool could not run just now")
+                for phrase in ("could not be asked just now",)
             ):
                 problems.append(f"{key} turn {index}: a tool could not reach its database")
     return problems
@@ -1493,6 +1536,7 @@ def analyze(
             if journal is not None:
                 recorder.on_turn = journal.start(key)
             analysis = analyst.investigate(run_id, context)
+            _stopped_by_provider(key, recorder.turns)
             run = {
                 "rep": rep,
                 "analysis": analysis.model_dump(mode="json"),
@@ -1618,7 +1662,8 @@ def analysis_results(
                     "flagged": all(bool(run["flagged"]) for run in runs)
                     if fault and complete
                     else None,
-                    "alarmed": any(bool(run["alarmed"]) for run in runs)
+                    # An unanswered analysis of a clean control has not shown it quiet.
+                    "alarmed": any(bool(run["alarmed"]) or not run["answered"] for run in runs)
                     if not fault and runs
                     else None,
                 }

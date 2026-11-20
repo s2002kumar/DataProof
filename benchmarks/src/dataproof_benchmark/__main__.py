@@ -280,6 +280,29 @@ def second_evaluation(args: argparse.Namespace) -> int:
         raise SystemExit(f"{out} or its transcripts already exist: a paid stage is not rerun")
     kept_in = args.journal or (out.with_name(f"{stem}-journal") if args.live else None)
     journal = evaluation.Journal(kept_in) if kept_in is not None else None
+    try:
+        return _stage(args, cases, budget, investigating, live, served, out, transcripts, journal)
+    except evaluation.ProviderStopped as stopped:
+        print(
+            f"STOPPED: {stopped}\nNo results are written. The investigation it stopped is open "
+            "in the journal: taking the stage up again (resume) starts it again, charged what "
+            "it spent; or close the stage as it stands (abandon).",
+            file=sys.stderr,
+        )
+        return EXIT_PROVIDER
+
+
+def _stage(
+    args: argparse.Namespace,
+    cases: Any,
+    budget: Decimal,
+    investigating: bool,
+    live: Any,
+    served: str,
+    out: Path,
+    transcripts: Path,
+    journal: Any,
+) -> int:
     pinned = live.name if live is not None else None
     if investigating:
         rows = evaluation.investigate(
@@ -352,6 +375,7 @@ def second_evaluation(args: argparse.Namespace) -> int:
 EXIT_NOT_A_MEASUREMENT = 3
 EXIT_STOP_RULE = 4
 EXIT_INCOMPLETE = 5
+EXIT_PROVIDER = 6
 
 
 def stage_exit(document: Mapping[str, Any], problems: Sequence[str]) -> int:

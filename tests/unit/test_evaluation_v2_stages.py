@@ -9,6 +9,7 @@ stage from running twice. No model is called and no database is needed.
 import json
 import re
 import stat
+import sys
 from collections.abc import Iterator
 from decimal import Decimal
 from pathlib import Path
@@ -244,8 +245,13 @@ def test_a_request_that_got_no_answer_counts_against_the_cap() -> None:
 # Verdicts ----------------------------------------------------------------------------------------
 
 
-def heldout_document(*, answered: int, cost: str = "0.10", live: bool = True) -> dict[str, Any]:
-    """A held-out results document: 11 faults, 3 repeats, ``answered`` of the 33 answered."""
+def heldout_document(
+    *, answered: int, cost: str = "0.10", live: bool = True, ran: int = 33
+) -> dict[str, Any]:
+    """A held-out results document as the protocol specifies it: 11 faults, 3 repeats,
+    ``answered`` of the 33 answered, ``ran`` of them run."""
+    from dataproof_investigator import PROMPT_VERSION
+
     cases = []
     count = 0
     for number in range(11):
@@ -270,6 +276,7 @@ def heldout_document(*, answered: int, cost: str = "0.10", live: bool = True) ->
                 "kind": "fault",
                 "rules": {"root_cause": number < 3, "answer": {"hypotheses": []}},
                 "runs": runs,
+                "not_run": [],
                 "model": {"located": number < 6},
             }
         )
@@ -277,11 +284,15 @@ def heldout_document(*, answered: int, cost: str = "0.10", live: bool = True) ->
         "set": "heldout",
         "dry_run": not live,
         "reps": 3,
+        "model": verdicts.PINNED_MODEL,
+        "effort": verdicts.EFFORT,
+        "prompt_version": PROMPT_VERSION,
+        "provenance": {"labels_sha256": verdicts.labels_sha256(), "harness_modified": False},
         "cases": cases,
         "plumbing": {"problems": []},
         "summary": {
             "investigations_expected": 33,
-            "investigations_run": 33,
+            "investigations_run": ran,
             "model": {
                 "answered": {"n": answered},
                 "specifics": 40,
@@ -308,61 +319,142 @@ def test_no_criterion_is_met_by_a_run_that_is_not_the_one_specified() -> None:
 def test_the_outcome_follows_the_criteria_and_waits_for_the_owners_marks() -> None:
     finishing = verdicts.verdict(heldout_document(answered=31))
     met = {entry["criterion"][:2]: entry["met"] for entry in finishing["criteria"]}
-    assert (met["A1"], met["A2"], met["A4"], met["A5"], met["A6"]) == (True,) * 5
-    assert (met["A3"], met["A7"]) == (None, None), "a cause is the owner's reading"
+    assert (met["A1"], met["A2"], met["A5"], met["A6"]) == (True,) * 4
+    assert (met["A3"], met["A4"], met["A7"]) == (None,) * 3, "the owner's reading"
     assert finishing["outcome"] == "undecided until the owner's marks are in"
 
     assert verdicts.verdict(heldout_document(answered=29))["outcome"] == "disabled"
+    # A criterion not met decides the outcome even while another waits for marks.
     costly = verdicts.verdict(heldout_document(answered=31, cost="0.20"))
     assert {e["criterion"][:2]: e["met"] for e in costly["criteria"]}["A5"] is False
+    assert costly["outcome"] == "experimental"
+    # A stage that ran out part-way, not by its stop rule, is not a result either way.
+    partial = verdicts.verdict(heldout_document(answered=27, ran=27))
+    assert {e["criterion"][:2]: e["met"] for e in partial["criteria"]}["A1"] is None
+    assert partial["outcome"] == "undecided: the stage did not run in full"
 
 
-def test_the_sheet_hides_the_arm_and_the_marks_decide_the_cause() -> None:
-    improved, old = heldout_document(answered=33), heldout_document(answered=0)
-    references = {
+@pytest.mark.parametrize(
+    ("field", "value", "said"),
+    [
+        ("model", "anthropic:claude-haiku-5-5", "the model is"),
+        ("effort", "high", "effort high"),
+        ("prompt_version", "failure-investigator/2", "prompt failure-investigator/2"),
+        ("provenance", {"labels_sha256": "0" * 64}, "labels other than"),
+    ],
+)
+def test_a_run_of_another_model_prompt_or_label_set_is_not_the_result(
+    field: str, value: Any, said: str
+) -> None:
+    document = heldout_document(answered=33)
+    document[field] = value
+    found = verdicts.verdict(document)
+    assert found["outcome"].startswith("none"), found["outcome"]
+    assert said in found["outcome"]
+
+
+def test_a_run_from_a_modified_checkout_is_not_the_result() -> None:
+    document = heldout_document(answered=33)
+    document["provenance"]["harness_modified"] = True
+    assert "modified checkout" in verdicts.verdict(document)["outcome"]
+
+
+def references_for(count: int = 11) -> dict[str, dict[str, Any]]:
+    return {
         f"held-{n:02d}": {
             "family": "a family",
             "origin": "sourced",
             "fault_lines": [3, 4],
             "statement": ["op.execute('x')"],
         }
-        for n in range(11)
+        for n in range(count)
     }
-    items, key = verdicts.sheet({"improved": improved, "old": old}, references)
-    assert len(items) == 11 + 33, "the rules once per case, and every answer"
-    sheet = verdicts.sheet_markdown(items)
-    for arm in ("improved", "old", "rules"):
-        assert not re.search(rf"{arm}", sheet), arm
-    assert {entry["arm"] for entry in key.values()} == {"rules", "improved"}
-    assert [i["item"] for i in items] == sorted(i["item"] for i in items)
-    # The order is shuffled, and fixed: the same seed gives the same sheet.
-    assert verdicts.sheet({"improved": improved, "old": old}, references)[1] == key
 
-    # The owner marks the improved arm's answers as naming the cause in 8 cases, of which the
-    # rules name 2; the rules name a third alone.
+
+def test_the_sheet_hides_which_investigator_wrote_an_answer() -> None:
+    improved, old = heldout_document(answered=33), heldout_document(answered=0)
+    items, key = verdicts.sheet({"improved": improved, "old": old}, references_for())
+    blinded = [item for item in items if not item.get("rules")]
+    rules = [item for item in items if item.get("rules")]
+    assert (len(blinded), len(rules)) == (33, 11), "every answer, and the rules once a case"
+    sheet = verdicts.sheet_markdown(items)
+    assert "## Not blinded" in sheet
+    for arm in ("improved", "old"):
+        assert not re.search(rf"\b{arm}\b", sheet), arm
+    # The check above can fail: it finds an arm's name where there is one.
+    assert re.search(r"\bwrote\b", sheet)
+    assert [i["item"] for i in blinded] == [f"item-{n:03d}" for n in range(1, 34)]
+    assert {entry["arm"] for entry in key["items"].values()} == {"rules", "improved"}
+    # The order comes from a seed kept only in the key, not from anything a results file holds.
+    assert isinstance(key["seed"], int)
+    fixed = verdicts.sheet({"improved": improved, "old": old}, references_for(), key["seed"])
+    assert fixed[1] == key
+
+
+def marks_for(key: dict[str, Any], cause: Any, **others: str) -> str:
     rows = ["item,cause,statement,actionable,grounded,note"]
-    for item, entry in key.items():
-        case = int(entry["case_id"][5:])
-        cause = case < 8 if entry["arm"] == "improved" else case in (0, 1, 9)
-        rows.append(f"{item},{'y' if cause else 'n'},y,y,y,")
-    marks = verdicts.read_marks("\n".join(rows) + "\n")
-    found = verdicts.verdict(improved, marks, key)
-    a3 = next(e for e in found["criteria"] if e["criterion"].startswith("A3"))
+    for item, entry in key["items"].items():
+        marks = {"statement": "y", "actionable": "y", "grounded": "y"} | others
+        rows.append(
+            f"{item},{'y' if cause(entry) else 'n'},{marks['statement']},"
+            f"{marks['actionable']},{marks['grounded']},"
+        )
+    return "\n".join(rows) + "\n"
+
+
+def by_name(found: dict[str, Any]) -> dict[str, Any]:
+    return {entry["criterion"][:2]: entry for entry in found["criteria"]}
+
+
+def test_the_owners_marks_decide_the_cause_and_the_statement() -> None:
+    improved = heldout_document(answered=33)
+    _, key = verdicts.sheet({"improved": improved}, references_for())
+
+    # The improved arm's answers name the cause in 8 cases; the rules in cases 0, 1 and 9.
+    def cause(entry: dict[str, Any]) -> bool:
+        number = int(entry["case_id"][5:])
+        return number < 8 if entry["arm"] == "improved" else number in (0, 1, 9)
+
+    found = verdicts.verdict(improved, verdicts.read_marks(marks_for(key, cause)), key)
+    a3 = by_name(found)["A3"]
     assert a3["met"] is True, a3
-    assert "named in 8 of 11, 6 of them cases the rules miss, 1 where only the rules" in a3["value"]
+    assert (
+        "named in 8 of 11, 6 of them cases the rules miss, 1 where only the rules" in (a3["value"])
+    )
+    assert by_name(found)["A4"]["met"] is True
     assert found["outcome"] == "optional"
 
+    # No answer points at the statement: A4 is not met, whatever the line-range proxy says.
+    missed = verdicts.verdict(
+        improved, verdicts.read_marks(marks_for(key, cause, statement="n")), key
+    )
+    assert by_name(missed)["A4"]["met"] is False
+    assert missed["outcome"] == "experimental"
 
-def test_an_unmarked_answer_leaves_the_cause_undecided() -> None:
-    improved = heldout_document(answered=33)
-    references = {
-        f"held-{n:02d}": {"family": "f", "origin": "o", "fault_lines": [1, 1], "statement": []}
-        for n in range(11)
+
+def test_marks_are_read_as_a_spreadsheet_writes_them_or_refused() -> None:
+    header = "item;cause;statement;actionable;grounded;note"
+    excel = "﻿" + header + "\nitem-001;Yes;N;TRUE;0;\n"
+    assert verdicts.read_marks(excel) == {
+        "item-001": {"cause": True, "statement": False, "actionable": True, "grounded": False}
     }
-    _, key = verdicts.sheet({"improved": improved}, references)
-    marks = verdicts.read_marks("item,cause,statement,actionable,grounded,note\n")
-    found = verdicts.verdict(improved, marks, key)
-    assert found["outcome"] == "undecided until the owner's marks are in"
+    blank = "item,cause,statement,actionable,grounded,note\nitem-002,,,,,\n"
+    assert verdicts.read_marks(blank)["item-002"] == dict.fromkeys(verdicts.MARKS)
+    unknown = "item,cause,statement,actionable,grounded,note\nitem-003,maybe,y,y,y,\n"
+    with pytest.raises(ValueError, match="item-003: cause is 'maybe'"):
+        verdicts.read_marks(unknown)
+
+
+def test_an_unmarked_answer_leaves_the_owners_criteria_undecided() -> None:
+    improved = heldout_document(answered=33)
+    _, key = verdicts.sheet({"improved": improved}, references_for())
+    empty = verdicts.read_marks("item,cause,statement,actionable,grounded,note\n")
+    assert verdicts.verdict(improved, empty, key)["outcome"] == (
+        "undecided until the owner's marks are in"
+    )
+    # Marked as naming the cause, with no actionable mark: A7 is undecided, not "not met".
+    partial = verdicts.read_marks(marks_for(key, lambda entry: True, actionable=""))
+    assert by_name(verdicts.verdict(improved, partial, key))["A7"]["met"] is None
 
 
 # The launcher ------------------------------------------------------------------------------------
@@ -385,21 +477,34 @@ def attempt(
     commit: str = "c" * 40,
     costs: tuple[str, ...] = ("0.10",),
     sealed: bool = True,
+    dry_run: bool | None = None,
+    budget: str = "1.00",
 ) -> launcher.Attempt:
     folder = state.stages / f"{len(state.attempts()) + 1:02d}-{name}"
     (folder / "journal").mkdir(parents=True)
-    started = {"stage": name, "commit": commit, "budget_usd": "1.00", "started_at": "t"}
+    started = {
+        "stage": name,
+        "commit": commit,
+        "budget_usd": budget,
+        "started_at": "t",
+        "dry_run": state.dry_run if dry_run is None else dry_run,
+    }
     (folder / "started.json").write_text(json.dumps(started), "utf-8")
     role = launcher.PLANS[name].role
     for number, cost in enumerate(costs, 1):
         key = f"case-{number}.rep1"
         (folder / "journal" / f"{key}.turns.jsonl").write_text(
-            '{"started": "x"}\n' + json.dumps({"cost_usd": cost}) + "\n", "utf-8"
+            '{"started": "x"}\n' + json.dumps({"cost_usd": cost, "served_by": PINNED}) + "\n",
+            "utf-8",
         )
-        run = {"investigation" if role == "investigator" else "analysis": record(cost=cost)}
+        run = {
+            "investigation" if role == "investigator" else "analysis": record(cost=cost),
+            "transcript": [{"cost_usd": cost, "served_by": PINNED}],
+        }
         (folder / "journal" / f"{key}.run.json").write_text(json.dumps(run), "utf-8")
     made = launcher.Attempt(folder)
     if sealed:
+        (folder / "gate.json").write_text(json.dumps({"pass": passed}), "utf-8")
         launcher.seal(state, made, {"pass": passed}, abandoned=False)
     return made
 
@@ -543,3 +648,166 @@ def test_the_key_and_the_model_are_checked_at_no_cost_before_anything_is_billed(
     missing = {"type": "error", "error": {"type": "not_found_error", "message": "model: x"}}
     with pytest.raises(launcher.Refused, match="is not served to this key"):
         launcher.preflight("k", model, models_api(404, missing))
+
+
+# What a second review of the launcher found --------------------------------------------------
+
+
+def test_a_dry_run_record_never_stands_for_a_paid_one(state: launcher.State) -> None:
+    """A dry-run pilot in a paid state used to unlock its paid stages."""
+    attempt(state, "dev-pilot", dry_run=True)
+    assert "needs dev-pilot to have passed at this commit" in refused(state, "dev")
+    attempt(state, "dev-pilot", dry_run=False)
+    launcher.check(state, launcher.PLANS["dev"])
+
+
+def test_a_state_is_paid_or_dry_for_good_and_only_a_dry_one_is_removed(tmp_path: Path) -> None:
+    paid = launcher.State(tmp_path / "paid")
+    paid.bind(create=True)
+    with pytest.raises(launcher.Refused, match="holds paid records"):
+        launcher.State(tmp_path / "paid", dry_run=True).bind(create=False)
+    code = launcher.main(["--state", str(tmp_path / "paid"), "--dry-run", "reset"])
+    assert code == 3
+    assert (tmp_path / "paid" / "state.json").is_file(), "a paid state is never removed"
+    dry = launcher.State(tmp_path / "dry", dry_run=True)
+    dry.bind(create=True)
+    assert launcher.main(["--state", str(tmp_path / "dry"), "--dry-run", "reset"]) == 0
+    assert not (tmp_path / "dry").exists()
+    assert launcher.main(["--state", str(tmp_path / "never"), "--dry-run", "reset"]) == 0
+
+
+def test_a_removed_stage_or_a_rewritten_seal_is_found(state: launcher.State) -> None:
+    attempt(state, "dev-pilot")
+    last = attempt(state, "dev")
+    assert launcher.status(state)[1] == []
+    seal = last.folder / "sealed.json"
+    seal.chmod(stat.S_IREAD | stat.S_IWRITE)
+    rewritten = json.loads(seal.read_text("utf-8")) | {"charged_usd": "0"}
+    seal.write_text(json.dumps(rewritten), "utf-8")
+    assert any("seals do not match" in p for p in launcher.status(state)[1])
+    for path in last.folder.rglob("*"):
+        path.chmod(stat.S_IREAD | stat.S_IWRITE)
+    import shutil
+
+    shutil.rmtree(last.folder)
+    problems = launcher.status(state)[1]
+    assert any("1 sealed stages here, 2 recorded there" in p for p in problems), problems
+    assert "have changed" in refused(state, "heldout")
+
+
+def test_taking_a_stage_up_again_charges_the_request_in_flight(state: launcher.State) -> None:
+    attempt(state, "dev-pilot")
+    open_one = attempt(state, "dev", sealed=False, budget="2.20")
+    (open_one.journal / "case-9.rep1.turns.jsonl").write_text(
+        '{"started": "x"}\n{"cost_usd": "0.12"}\n', "utf-8"
+    )
+    left, allowance = launcher.resumable(state, open_one)
+    # The request in flight could have cost the cap less what its investigation had spent.
+    assert allowance == Decimal("0.88")
+    assert left == Decimal("2.20") - Decimal("0.22") - Decimal("0.88")
+
+
+def test_a_stage_that_already_holds_a_fault_is_not_taken_up_again(state: launcher.State) -> None:
+    attempt(state, "dev-pilot")
+    open_one = attempt(state, "dev", sealed=False)
+    run = json.loads((open_one.journal / "case-1.rep1.run.json").read_text("utf-8"))
+    run["transcript"] = []  # an investigation that sent no request
+    (open_one.journal / "case-1.rep1.run.json").write_text(json.dumps(run), "utf-8")
+    with pytest.raises(launcher.Refused, match="no request was sent"):
+        launcher.resumable(state, open_one)
+
+
+def test_code_from_another_checkout_is_refused(
+    state: launcher.State, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import types
+
+    elsewhere = types.ModuleType("dataproof_elsewhere")
+    elsewhere.__file__ = str(tmp_path / "other" / "dataproof_elsewhere" / "__init__.py")
+    monkeypatch.setitem(sys.modules, "dataproof_elsewhere", elsewhere)
+    assert "dataproof_elsewhere" in refused(state, "dev-pilot")
+
+
+def test_a_gate_recomputes_a_us_only_turn_and_holds_the_stage_to_its_specification() -> None:
+    us = [
+        turn("0.0176", written=2000) | {"us_only": True},
+        COSTED[1] | {"cost_usd": "0.00704", "us_only": True},
+    ]
+    verdict = gates.gate(
+        stage_document(),
+        {"dev-101.rep1": us},
+        kind="stage",
+        cap_usd=Decimal("1"),
+        live=True,
+        model=PINNED,
+    )
+    assert verdict["pass"], verdict["reasons"]
+
+    held = stage_document()
+    held["cases"].append(
+        {"case_id": "held-02", "runs": [], "not_run": [], "skipped": "the migration failed"}
+    )
+    held["provenance"] = {"harness_commit": "d" * 40, "harness_modified": True}
+    failed = gates.gate(
+        held,
+        {"dev-101.rep1": COSTED},
+        kind="stage",
+        cap_usd=Decimal("1"),
+        live=True,
+        model=PINNED,
+        complete=True,
+        expected_runs=33,
+        commit="c" * 40,
+    )
+    reasons = " | ".join(failed["reasons"])
+    assert "1 investigations ran; the stage is specified with 33" in reasons
+    assert "the migration failed to apply for held-02" in reasons
+    assert "modified checkout" in reasons
+    assert f"not {'c' * 40}" in reasons
+
+
+class _OverloadedError(Exception):
+    status_code = 529
+
+
+def test_a_provider_error_stops_the_stage_and_its_investigation_is_started_again(
+    tmp_path: Path,
+) -> None:
+    """An error the provider never processed used to be recorded as the investigation's end,
+    and the held-out stage it happened in was spent."""
+    from dataproof_investigator import ModelTurn, ScriptedModel, answer, call
+
+    cases = evaluation.HeldoutSet()
+    journal = evaluation.Journal(tmp_path / "journal")
+
+    def failing(path: str) -> Any:
+        def boom(_: Any) -> ModelTurn:
+            raise _OverloadedError("overloaded, after every resend")
+
+        first = call("get_briefing", {}, "t1")
+        return ScriptedModel(
+            [ModelTurn(**{**first.__dict__, "cost_usd": Decimal("0.02")}), boom],
+            turn_ceiling_usd=Decimal("0.05"),
+        )
+
+    with pytest.raises(evaluation.ProviderStopped, match=r"held-14\.rep1"):
+        evaluation.analyze(cases, failing, Decimal(2), case_ids=["held-14"], journal=journal)
+    assert journal.interrupted("held-14.rep1") is not None, "left open, not closed as an outcome"
+    assert journal.finished("held-14.rep1") is None
+
+    final = (
+        '{"hypotheses": [{"statement": "A risk.", "cited_evidence_ids": '
+        '["investigation.tool.1"], "confidence": "LOW"}], "suggested_action": null, '
+        '"caveat": "c"}'
+    )
+
+    def working(path: str) -> Any:
+        return ScriptedModel(
+            [call("get_briefing", {}, "t1"), answer(final)], turn_ceiling_usd=Decimal("0.05")
+        )
+
+    rows = evaluation.analyze(cases, working, Decimal(2), case_ids=["held-14"], journal=journal)
+    (run,) = rows[0]["runs"]
+    assert run["analysis"]["status"] == "COMPLETED"
+    retired = list((tmp_path / "journal").glob("held-14.rep1.retired-*.jsonl"))
+    assert len(retired) == 1, "the first attempt's turns are kept"

@@ -26,22 +26,26 @@ def turn_cost(turn: Mapping[str, Any]) -> Decimal | None:
     None for a turn no priced model served (a scripted model, or a model with no recorded
     price). ``input_tokens`` counts every prompt token, cached or not, as a transcript does.
     """
-    from dataproof_investigator.anthropic_model import CACHE_WRITE, PRICES
+    from dataproof_investigator.anthropic_model import CACHE_WRITE, LONG_PROMPT, PRICES, US_ONLY
 
     served = str(turn.get("served_by") or "").removeprefix("anthropic:")
     if served not in PRICES:
         return None
     input_price, output_price, read_price = PRICES[served]
+    prompt = int(turn["input_tokens"])
+    long = LONG_PROMPT.get(served)
+    if long is not None and prompt > long[0]:
+        input_price, output_price, read_price = long[1]
     written = int(turn.get("cache_write_tokens", 0))
     read = int(turn.get("cache_read_tokens", 0))
-    plain = int(turn["input_tokens"]) - written - read
+    plain = prompt - written - read
     total = (
         input_price * plain
         + input_price * CACHE_WRITE * written
         + read_price * read
         + output_price * int(turn["output_tokens"])
     )
-    return total / Decimal(1_000_000)
+    return total * (US_ONLY if turn.get("us_only") else 1) / Decimal(1_000_000)
 
 
 def spend(kept: Transcripts) -> dict[str, Any]:
@@ -92,6 +96,9 @@ def gate(
     versions: Mapping[str, str] | None = None,
     need_cache_read: bool = False,
     complete: bool = False,
+    expected_runs: int | None = None,
+    must_answer: bool = True,
+    commit: str | None = None,
 ) -> dict[str, Any]:
     """Whether a stage's records are a measurement, and for a pilot whether the stage it
     precedes may start. ``reasons`` is empty exactly when ``pass`` is true.
@@ -120,6 +127,24 @@ def gate(
     expected = summary.get("investigations_expected", summary.get("analyses_expected"))
     if complete and expected is not None and len(runs) < expected:
         reasons.append(f"{len(runs)} of the {expected} investigations it was to run ran")
+    if expected_runs is not None and len(runs) != expected_runs:
+        reasons.append(
+            f"{len(runs)} investigations ran; the stage is specified with {expected_runs}"
+        )
+    if complete:
+        failed = [
+            c["case_id"] for c in document["cases"] if c.get("skipped") == "the migration failed"
+        ]
+        if failed:
+            reasons.append(f"the migration failed to apply for {', '.join(failed)}")
+    provenance = document.get("provenance", {})
+    if live and commit is not None:
+        if provenance.get("harness_modified"):
+            reasons.append("the results say they came from a modified checkout")
+        if provenance.get("harness_commit") != commit:
+            reasons.append(
+                f"the results say they came from {provenance.get('harness_commit')}, not {commit}"
+            )
     for key, _ in runs:
         if key not in kept:
             reasons.append(f"{key}: no transcript")
@@ -143,7 +168,7 @@ def gate(
     read = sum(int(turn.get("cache_read_tokens", 0)) for turn in turns)
     if kind == "pilot":
         for key, run in runs:
-            if not run.get("answered"):
+            if must_answer and not run.get("answered"):
                 reasons.append(f"{key}: the pilot did not answer ({run['status']})")
         reasons += misses
         if live and need_cache_read and not read:

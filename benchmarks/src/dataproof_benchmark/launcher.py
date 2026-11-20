@@ -30,6 +30,16 @@ What it holds to, and what the first evaluation's launcher did not:
 * **A held-out stage is refused if its budget would not cover it** at what the development
   stage measured an investigation costs: running out part-way would spend the held-out set
   on a partial result.
+* **A state folder is paid or dry, for good** (``state.json``), and a dry run's record never
+  stands for a paid one. Only a dry state can be removed.
+* **The code that runs is this checkout's:** a paid stage is refused if any of the project's
+  packages would be loaded from somewhere else, and a gate fails a stage whose results say
+  they came from a modified checkout or another commit.
+* **The seals are counted outside the state folder too** (``<state>.chain``), so that a
+  sealed stage deleted or a seal rewritten is found.
+* **A provider error stops a stage with its investigation open;** taking the stage up again
+  starts that investigation again and charges what it spent, and what the request in flight
+  could have cost. One launcher at a time (``<state>/.lock``).
 """
 
 import argparse
@@ -111,6 +121,9 @@ class Plan:
     most_usd: Decimal | None = None
     """The most this stage is given, if less than its pool."""
     old_arm: bool = False
+    answered: bool = True
+    """For a pilot: whether every investigation must answer. The old arm's pilot checks the
+    plumbing only: the old investigator is expected not to answer, which is what it shows."""
 
 
 PLANS: Mapping[str, Plan] = {
@@ -134,7 +147,15 @@ PLANS: Mapping[str, Plan] = {
         Plan(
             "dev",
             "development",
-            ("eval2-investigate", "--set", "dev", "--skip", *PILOT_CASES),
+            (
+                "eval2-investigate",
+                "--set",
+                "dev",
+                "--skip",
+                *PILOT_CASES,
+                "--stop-after-unanswered",
+                "4",
+            ),
             pilot="dev-pilot",
         ),
         Plan(
@@ -154,10 +175,20 @@ PLANS: Mapping[str, Plan] = {
             once=True,
         ),
         Plan(
+            "old-arm-pilot",
+            "old-arm",
+            ("eval2-investigate", "--set", "dev", "--only", PILOT_CASES[0]),
+            kind="pilot",
+            most_usd=Decimal("0.70"),
+            old_arm=True,
+            answered=False,
+        ),
+        Plan(
             "old-arm",
             "old-arm",
             ("eval2-investigate", "--set", "heldout", "--reps", "1"),
             needs=("heldout",),
+            pilot="old-arm-pilot",
             once=True,
             old_arm=True,
         ),
@@ -180,14 +211,30 @@ PLANS: Mapping[str, Plan] = {
         Plan(
             "analyst-dev",
             "analyst-development",
-            ("eval2-analyze", "--set", "dev", "--skip", *ANALYST_PILOT_CASES),
+            (
+                "eval2-analyze",
+                "--set",
+                "dev",
+                "--skip",
+                *ANALYST_PILOT_CASES,
+                "--stop-after-unanswered",
+                "6",
+            ),
             role="analyst",
             pilot="analyst-pilot",
         ),
         Plan(
             "analyst-heldout",
             "analyst-heldout",
-            ("eval2-analyze", "--set", "heldout", "--reps", "2"),
+            (
+                "eval2-analyze",
+                "--set",
+                "heldout",
+                "--reps",
+                "2",
+                "--stop-after-unanswered",
+                "4",
+            ),
             role="analyst",
             needs=("analyst-dev",),
             pilot="analyst-pilot",
@@ -254,7 +301,8 @@ class Attempt:
         """What the stage's journal says it spent, turn by turn, with every request that got
         no answer counted at the most it could have cost."""
         total = Decimal(0)
-        for path in sorted(self.journal.glob("*.turns.jsonl")):
+        # Every journal file, an investigation started again included.
+        for path in sorted(self.journal.glob("*.jsonl")):
             for turn in self._turns(path):
                 total += Decimal(str(turn.get("cost_usd", "0")))
                 total += Decimal(str(turn.get("unconfirmed_usd", "0")))
@@ -269,6 +317,17 @@ class Attempt:
                     (Decimal(str(t.get("cost_usd", "0"))) for t in self._turns(path)), Decimal(0)
                 )
         return None
+
+    def resume_allowances_usd(self) -> Decimal:
+        """What the requests in flight when its process died could have cost, one for each
+        time it was taken up again."""
+        return sum(
+            (
+                Decimal(str(_read(path)["allowance_usd"]))
+                for path in sorted(self.folder.glob("resumed-*.json"))
+            ),
+            Decimal(0),
+        )
 
     def charged_usd(self) -> Decimal:
         """What the stage takes from its pool: what its seal records, which for a stage closed
@@ -313,14 +372,40 @@ class State:
     def stages(self) -> Path:
         return self.root / "stages"
 
+    @property
+    def chain(self) -> Path:
+        """Each seal's hash, one line a stage, beside the state folder and not in it."""
+        return self.root.with_name(f"{self.root.name}.chain")
+
+    def bind(self, *, create: bool) -> None:
+        """Hold the state to the kind it was made as: a paid state is never written to by a
+        dry run, nor a dry one by a paid run. ``create`` makes it if it does not exist."""
+        marker = self.root / "state.json"
+        if marker.is_file():
+            kind = bool(_read(marker)["dry_run"])
+            if kind != self.dry_run:
+                raise Refused(
+                    f"{self.root} holds {'dry-run' if kind else 'paid'} records; this command is "
+                    f"{'a dry run' if self.dry_run else 'paid'}. Use another state folder."
+                )
+            return
+        if self.stages.is_dir() and any(self.stages.iterdir()):
+            raise Refused(f"{self.root} has stage records and no state.json: use a new folder")
+        if create:
+            self.root.mkdir(parents=True, exist_ok=True)
+            _write_once(marker, {"dry_run": self.dry_run, "made_at": datetime.now(UTC).isoformat()})
+
     def attempts(self) -> list[Attempt]:
         if not self.stages.is_dir():
             return []
-        return [
-            Attempt(folder)
-            for folder in sorted(self.stages.iterdir())
-            if (folder / "started.json").is_file()
-        ]
+        found = []
+        for folder in sorted(self.stages.iterdir()):
+            try:
+                _read(folder / "started.json")
+            except (OSError, ValueError):
+                continue  # made, and never started: nothing was sent from it
+            found.append(Attempt(folder))
+        return found
 
     def of(self, name: str) -> list[Attempt]:
         return [attempt for attempt in self.attempts() if attempt.name == name]
@@ -377,9 +462,32 @@ def commit(state: State, plan: Plan) -> str:
     return head
 
 
-def _passed(attempt: Attempt) -> bool:
+def foreign_code() -> list[str]:
+    """The project's packages this process loaded from anywhere but this checkout. A stage's
+    process loads them the same way, so a stage refused here is one that would have run
+    other code than the commit it records."""
+    found = []
+    for name, module in sorted(sys.modules.items()):
+        if not (name.startswith("dataproof_") or name == "commerce_scenario") or "." in name:
+            continue
+        where = getattr(module, "__file__", None)
+        if where is None or not Path(where).resolve().is_relative_to(REPOSITORY):
+            found.append(f"{name} from {where}")
+    return found
+
+
+def _passed(attempt: Attempt, state: State) -> bool:
+    """Whether a stage passed its gate, as a stage of this state's kind."""
     sealed = attempt.sealed
-    return sealed is not None and bool(sealed["gate_pass"]) and not sealed.get("abandoned")
+    gate = attempt.folder / "gate.json"
+    return (
+        sealed is not None
+        and bool(sealed["gate_pass"])
+        and not sealed.get("abandoned")
+        and gate.is_file()
+        and bool(_read(gate).get("pass"))
+        and bool(attempt.started.get("dry_run")) == state.dry_run
+    )
 
 
 def check(state: State, plan: Plan) -> tuple[str, Decimal]:
@@ -391,20 +499,28 @@ def check(state: State, plan: Plan) -> tuple[str, Decimal]:
             f"{unsealed.folder.name} was started and never closed. Take it up again "
             "(resume: only what was never started is sent) or close it as it stands (abandon)."
         )
-    for attempt in state.attempts():
-        broken = attempt.problems()
-        if broken:
-            raise Refused("a sealed stage's records have changed:\n  " + "\n  ".join(broken))
+    _, broken = status(state)
+    if broken:
+        raise Refused("the sealed records have changed:\n  " + "\n  ".join(broken))
+    if not state.dry_run:
+        foreign = foreign_code()
+        if foreign:
+            raise Refused(
+                "the project's code would not come from this checkout ("
+                + str(REPOSITORY)
+                + "):\n  "
+                + "\n  ".join(foreign)
+            )
     head = commit(state, plan)
     if plan.once and state.of(plan.name):
         raise Refused(f"{plan.name} is a held-out stage and was started before: it runs once")
     for needed in plan.needs:
         previous = state.of(needed)
-        if not previous or not _passed(previous[-1]):
+        if not previous or not _passed(previous[-1], state):
             raise Refused(f"{plan.name} needs {needed} to have passed its gate first")
     if plan.pilot is not None:
         pilots = [a for a in state.of(plan.pilot) if a.started["commit"] == head]
-        if not pilots or not _passed(pilots[-1]):
+        if not pilots or not _passed(pilots[-1], state):
             raise Refused(
                 f"{plan.name} needs {plan.pilot} to have passed at this commit ({head[:12]}): "
                 "a pilot first, on the code being run"
@@ -446,8 +562,17 @@ def cap_usd(plan: Plan) -> Decimal:
     return evaluation.ANALYST_CASE_CAP_USD
 
 
-EXPECTED_RUNS: Mapping[str, int] = {"heldout": 33, "old-arm": 11, "analyst-heldout": 28}
-"""How many investigations a held-out stage runs: its cases times its repeats."""
+EXPECTED_RUNS: Mapping[str, int] = {
+    "dev-pilot": 2,
+    "old-arm-pilot": 1,
+    "analyst-pilot": 2,
+    "heldout": 33,
+    "old-arm": 11,
+    "analyst-heldout": 28,
+}
+"""How many investigations a pilot or a held-out stage runs: its cases times its repeats. A
+gate holds the stage to it: a case skipped because its migration failed is not a smaller
+stage, it is a stage that did not run as specified."""
 
 
 def projection(state: State, plan: Plan) -> dict[str, Any] | None:
@@ -456,10 +581,14 @@ def projection(state: State, plan: Plan) -> dict[str, Any] | None:
     must still find the stage's start amount left. None before any development stage ran."""
     import statistics
 
-    role = [p.name for p in PLANS.values() if p.role == plan.role and not p.once]
+    role = [
+        p.name
+        for p in PLANS.values()
+        if p.role == plan.role and not p.once and p.old_arm == plan.old_arm
+    ]
     costs: list[Decimal] = []
     for attempt in state.attempts():
-        if attempt.name not in role or not _passed(attempt):
+        if attempt.name not in role or not _passed(attempt, state):
             continue
         for path in sorted(attempt.journal.glob("*.run.json")):
             run = _read(path)
@@ -544,7 +673,9 @@ def _environment(plan: Plan, state: State, key: str | None) -> dict[str, str]:
         environment["ANTHROPIC_API_KEY"] = key
     if plan.old_arm and not state.dry_run:
         # A dry run sends nothing, so it has no old investigator to compare: it runs this one.
-        environment["PYTHONPATH"] = str(old_checkout(state, make=True))
+        existing = environment.get("PYTHONPATH")
+        old = str(old_checkout(state, make=False))
+        environment["PYTHONPATH"] = old + (os.pathsep + existing if existing else "")
     return environment
 
 
@@ -597,12 +728,13 @@ def _transcripts(folder: Path) -> dict[str, list[dict[str, Any]]]:
     return kept
 
 
-def _gate(plan: Plan, state: State, folder: Path, budget: Decimal) -> dict[str, Any]:
+def _gate(plan: Plan, attempt: Attempt, budget: Decimal) -> dict[str, Any]:
+    folder = attempt.folder
     results = folder / RESULTS
     if not results.is_file():
         return {"pass": False, "kind": plan.kind, "reasons": ["the stage wrote no results"]}
     document = _read(results)
-    live = not state.dry_run
+    live = not attempt.started.get("dry_run")
     versions = {}
     if plan.role == "investigator" and not plan.old_arm:
         from dataproof_investigator import PROMPT_VERSION, TOOL_VERSION
@@ -620,6 +752,9 @@ def _gate(plan: Plan, state: State, folder: Path, budget: Decimal) -> dict[str, 
         versions=versions,
         need_cache_read=True,
         complete=plan.kind == "pilot" or plan.once,
+        expected_runs=EXPECTED_RUNS.get(plan.name),
+        must_answer=plan.answered,
+        commit=str(attempt.started["commit"]) if live else None,
     )
 
 
@@ -638,6 +773,7 @@ def seal(
         # sends a turn only if its worst case fits in what the investigation has left, so
         # what that request could have cost is at most the cap less what was spent.
         allowance = max(Decimal(0), cap_usd(plan) - spent_by_open)
+    resumed = attempt.resume_allowances_usd()
     files = {
         path.relative_to(attempt.folder).as_posix(): _sha256(path)
         for path in sorted(attempt.folder.rglob("*"))
@@ -650,12 +786,14 @@ def seal(
         "gate_pass": bool(verdict.get("pass")) and not abandoned,
         "abandoned": abandoned,
         "recorded_usd": str(recorded),
-        "in_flight_allowance_usd": str(allowance),
-        "charged_usd": str(recorded + allowance),
+        "in_flight_allowance_usd": str(allowance + resumed),
+        "charged_usd": str(recorded + allowance + resumed),
         "previous_seal_sha256": previous,
         "files": files,
     }
     _write_once(attempt.folder / "sealed.json", sealed)
+    with state.chain.open("a", encoding="utf-8", newline="\n") as chain:
+        chain.write(f"{attempt.folder.name} {_sha256(attempt.folder / 'sealed.json')}\n")
     for path in attempt.folder.rglob("*"):
         if path.is_file():
             path.chmod(stat.S_IREAD)
@@ -680,8 +818,12 @@ def _close(state: State, attempt: Attempt, plan: Plan, code: int, key: str | Non
         )
         return 2
     budget = Decimal(str(attempt.started["budget_usd"]))
-    verdict = _gate(plan, state, attempt.folder, budget)
-    _write_once(attempt.folder / "gate.json", verdict | {"exit_code": code})
+    gate = attempt.folder / "gate.json"
+    if gate.is_file():
+        verdict = _read(gate)  # gated before the process died, and not yet sealed
+    else:
+        verdict = _gate(plan, attempt, budget)
+        _write_once(gate, verdict | {"exit_code": code})
     sealed = seal(state, attempt, verdict, abandoned=False)
     print(json.dumps(verdict, indent=2, default=str))
     print(f"\n{plan.name}: spent {sealed['recorded_usd']} USD of the {budget} USD it was given.")
@@ -703,7 +845,9 @@ def run(state: State, name: str, approve: Decimal | None, dsn: str, key: str | N
         if approve != budget:
             raise Refused(f"this stage would be given {budget} USD; --approve said {approve}")
         preflight(key, ablation.MODEL)
-    number = len(state.attempts()) + 1
+    if plan.old_arm and not state.dry_run:
+        old_checkout(state, make=True)  # before anything is recorded: it can fail
+    number = 1 + (len(list(state.stages.iterdir())) if state.stages.is_dir() else 0)
     folder = state.stages / f"{number:02d}-{name}"
     folder.mkdir(parents=True)
     command = _command(plan, state, folder, budget, dsn)
@@ -748,16 +892,49 @@ def resume(state: State, approve: Decimal | None, dsn: str, key: str | None) -> 
             raise Refused(
                 f"the code is no longer the commit {started['commit'][:12]} it started at"
             )
-        left = budget - attempt.recorded_usd()
+        foreign = foreign_code()
+        if foreign:
+            raise Refused("the project's code would not come from this checkout: " + foreign[0])
+    left, allowance = resumable(state, attempt)
+    if key is not None and not state.dry_run:
         if approve != left:
             raise Refused(f"{left} USD of this stage's budget is unspent; --approve said {approve}")
         preflight(key, ablation.MODEL)
+    number = 1 + len(list(attempt.folder.glob("resumed-*.json")))
+    _write_once(
+        attempt.folder / f"resumed-{number}.json",
+        {"at": datetime.now(UTC).isoformat(), "allowance_usd": str(allowance)},
+    )
     print(
         f"\n=== {attempt.name}: taken up again; what its journal holds is not sent ===", flush=True
     )
-    command = _command(plan, state, attempt.folder, budget, dsn)
+    given = budget - attempt.resume_allowances_usd()
+    command = _command(plan, state, attempt.folder, given, dsn)
     code = _stream(command, _environment(plan, state, key), attempt.folder / "stage.log", key)
     return _close(state, attempt, plan, code, key)
+
+
+def resumable(state: State, attempt: Attempt) -> tuple[Decimal, Decimal]:
+    """What a stage taken up again may still spend, and what the request in flight when its
+    process died could have cost (the loop sends a turn only if its worst case fits in what the
+    investigation has left). Refused if what it already holds makes it no measurement: taking
+    it up again would buy nothing."""
+    plan = PLANS[attempt.name]
+    finished = [_read(path) for path in sorted(attempt.journal.glob("*.run.json"))]
+    kept = {str(index): run.get("transcript", []) for index, run in enumerate(finished)}
+    faults = evaluation.health(kept, MODEL if not attempt.started.get("dry_run") else None)
+    if faults:
+        raise Refused(
+            f"{attempt.folder.name} already holds a fault that makes it no measurement "
+            f"({faults[0]}); close it as it stands (abandon)"
+        )
+    spent_by_open = attempt.open_investigation_usd()
+    allowance = Decimal(0)
+    if spent_by_open is not None:
+        allowance = max(Decimal(0), cap_usd(plan) - spent_by_open)
+    budget = Decimal(str(attempt.started["budget_usd"]))
+    left = budget - attempt.recorded_usd() - attempt.resume_allowances_usd() - allowance
+    return max(Decimal(0), left), allowance
 
 
 def abandon(state: State) -> int:
@@ -799,6 +976,14 @@ def status(state: State) -> tuple[str, list[str]]:
             f"{attempt.folder.name:<26} {gate:<8} {started['budget_usd']:>6}  "
             f"{attempt.recorded_usd():>9.4f}  {charged:>7.4f}  {started['commit'][:10]}"
         )
+    sealed_ones = [a for a in state.attempts() if a.sealed is not None]
+    chained = state.chain.read_text("utf-8").splitlines() if state.chain.is_file() else []
+    expected = [f"{a.folder.name} {_sha256(a.folder / 'sealed.json')}" for a in sealed_ones]
+    if chained != expected:
+        problems.append(
+            f"the seals do not match {state.chain.name}: {len(expected)} sealed stages here, "
+            f"{len(chained)} recorded there. A sealed stage was removed, or a seal rewritten"
+        )
     lines.append("")
     lines.append("Pool                   Limit  Charged     Left")
     for pool, limit in POOLS.items():
@@ -831,11 +1016,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands.add_parser("abandon")
     commands.add_parser("reset", help="dry run only: remove the dry run's records")
     args = parser.parse_args(argv)
-    state = State(args.state, dry_run=args.dry_run)
+    state = State(args.state.resolve(), dry_run=args.dry_run)
     # The key is taken out of this process's environment at once; only a stage's own process
     # is given it.
     key = os.environ.pop("ANTHROPIC_API_KEY", None) or None
+    lock = state.root / ".lock"
+    locked = False
     try:
+        if state.root.is_relative_to(REPOSITORY):
+            raise Refused(f"keep the state outside the repository, not in {state.root}")
+        state.bind(create=args.command in ("run", "resume", "abandon"))
+        if args.command in ("run", "resume", "abandon"):
+            try:
+                lock.open("x").close()
+                locked = True
+            except FileExistsError as exc:
+                raise Refused(
+                    f"{lock} exists: another launcher is running on this state, or one ended "
+                    "without removing it. Check that no stage is running, then delete it."
+                ) from exc
         if args.command == "status":
             text, problems = status(state)
             print(text)
@@ -847,17 +1046,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             attempt = state.open_attempt()
             if attempt is None:
                 raise Refused("no stage is open: there is nothing to take up again")
-            left = Decimal(str(attempt.started["budget_usd"])) - attempt.recorded_usd()
+            left, allowance = resumable(state, attempt)
             print(f"stage:   {attempt.name}, taken up again; what its journal holds is not sent")
             print(f"commit:  {attempt.started['commit']}")
-            print(f"budget:  {left} USD at most, what is left of its budget")
-            print(f"approve: {left}")
+            print(f"repository: {REPOSITORY}")
+            print(
+                f"budget:  {left:f} USD at most, what is left of its budget once "
+                f"{allowance:f} USD is charged for a request whose answer was never seen"
+            )
+            print(f"approve: {left:f}")
             return 0
         if args.command == "plan":
             plan = PLANS[args.stage]
             head, budget = check(state, plan)
             print(f"stage:   {plan.name} ({plan.kind}, {plan.role})")
             print(f"commit:  {head}")
+            print(f"repository: {REPOSITORY}")
             print(f"runs:    dataproof_benchmark {' '.join(plan.arguments)}")
             print(f"budget:  {budget} USD at most, from the {plan.pool} pool")
             projected = projection(state, plan) if plan.once else None
@@ -874,8 +1078,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             return resume(state, args.approve, args.database, key)
         if args.command == "abandon":
             return abandon(state)
-        if not args.dry_run:
+        marker = state.root / "state.json"
+        if args.dry_run and not state.root.exists():
+            return 0  # nothing to remove
+        if not args.dry_run or not marker.is_file() or not _read(marker)["dry_run"]:
             raise Refused("only a dry run's records can be removed")
+        if state.chain.is_file():
+            state.chain.unlink()
         if state.root.is_dir():
             for path in state.root.rglob("*"):
                 if path.is_file():
@@ -885,6 +1094,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Refused as refused:
         print(f"REFUSED: {refused}", file=sys.stderr)
         return 3
+    finally:
+        if locked:
+            lock.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

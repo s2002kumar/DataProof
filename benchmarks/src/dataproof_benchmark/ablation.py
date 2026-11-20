@@ -279,6 +279,7 @@ class _RecordingSession:
                 turn = self._session.send(tool_results, notice)
         except Exception as exc:
             failed = sent | {"error": f"{type(exc).__name__}: {exc}"[:500]}
+            failed["status_code"] = getattr(exc, "status_code", None)
             if getattr(exc, "status_code", None) is None and at_most is not None:
                 # No answer came back, so the provider may have processed the request and
                 # billed it. A refusal with a status was not billed.

@@ -1,6 +1,6 @@
 # AI evaluation v2: a proposed protocol
 
-**Status: proposed on 2026-11-19, revised on 2026-11-20 after an independent review of the investigator and of this harness. Not approved, not run. No model has been called for it and no money has been spent.** It becomes a protocol when the owner approves it and its budget; then the commit that holds it, the investigator and the held-out set is recorded here, and nothing in it changes afterwards. The budgets below are the owner's proposed limits, not permission to spend.
+**Status: proposed on 2026-11-19, revised on 2026-11-20 after two independent reviews of the investigator and of this harness. Not approved, not run. No model has been called for it and no money has been spent.** It becomes a protocol when the owner approves it and its budget; then the commit that holds it, the investigator and the held-out set is recorded here, and nothing in it changes afterwards. The budgets below are the owner's proposed limits, not permission to spend.
 
 It replaces nothing. The [first protocol](AI_EVALUATION.md) stays as it was frozen, with [what its one run showed](AI_EVALUATION_RESULTS.md). This one exists because that run measured the investigator's loop and not its diagnosis.
 
@@ -32,6 +32,27 @@ Before any spend, a reviewer tried to make the harness give wrong numbers. Every
 | A `downgrade` string named its fault in three held-out cases | Every `downgrade` body is replaced; a test holds that no text outside a faulty statement passes its case's rubric |
 | A budget running out removed the last cases' repeats | Repeats run in rounds: every case once, then every case again |
 | Stage C could not be piloted or stopped | It has a pilot and a stop rule like the investigator's |
+
+A second review read the launcher, the gates and the graders as they stood after those fixes. Each finding below is fixed and held by a test:
+
+| Found | Now |
+| --- | --- |
+| One transient provider error, or an error the provider never processed, ended its investigation as an outcome, and the held-out stage it was in was void | The adapter sends again every error that cannot have been billed. One that persists stops the stage with that investigation's record open; taking the stage up again starts it again and charges what it had spent. An error that is the investigation's own (a request the API refuses) is recorded as it is, and voids the stage |
+| Taking a stage up again did not charge the request in flight when its process died | It is charged at the most it could have cost: the investigation's cap less what it had spent. A stage whose records already hold a fault cannot be taken up again |
+| A dry-run pilot unlocked paid stages; a dry run could finish a paid stage; a dry run's reset removed a paid state | A state folder is paid or dry for good (`state.json`), a record counts only for its own kind, and only a dry state can be removed |
+| Nothing checked that the code a stage ran was the checkout it recorded: this machine's environment loads another checkout's packages | A paid stage is refused if any of the project's packages would come from elsewhere, the PowerShell launcher refuses a launcher of another repository, and a gate fails a stage whose results name another commit or a modified tree |
+| A gate's own cost recompute left out the price of inference kept in the United States, so every stage of such a workspace would fail its gate after spending | Each turn records where it ran, and the gate prices it the same way |
+| Deleting the last sealed stage, or rewriting its seal, went unnoticed | Every seal is also recorded outside the state folder (`<state>.chain`), and `Status` and every stage check them against each other |
+| "Every investigation ran" was counted against a number that shrank when a case's migration failed to apply | A pilot and a held-out stage are held to the number they are specified with, and a case that did not apply fails the gate |
+| The old arm had never been piloted on its own code, and its checkout was made after the stage was recorded | It has a one-case pilot that checks the plumbing (the old investigator is expected not to answer), and its checkout is made and checked first |
+| Most stages had no stop rule | Every stage has one |
+| A location was any of four stated ranges, with two lines of margin: "see line 10 and line 26" located eleven faults of eleven, and two lines reached a neighbouring statement | Every range stated must lie within the statement's own lines, and A4 is the owner's mark |
+| Outcomes did not follow the table: a criterion not met could read "undecided", and a stage that ran out part-way read "disabled" | The table's order is code, and a stage that did not finish is undecided |
+| A2 counted the specifics of answers that were rejected and never shown | Answers only |
+| A held-out document of another model, effort or prompt was graded as the result | It is no result |
+| A spreadsheet's byte-order mark or semicolons broke the marks; "yes" counted as no | Both are read; y, yes, true and 1 are yes; anything unknown is refused |
+| The sheet's order came from a public seed, and the rules' fixed wording gave their items away | A random seed kept only in the key; the rules' items are shown apart and said to be unblinded |
+| Two launchers could run at once on one state | One at a time (`<state>/.lock`) |
 
 ## Arms
 
@@ -72,7 +93,8 @@ Every measure is computed by code written before any live run.
 | Answered | The investigation ended `COMPLETED`: a valid answer whose every citation exists. Anything else (stopped, invalid, refused, failed) is not answered, and is graded on nothing further |
 | Cause named | **The owner's mark,** given blind to which arm wrote the answer (below), on whether the first hypothesis names the cause the reference gives. The rules' diagnosis of each case is marked the same way, by the same reader |
 | Cause, keyword proxy | The case's rubric on the first hypothesis, every group of terms matching the start of a word, and not hedged (the hypothesis does not also match two other cases' rubrics). Reported beside the marks; it decides nothing. It misses a correct paraphrase and can pass a negation |
-| Lines stated | The first hypothesis or the suggested action states a line range of the changed migration that lies within the faulty statement's lines, give or take two, in an answer that states at most four ranges. Mechanical, and not a keyword |
+| Statement located | **The owner's mark** on whether the answer points at the faulty statement |
+| Lines, mechanical proxy | The first hypothesis or the suggested action states at least one line range of the changed migration, at most four, and every one lies within the faulty statement's own lines. Reported beside the marks; it decides nothing |
 | Citation validity | Of every evidence ID the answer cites, how many exist, counted from the raw answer |
 | Unsupported specifics | Numbers of three or more digits and `snake_case` names in a hypothesis that appear in none of the evidence it cites. A proxy: it cannot see a small invented number |
 | By case | An investigation's case is answered, named or located if the majority of its repeats are |
@@ -84,7 +106,7 @@ Rates are reported with 95% Wilson intervals, by investigation and by case. **Th
 
 ### The owner's reading
 
-`eval2-sheet` writes every held-out answer of the improved and the old arm, and the rules' diagnosis of each case, as numbered items in a fixed shuffled order, each beside its case's reference (the fault, where its pattern comes from, and the faulty statement as the model's file has it). Which arm wrote an item is not shown; the key is written to another folder, to be opened only when the marks are in. The owner marks each item `y` or `n` on four questions in `marks.csv`: does it name the cause; does it point at the faulty statement; would it have told me what to fix; does it state only what its evidence shows. `eval2-verdict` then reads the marks with the key.
+`eval2-sheet` writes every held-out answer of the improved and the old arm as numbered items, shuffled together in an order drawn from a random seed that only the key holds, each beside its case's reference (the fault, where its pattern comes from, and the faulty statement as the model's file has it). Which arm wrote an item is not shown; the key is written to another folder, to be opened only when the marks are in. The rules' diagnosis of each case follows, in a section of its own: its fixed wording would give it away, so it is not blinded, and the sheet says so. **The held-out results, transcripts and reports are not to be opened before every mark is in:** they say which arm wrote what. The owner marks each item `y` or `n` on four questions in `marks.csv`: does it name the cause; does it point at the faulty statement; would it have told me what to fix; does it state only what its evidence shows. `eval2-verdict` then reads the marks with the key.
 
 ## Acceptance criteria, fixed before the run
 
@@ -94,13 +116,15 @@ On the held-out set, for the improved Failure Investigator: 11 cases, 3 investig
 | --- | --- | --- |
 | A1, finishes | At least 30 of 33 investigations answered | At 30 of 33 the interval's lower end is 76%. Below that it is not a tool |
 | A2, grounded | Unsupported specifics at most 5% of those stated, over all answers; undecided if none was stated | A rejected citation already counts against A1 |
-| A3, adds to the rules | By the owner's marks, by case: the cause named in at least 7 of 11, at least 4 of them cases the rules miss, and at most 1 case where only the rules name it | The rules name 3. This is a practical bar, not a significance test: at the threshold an exact paired test of 4 against 0 gives p = 0.125 |
-| A4, locates | By case, the faulty statement's lines stated in at least 6 of 11 | The rules never state a line. This is what a reviewer cannot get from them |
+| A3, adds to the rules | By the owner's marks, by case: the cause named in at least 7 of 11, at least 4 of them cases the rules miss, and at most 1 case where only the rules name it | The rules name 3 by the keyword proxy. This is a practical bar, not a significance test: at the threshold an exact paired test of 4 against 0 gives p = 0.125 |
+| A4, locates | By the owner's marks, by case: the faulty statement pointed at in at least 6 of 11 | The rules never state a line. This is what a reviewer cannot get from them |
 | A5, affordable | Median at most 0.15 USD and 60 seconds an investigation | About what the first run cost; a reviewer waits for it |
 | A6, as configured | No plumbing fault (no request sent, a failed request, a turn served by another model, a tool that could not reach its database) | The first run's void stage |
 | A7, the owner finds it actionable | Of the answers the owner marks as naming the cause, at least 4 in 5 marked actionable | Naming a cause is not enough to fix it |
 
 What each outcome means for the product (`verdicts.verdict`):
+
+The order is fixed (`verdicts.outcome`): a run that is not the held-out stage as specified (another model, effort, prompt or set of labels, a modified checkout, a dry run) has no outcome; then A6 not met is void; A1 or A2 not met is disabled; A1 or A2 undecided (the stage ran out part-way, not by its stop rule) is undecided; any other criterion not met is experimental; any other undecided waits for the marks; all met is optional.
 
 - **All seven met:** **optional.** It may be described as an optional feature with a measured result on a small held-out set, quoted with its intervals. It stays off unless configured. Turning it on by default is not on the table: that would need cases from someone else's repository.
 - **A1 and A2 met, any other not met:** **experimental.** It stays off, and this held-out set is spent; any later claim needs a new one.
@@ -127,22 +151,26 @@ One stage for each run of the launcher. Nothing starts the next stage by itself.
 | Stage | What runs | Pool, USD | Expected, USD |
 | --- | --- | --- | --- |
 | `DevPilot` | The improved investigator on `dev-101` (one failed check) and `dev-109` (three), stop rule 1 | development 2.50, at most 1.00 of it | 0.20 |
-| `Dev` | The other 16 failing development cases, once | the rest of development | 1.60 |
+| `Dev` | The other 16 failing development cases, once, stop rule 4 | the rest of development | 1.60 |
 | `Heldout` | The 11 held-out faults, three rounds, stop rule 4 | held-out 5.00 | 3.30 |
-| `OldArm` | The old investigator on the 11, once (optional, above) | old arm 2.00 | 0.90 |
+| `OldArmPilot` | The old investigator on `dev-101`, to check its plumbing; it is not expected to answer | old arm 2.00, at most 0.70 of it | 0.08 |
+| `OldArm` | The old investigator on the 11, once (optional, above) | the rest of the old arm | 0.90 |
 | `AnalystPilot` | The Change Analyst on `dev-101` (a fault) and `dev-102` (clean), stop rule 1 | analyst development 2.00, at most 1.00 of it | 0.08 |
-| `AnalystDev` | The other 29 development changes, once | the rest of analyst development | 1.16 |
-| `AnalystHeldout` | The 14 held-out changes, two rounds | analyst held-out 2.00 | 1.12 |
-| **Total** | | **13.50** | **about 8.40** |
+| `AnalystDev` | The other 29 development changes, once, stop rule 6 | the rest of analyst development | 1.16 |
+| `AnalystHeldout` | The 14 held-out changes, two rounds, stop rule 4 | analyst held-out 2.00 | 1.12 |
+| **Total** | | **13.50** | **about 8.50** |
 
 Expected costs assume about 0.10 USD an investigation (the first run's were 0.06 to 0.11) and 0.04 USD an analysis. They are estimates; the pools are hard limits.
 
 - **Per investigation:** at most 1.00 USD, 12 tool calls and 16 turns (one kept in reserve for a correction); an analysis at most 0.40 USD, 8 tool calls and 10 turns. An investigation starts only while its stage has 0.60 USD left (an analysis 0.30), and is never given more than the stage has left: a stage cannot pass its pool. Below that amount the loop would ask for the answer after a turn or two, and the run would measure the budget.
 - **What the loop does near its cost limit:** a turn is not sent if its worst case could pass the limit, and when the money left would not surely cover a turn after the next one, the next one is the answer. The worst case prices a turn's whole context as written to the cache and its output at the full limit: about 0.25 USD for an investigation's turn, whatever it really costs.
 - **A pilot first, at the same commit.** No stage of a role starts until that role's pilot passed its gate at the commit being run: every investigation answered and ran, no request failed, the pinned model served every turn, the cache was read, and the spend recomputed from tokens equals the recorded spend.
-- **A plumbing fault halts a stage at once** (a request that failed, a turn another model served, a run that sent nothing, a tool that could not reach its database). The rest of its budget would buy nothing that could be reported.
+- **A plumbing fault halts a stage** when the investigation it happened in ends (a turn another model served, a run that sent nothing, a tool that could not reach its database, a request the API refused). The rest of its budget would buy nothing that could be reported, and the stage is void.
+- **A provider error is not the investigation's outcome.** The adapter sends again, up to four times, every request that cannot have been billed (a rate limit, an overload, a server error, a connection never made). One that still fails stops the stage at once, with no results written and that investigation's record open. Taking the stage up again (`Resume`, with its own typed approval) starts that investigation again from the beginning and charges what it had already spent; what stopped it says nothing about the investigation. A request the API refused as invalid is the investigation's own, and is recorded as it is.
 - **A held-out stage runs once, at a commit on the remote, from an unmodified tree, and only if its pool covers it** at the third quartile of what the development stage measured an investigation costs. If it does not, the launcher refuses and says what it would need; raising a pool is the owner's decision.
-- **Records:** every stage's folder holds its start record, its journal (each turn as it happened), its results and transcripts, its gate and its seal: every file's SHA-256, chained to the stage before, made read-only. `Status` checks every seal and prints the spend by stage and pool. A stage whose process died is taken up again (`Resume`: only what it never started is sent) or closed as it stands (`Abandon`, charged what it recorded plus the most the request in flight could have cost). Until then nothing else starts.
+- **Records:** every stage's folder holds its start record, its journal (each turn as it happened), its results and transcripts, its gate and its seal: every file's SHA-256, chained to the stage before, made read-only, and the chain recorded outside the state folder too. `Status` checks every seal and prints the spend by stage and pool. A stage whose process died, or that a provider error stopped, is taken up again (`Resume`) or closed as it stands (`Abandon`); either is charged the most the request in flight could have cost. Until then nothing else starts. A state folder is paid or dry for good, and a dry run's records never stand for a paid one.
+- **The code:** a paid stage is refused unless every package of the project it would load is this checkout's, at the commit it records, unmodified; and a held-out stage, unless that commit is on the remote.
+- **The read-only seal stops accidents, not intent.** Anyone who can write the folder can delete it; the chain outside it shows that something was removed, not what. The verified total is the sum the gates recomputed from token counts; the bill is the Console's, which only the owner can read.
 - **Development may change the investigator,** on the development set's evidence alone. If it does, the investigator is committed again and both pilots run again at that commit before anything held-out.
 - **Of the 15.10 USD the owner authorized on 2026-11-03, 1.651932 USD is spent.** That authorization was for the first protocol, which allows no rerun, so this budget is a new decision.
 

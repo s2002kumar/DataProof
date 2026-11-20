@@ -110,7 +110,7 @@ def test_what_a_model_can_read_of_a_heldout_case_says_nothing_about_it(case_id: 
     if label["kind"] == "fault":
         lines = HELDOUT.changed(case_id)[evaluation.HELDOUT_REVISION].splitlines()
         low, high = label["fault_lines"]
-        margin = evaluation.LOCATED_MARGIN
+        margin = 2  # the call that wraps the statement, and the fault's own setup beside it
         outside = lines[: max(0, low - 1 - margin)] + lines[high + margin :]
         assert evaluation.named(label["rubric"], ["\n".join(outside)]) is False, case_id
 
@@ -228,7 +228,11 @@ def test_lines_are_located_only_within_the_statement_of_the_changed_file() -> No
     assert evaluation.stated_ranges("line 20 and 187 invoices") == [(20, 20)]
     assert evaluation.located(["The UPDATE at lines 24-27 divides integers."], fault, path)
     assert evaluation.located(["migrations/versions/0002_change.py:30"], fault, path)
-    assert evaluation.located(["The call at lines 20-31 wraps it."], fault, path), "a margin"
+    # No margin: two lines past a statement reached its neighbour in two held-out cases.
+    assert evaluation.located(["The call at lines 20-31 wraps it."], fault, path) is False
+    assert evaluation.located(["The UPDATE at lines 22-30, in 0002_change.py."], fault, path)
+    # Every range stated must be on the statement: one on another statement is a hedge.
+    assert evaluation.located(["See line 10 and line 26 of 0002_change.py."], fault, path) is False
     for wrong in (
         "The file, lines 1-200, is at fault.",
         "The ALTER at lines 5-9.",
