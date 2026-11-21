@@ -172,10 +172,13 @@ def require_feasible_cap(investigator: Investigator, context: ToolContext, cap: 
         )
 
 
-TRANSCRIPT_RESULT_CHARS = 16000
-"""Tool results are kept in a transcript up to this length, with the full result's hash. The
-first evaluation kept 2,000 characters; a briefing is longer, and a reader of a transcript
-needs to see what the model saw."""
+TRANSCRIPT_RESULT_CHARS = 64 * 1024
+"""Tool results are kept in a transcript up to this length, with the full result's hash: the
+investigator's own limit on a result (``tools.MAX_RESULT_BYTES``, held equal by a test, and not
+imported because the old arm's package predates it), so a result is kept whole. The first
+evaluation kept 2,000 characters. The second kept 16,000 at first, and three briefings of its
+development stage were cut by about 200 bytes each: a reader of a transcript could not see
+everything the model saw."""
 
 
 @dataclass

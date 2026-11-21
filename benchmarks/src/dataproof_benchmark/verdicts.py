@@ -374,7 +374,8 @@ def verdict(
                 if located is not None
                 else "the owner's marks are not in"
             )
-            + f". The line-range proxy: {proxy['model_located']}",
+            + f". The line-range proxy: {proxy['model_located']}; the statement proxy: "
+            f"{proxy.get('model_statement_located', 'not recorded')}",
             f"at least {A4_LOCATED} of {HELDOUT_FAULTS}",
         )
     )

@@ -1,6 +1,6 @@
 # AI evaluation v2: a proposed protocol
 
-**Status: proposed on 2026-11-19, revised on 2026-11-20 after two independent reviews of the investigator and of this harness. Not approved, not run. No model has been called for it and no money has been spent.** It becomes a protocol when the owner approves it and its budget; then the commit that holds it, the investigator and the held-out set is recorded here, and nothing in it changes afterwards. The budgets below are the owner's proposed limits, not permission to spend.
+**Status: proposed on 2026-11-19, revised on 2026-11-20 after two independent reviews of the investigator and of this harness, and on 2026-11-21 after its development stages ([what they showed](#what-the-development-stage-showed-and-what-changed-before-the-held-out-stage)). The owner has run the development stages, approving each one's spend: 1.0383958 USD in all. Nothing held-out has run.** The commit the held-out stage runs at holds this protocol, the investigator and the held-out set, and nothing in them changes afterwards. The budgets below are the owner's limits; each paid stage still needs its own typed approval.
 
 It replaces nothing. The [first protocol](AI_EVALUATION.md) stays as it was frozen, with [what its one run showed](AI_EVALUATION_RESULTS.md). This one exists because that run measured the investigator's loop and not its diagnosis.
 
@@ -65,12 +65,48 @@ A third check, of those fixes, found and closed these:
 - **Deleting a stage that was still open went unnoticed.** A stage's start is recorded outside its folder too.
 - **The old arm's one-case pilot could not meet the cache rule,** and the old adapter does not price the US-only surcharge: the pilot is not held to it, and the surcharge is allowed for in what the old arm records.
 
+## What the development stage showed, and what changed before the held-out stage
+
+The owner ran `DevPilot` and `Dev` on 2026-11-21 at commit `9c26c89`: 0.1379682 and 0.9004276 USD, every gate passed, both records sealed. The 18 investigations were then read against the development labels and the migrations they diagnose. The held-out set and its results were not opened.
+
+What the investigations did:
+
+- **All 18 answered,** in 3 to 5 of their 16 turns, with 2 to 6 tool calls (60 in all; none failed or was refused). Each read the briefing, then the whole changed migration on its second turn. An investigation cost 0.0546 USD at the median and 0.0834 at most, and took 14.1 s at the median and 19.8 s at most. The pinned model served every turn, and no answer had to be sent back or asked for again.
+- **Read against the labels and the source, every first hypothesis names the cause and the statement, and every suggested action would repair the fault.** In four cases the action also restores a constraint the fault had removed. These are the author's readings of development cases, not marks.
+- **One explanation was partly wrong** (`dev-109`): it said every observed value was the expected one cut to one decimal place. That holds for single events, not for the per-order totals of several events in the same briefing. Three later cases with the same kind of aggregation (`dev-123`, `dev-124`, `dev-128`) explained it correctly.
+- **No answer cited the briefing,** though 11 stated something only the briefing showed, usually that the other checks had passed. The measure flagged 8 of 232 specifics (3.4%). It cannot see a check written as "c2", so it found only some of them.
+- **Two calls were redundant:** a table's definition, asked for after reading the migration that defines it (`dev-109`, `dev-124`).
+- **The rules,** by the same reading, named the cause in 7 of 18, stated no line and suggested no fix. In `dev-111` they gave no answer: the check had errored, not failed.
+
+What the mechanical proxies did. They decide nothing, and these are their errors against that reading:
+
+| Proxy | Agreed with the reading |
+| --- | --- |
+| Cause, keyword, the investigator | 13 of 18. Two correct answers were counted as hedges (below), and three said it in other words: "the kind", "two identical statements", "a second time" |
+| Cause, keyword, the rules | Credited in 9 cases, right in 7. In both swaps the rules' "ties" matched the transposition rubric's "tie", but the generator only ever swaps two values with an UPDATE |
+| Lines | 4 of 18. The other 14 also named their context: the INSERT the fault came after, the table's definition, a line next to the statement |
+
+What changed, each change held by a test in [`test_evaluation_v2_development.py`](../tests/unit/test_evaluation_v2_development.py):
+
+1. **The prompt is `failure-investigator/4`:** one sentence, that `get_briefing` is a call with an evidence ID, to be cited for what only the briefing shows. Nothing else in the investigator changed. The commit changes, so the development pilot runs again at it before the held-out stage.
+2. **A statement proxy beside the line proxy:** the first range an answer states reaches a statement at fault and no other statement. It agreed with the reading in 17 of 18 (`dev-111` named the correct backfill first). It replaces nothing: the line proxy is as it was, still grades the Change Analyst's flags (C3) as specified, and the owner's marks decide A4.
+3. **A term of the case's own rubric is no sign of a hedge.** A lost and a duplicated row are "missing" and "duplicated", which are also a partial migration's and a retry's terms, so every correct answer to those cases counted as hedged. Of the 18 answers, only those two cases' grades change.
+4. **Rules that gave no answer did not name the cause** in the by-case keyword comparison, as A3 already counts it from the marks. Before, such a case was left out.
+5. **Records keep each tool result whole,** up to 64 KiB, the investigator's own limit on a result. At 16,000 characters three briefings were cut by about 200 bytes each, which only their hashes recorded.
+6. **The development labels record the seed they were built with, 20261119.** They said 20261102, the first corpus's. Their `holdout` field is the first corpus's split, and nothing here reads it.
+
+What did not change:
+
+- **The rubrics' terms.** Adding the words the model used would fit the proxy to the model; removing "tie" would fit it to the rules' wording. The first evaluation's frozen scoring and the Change Analyst's use the same rubrics, the held-out set has its own, and the owner's marks decide for both arms.
+- **The unsupported-specifics measure.** It flags a computed number ("+0.02") and cannot see "c2". It stays as specified, and the share it reports is a floor on what was left uncited, not a measure of it.
+- **No acceptance criterion, threshold, budget, cap, held-out label or held-out reference.**
+
 ## Arms
 
 | Arm | What it is | Where it runs |
 | --- | --- | --- |
 | Rules | `diagnose`, the rule-based diagnosis every failing run gets; for the Change Analyst, the static risk rules. Free and deterministic | Every case |
-| Improved | The Failure Investigator after [ADR-0009](adr/0009-the-investigator-finishes.md) and its review: `failure-investigator/3`, `tools/3` | Development, then held-out |
+| Improved | The Failure Investigator after [ADR-0009](adr/0009-the-investigator-finishes.md) and its review, and the development stage: `failure-investigator/4`, `tools/3` | Development (`/3`), then held-out (`/4`) |
 | Old | The investigator package as it was in the first run (`failure-investigator/1`, `tools/1`), from a checkout of `fe75bce`, run by this same harness on the same cases | Held-out, once |
 | Change Analyst | `change-analyst/3` | Development, then held-out |
 
@@ -103,11 +139,12 @@ Every measure is computed by code written before any live run.
 | --- | --- |
 | Answered | The investigation ended `COMPLETED`: a valid answer whose every citation exists. Anything else (stopped, invalid, refused, failed) is not answered, and is graded on nothing further |
 | Cause named | **The owner's mark,** given blind to which arm wrote the answer (below), on whether the first hypothesis names the cause the reference gives. The rules' diagnosis of each case is marked the same way, by the same reader |
-| Cause, keyword proxy | The case's rubric on the first hypothesis, every group of terms matching the start of a word, and not hedged (the hypothesis does not also match two other cases' rubrics). Reported beside the marks; it decides nothing. It misses a correct paraphrase and can pass a negation |
+| Cause, keyword proxy | The case's rubric on the first hypothesis, every group of terms matching the start of a word, and not hedged (the hypothesis does not also match two other cases' rubrics on terms its own rubric lacks). Reported beside the marks; it decides nothing. It misses a correct paraphrase and can pass a negation |
 | Statement located | **The owner's mark** on whether the answer points at the faulty statement |
-| Lines, mechanical proxy | The first hypothesis or the suggested action states at least one line range of the changed migration, at most four, and every one lies within the faulty statement's own lines. Reported beside the marks; it decides nothing |
+| Lines, mechanical proxy | The first hypothesis or the suggested action states at least one line range of the changed migration, at most four, and every one lies within the faulty statement's own lines. Reported beside the marks; it decides nothing. It fails an answer that also names its context |
+| Statement, mechanical proxy | The first line range the first hypothesis states of the changed migration (else the suggested action's first) reaches a simple statement at fault and no other statement of the file. A statement is at fault if it holds a line the fault changed (development) or a fault marker (held-out). Reported beside the marks; it decides nothing |
 | Citation validity | Of every evidence ID the answer cites, how many exist, counted from the raw answer |
-| Unsupported specifics | Numbers of three or more digits and `snake_case` names in a hypothesis that appear in none of the evidence it cites. A proxy: it cannot see a small invented number |
+| Unsupported specifics | Numbers of three or more digits and `snake_case` names in a hypothesis that appear in none of the evidence it cites. A proxy, and a floor: it cannot see a small invented number or a check written as "c2", and it counts a number computed from cited ones |
 | By case | An investigation's case is answered, named or located if the majority of its repeats are |
 | Cost, latency, turns, tool calls | Per investigation, from the API's token counts; a gate recomputes every turn's cost from its tokens and the price table |
 
@@ -182,7 +219,7 @@ Expected costs assume about 0.10 USD an investigation (the first run's were 0.06
 - **Records:** every stage's folder holds its start record, its journal (each turn as it happened), its results and transcripts, its gate and its seal: every file's SHA-256, chained to the stage before, made read-only, and the chain recorded outside the state folder too. `Status` checks every seal and prints the spend by stage and pool. A stage whose process died, or that a provider error stopped, is taken up again (`Resume`) or closed as it stands (`Abandon`); either is charged the most the request in flight could have cost. Until then nothing else starts. A state folder is paid or dry for good, and a dry run's records never stand for a paid one.
 - **The code:** a paid stage is refused unless every package of the project it would load is this checkout's, at the commit it records, unmodified; and a held-out stage, unless that commit is on the remote.
 - **The read-only seal stops accidents, not intent.** Anyone who can write the folder can delete it; the chain outside it shows that something was removed, not what. The verified total is the sum the gates recomputed from token counts; the bill is the Console's, which only the owner can read.
-- **Development may change the investigator,** on the development set's evidence alone. If it does, the investigator is committed again and both pilots run again at that commit before anything held-out.
+- **Development may change the investigator,** on the development set's evidence alone. If it does, the investigator is committed again and the development pilot runs again at that commit before anything held-out, as does the old arm's pilot if the old arm is to run. It did change once ([above](#what-the-development-stage-showed-and-what-changed-before-the-held-out-stage)).
 - **Of the 15.10 USD the owner authorized on 2026-11-03, 1.651932 USD is spent.** That authorization was for the first protocol, which allows no rerun, so this budget is a new decision.
 
 ### The key, and the spend
@@ -225,7 +262,8 @@ A second model family would show whether a result is about this investigator's d
 
 - **Small, clustered sets by one author.** An interval from 11 cases is wide, the cases are not independent of each other, and a held-out set by the system's author is weaker than someone else's cases.
 - **The owner's reading is the system author's.** It is blind to the arm, not to the system. Nobody else has marked anything.
-- **Keyword rubrics remain proxies,** and decide nothing here.
+- **Keyword rubrics remain proxies,** and decide nothing here. On the development stage they missed 5 of 18 correct answers before the hedge was corrected and 3 after, and credited the rules with 2 wrong explanations.
+- **The development cases are easy to read:** in each the fault is one or two statements of a 42- to 55-line migration. They showed that the investigator finishes and cites; they say little about subtler faults, which is the held-out set's question.
 - **Blinding removes help a real pull request might carry.** A migration's comments can be useful or misleading. The evaluation asks what the investigator finds without them.
 - **The old arm runs once** on each case, so its rates have wider intervals than the improved arm's.
 - **Not measured:** whether a reviewer, given the explanation, finds and fixes the fault faster. That needs people who are not the author.

@@ -13,9 +13,10 @@ What the first evaluation taught (docs/AI_EVALUATION_RESULTS.md) is built in:
   after the investigator is frozen, and never iterated on.
 * **An investigation that was stopped is not a wrong answer.** Each is graded ``answered`` or
   not, and root cause and location are graded only on answers.
-* **Atomic graders.** Besides the keyword rubric: ``located``, whether the answer states lines
-  of the changed migration that overlap the statement at fault. It is mechanical and it is not
-  a keyword.
+* **Atomic graders.** Besides the keyword rubric: ``located``, whether every line range the
+  answer states lies within the statement at fault, and ``statement_located``, whether the first
+  range it states reaches that statement and no other. They are mechanical, not keywords, and
+  neither decides: the owner's marks do.
 * **Repeats, with intervals.** Every case can be investigated several times; rates carry
   Wilson intervals, and a case's verdict is the majority of its repeats.
 * **A cap that cannot be met is an error before the run** (``ablation.require_feasible_cap``),
@@ -467,8 +468,8 @@ def blind(source: str) -> str:
     return re.sub(r"\n{3,}", "\n\n\n", "\n".join(kept).strip("\n") + "\n")
 
 
-def statement_lines(source: str, markers: Sequence[str]) -> tuple[int, int] | None:
-    """The lines of the statements that hold the markers: the smallest statement for each."""
+def marker_spans(source: str, markers: Sequence[str]) -> list[tuple[int, int]] | None:
+    """The lines of the smallest statement that holds each marker; None if one holds none."""
     spans = []
     for marker in markers:
         found = [
@@ -479,19 +480,54 @@ def statement_lines(source: str, markers: Sequence[str]) -> tuple[int, int] | No
         if not found:
             return None
         spans.append(min(found, key=lambda span: span[1] - span[0]))
+    return spans
+
+
+def statement_lines(source: str, markers: Sequence[str]) -> tuple[int, int] | None:
+    """The lines of the statements that hold the markers: the smallest statement for each."""
+    spans = marker_spans(source, markers)
     return (min(s for s, _ in spans), max(e for _, e in spans)) if spans else None
 
 
-def changed_lines(safe: str, faulty: str) -> tuple[int, int] | None:
-    """The lines of ``faulty`` that differ from ``safe``: where a generated fault is."""
+def differing_lines(safe: str, faulty: str) -> list[int]:
+    """Each line of ``faulty`` that differs from ``safe``; a deletion marks the line after it."""
     matcher = difflib.SequenceMatcher(a=safe.splitlines(), b=faulty.splitlines(), autojunk=False)
-    differing = [
+    return [
         line
         for tag, _, _, start, end in matcher.get_opcodes()
         if tag != "equal"
         for line in range(start + 1, max(end, start + 1) + 1)
     ]
+
+
+def changed_lines(safe: str, faulty: str) -> tuple[int, int] | None:
+    """The lines of ``faulty`` that differ from ``safe``: where a generated fault is."""
+    differing = differing_lines(safe, faulty)
     return (min(differing), max(differing)) if differing else None
+
+
+def simple_statements(source: str) -> list[tuple[int, int]] | None:
+    """The lines of each simple statement of a Python file (a call such as ``op.execute(...)``,
+    an assignment, a return), in order. A definition or a block is not one: its own simple
+    statements are listed. None if the file does not parse."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    return sorted(
+        (node.lineno, node.end_lineno or node.lineno)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.stmt) and "body" not in node._fields and "cases" not in node._fields
+    )
+
+
+def at_fault(
+    statements: Sequence[tuple[int, int]] | None, lines: Sequence[int]
+) -> list[tuple[int, int]] | None:
+    """The simple statements that hold any of ``lines``: the statements at fault."""
+    if statements is None:
+        return None
+    return [(s, e) for s, e in statements if any(s <= line <= e for line in lines)] or None
 
 
 _RANGE = re.compile(
@@ -558,6 +594,31 @@ def located(
     return any(inside) and all(i or a for i, a in zip(inside, around, strict=True))
 
 
+def statement_located(texts: Sequence[str], label: Mapping[str, Any]) -> bool | None:
+    """Whether the first line range an answer states of the changed file points at the
+    statement at fault: it reaches a statement at fault and no other statement of the file.
+
+    The investigator's proxy for the faulty statement, reported beside ``located``, which the
+    development stage showed rejects a correct answer for naming its context: of 18 correct
+    answers it accepted 4, each of the others having also named the INSERT the fault came
+    after, or the table's definition, or a line just past the diff. Only the first range
+    counts, so naming the context later does not matter, and listing ranges does not help: a
+    constant range is right only where it happens to be. Neither proxy decides A4 (the owner's
+    marks do), and ``located`` alone grades the Change Analyst, as the protocol says.
+    """
+    faulty, statements = label.get("fault_statements"), label.get("statements")
+    if not faulty or statements is None:
+        return None
+    wanted = {(int(s), int(e)) for s, e in faulty}
+    for text in texts:
+        ranges = stated_ranges(text, label.get("path"))
+        if ranges:
+            start, end = ranges[0]
+            reached = {(int(s), int(e)) for s, e in statements if s <= end and start <= e}
+            return bool(reached) and reached <= wanted
+    return False
+
+
 def named(groups: Sequence[Sequence[str]] | None, texts: Sequence[str]) -> bool | None:
     """The keyword proxy for naming a cause: every group of terms must have a term that
     starts a word of the texts ("round" matches "rounded", "cast" does not match "forecast").
@@ -575,10 +636,26 @@ def named(groups: Sequence[Sequence[str]] | None, texts: Sequence[str]) -> bool 
     )
 
 
-def hedged(texts: Sequence[str], others: Sequence[Sequence[Sequence[str]]]) -> bool:
+def hedged(
+    texts: Sequence[str],
+    others: Sequence[Sequence[Sequence[str]]],
+    own: Sequence[Sequence[str]] | None = None,
+) -> bool:
     """Whether the texts also match two or more of the other cases' rubrics: an answer that
-    lists every cause has named none."""
-    return sum(bool(named(groups, texts)) for groups in others) >= 2
+    lists every cause has named none.
+
+    A term the case's own rubric has is no sign of another cause, and is not counted for one:
+    a lost and a duplicated row are "missing" and "duplicated", which are also a partial
+    migration's and a retry's terms, so every correct answer to such a case was counted a
+    hedge (both of the development stage's). A rubric left with an empty group cannot match.
+    """
+    shared = {term for group in own or () for term in group}
+    counted = 0
+    for groups in others:
+        kept = [[term for term in group if term not in shared] for group in groups]
+        if all(kept) and named(kept, texts):
+            counted += 1
+    return counted >= 2
 
 
 def wilson(successes: int, trials: int) -> tuple[float, float] | None:
@@ -625,7 +702,7 @@ class DevSet:
         self.seed = seed
         self._cases = {c.case_id.replace("case-", "dev-"): c for c in build_corpus(seed)}
         self._root = workdir / f"corpus-dev-{seed}"
-        for relative, text in rendered(list(self._cases.values()), []).items():
+        for relative, text in rendered(list(self._cases.values()), [], seed).items():
             path = self._root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, "utf-8", newline="\n")
@@ -659,14 +736,18 @@ class DevSet:
         found = {}
         for case_id, case in self._cases.items():
             safe = replace(case, statements=SAFE).source()
+            fault = case.label.kind == "fault"
+            statements = simple_statements(case.source())
             found[case_id] = {
                 "kind": case.label.kind,
                 "family": case.label.family,
                 "variant": case.label.variant,
                 "origin": "generated",
                 "rubric": ablation.RUBRIC.get(case.label.family),
-                "fault_lines": changed_lines(safe, case.source())
-                if case.label.kind == "fault"
+                "fault_lines": changed_lines(safe, case.source()) if fault else None,
+                "statements": statements,
+                "fault_statements": at_fault(statements, differing_lines(safe, case.source()))
+                if fault
                 else None,
                 "path": next(iter(self.changed(case_id))),
                 "affected": list(case.label.affected_events),
@@ -795,14 +876,21 @@ class HeldoutSet:
         found = {}
         for case_id, label in self._labels.items():
             markers = label.get("fault_markers") or []
+            source = self._revision(case_id)
+            statements = simple_statements(source)
+            spans = marker_spans(source, markers) if markers else None
             found[case_id] = {
                 "kind": label["kind"],
                 "family": label["family"],
                 "variant": label["change"],
                 "origin": label["origin"],
                 "rubric": label.get("rubric"),
-                "fault_lines": statement_lines(self._revision(case_id), markers)
-                if markers
+                "fault_lines": statement_lines(source, markers) if markers else None,
+                "statements": statements,
+                "fault_statements": at_fault(
+                    statements, [n for s, e in spans for n in range(s, e + 1)]
+                )
+                if spans
                 else None,
                 "path": HELDOUT_REVISION,
                 "affected": [],
@@ -1070,13 +1158,14 @@ def grade(
     outcomes = Counter(c["outcome"] for c in investigation["tool_calls"])
     affected = {int(n) for n in label.get("affected") or []}
     gradable = answered and label["rubric"] is not None
-    hedge = hedged(first, others) if gradable else None
+    hedge = hedged(first, others, label["rubric"]) if gradable else None
     return {
         "status": investigation["status"],
         "answered": answered,
         "root_cause": bool(named(label["rubric"], first)) and not hedge if gradable else None,
         "hedged": hedge,
         "located": located(pointed, label["fault_lines"], label.get("path")) if answered else None,
+        "statement_located": statement_located(pointed, label) if answered else None,
         "named_affected": len(ablation.mentioned_numbers(texts) & affected),
         "citations": measured["citations"],
         "valid_citations": measured["valid_citations"],
@@ -1141,6 +1230,7 @@ def scored(
                     "answered": _majority([r["answered"] for r in runs]),
                     "root_cause": _majority([r["root_cause"] for r in runs]),
                     "located": _majority([r["located"] for r in runs]),
+                    "statement_located": _majority([r.get("statement_located") for r in runs]),
                 }
                 if runs
                 else None,
@@ -1166,6 +1256,7 @@ def _arm(grades: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     # What a case's label cannot grade (no rubric, no faulty statement) is in no denominator.
     with_rubric = [g for g in answered if g["root_cause"] is not None]
     with_lines = [g for g in answered if g["located"] is not None]
+    with_statement = [g for g in answered if g.get("statement_located") is not None]
     return {
         "investigations": len(grades),
         "statuses": dict(sorted(Counter(g["status"] for g in grades).items())),
@@ -1176,6 +1267,9 @@ def _arm(grades: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         ),
         "hedged_of_answered": _rate(sum(bool(g["hedged"]) for g in with_rubric), len(with_rubric)),
         "located_of_answered": _rate(sum(bool(g["located"]) for g in with_lines), len(with_lines)),
+        "statement_located_of_answered": _rate(
+            sum(bool(g["statement_located"]) for g in with_statement), len(with_statement)
+        ),
         "citations": sum(g["citations"] for g in grades),
         "valid_citations": sum(g["valid_citations"] for g in grades),
         "specifics": stated,
@@ -1196,7 +1290,15 @@ def _arm(grades: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 def summarize(cases: Sequence[Mapping[str, Any]], reps: int = 1) -> dict[str, Any]:
     investigated = [c for c in cases if c["rules"] is not None]
     with_model = [c for c in investigated if c["model"] is not None]
-    gradable = [c for c in with_model if c["rules"]["root_cause"] is not None]
+    # A case with a rubric, whether or not the rules answered it: rules that gave no answer
+    # did not name the cause, as A3 counts it from the owner's marks. (A case the rules could
+    # not answer was left out until the development stage showed one, dev-111.)
+    gradable = [
+        c
+        for c in with_model
+        if c["rules"]["root_cause"] is not None
+        or any(run["root_cause"] is not None for run in c["runs"])
+    ]
     runs = [run for c in investigated for run in c["runs"]]
     return {
         "cases": len(cases),
@@ -1220,6 +1322,9 @@ def summarize(cases: Sequence[Mapping[str, Any]], reps: int = 1) -> dict[str, An
                 bool(c["rules"]["root_cause"]) and not c["model"]["root_cause"] for c in gradable
             ),
             "model_located": sum(bool(c["model"]["located"]) for c in with_model),
+            "model_statement_located": sum(
+                bool(c["model"].get("statement_located")) for c in with_model
+            ),
         },
     }
 
@@ -1389,7 +1494,10 @@ def uncalled(document: Mapping[str, Any]) -> list[str]:
     ]
 
 
-def _shown(rate: Mapping[str, Any]) -> str:
+def _shown(rate: Mapping[str, Any] | None) -> str:
+    # None: a measure the run's code did not have (a stage run before it was added).
+    if rate is None:
+        return "not recorded"
     if rate["wilson_95"] is None:
         return "none"
     low, high = rate["wilson_95"]
@@ -1427,8 +1535,10 @@ def report(document: Mapping[str, Any]) -> str:
         "on an answer: an investigation that gave none is counted under Answered and nowhere "
         "else. **These are the mechanical graders.** The cause is a keyword proxy on the "
         "first hypothesis; it misses a correct explanation in other words, and the owner's "
-        "blinded marks decide (`eval2-verdict`). The location is a stated line range within "
-        "the faulty statement's lines.",
+        "blinded marks decide (`eval2-verdict`). The location is graded two ways: every line "
+        "range stated lies within the faulty statement's lines (which fails an answer that "
+        "also names its context), and the first range stated reaches the faulty statement "
+        "and no other. The owner's marks decide that too.",
         "",
         "| | Rules | Model |",
         "| --- | --- | --- |",
@@ -1439,9 +1549,14 @@ def report(document: Mapping[str, Any]) -> str:
         ("Root cause named in the first hypothesis, of answers", "root_cause_of_answered"),
         ("First hypothesis hedged over several causes, of answers", "hedged_of_answered"),
         ("Faulty statement's lines stated, of answers", "located_of_answered"),
+        (
+            "First range stated points at the faulty statement, of answers",
+            "statement_located_of_answered",
+        ),
     ):
         lines.append(
-            f"| {title} | {_shown(summary['rules'][key])} | {_shown(summary['model'][key])} |"
+            f"| {title} | {_shown(summary['rules'].get(key))} | "
+            f"{_shown(summary['model'].get(key))} |"
         )
     for title, pair in (
         ("Citations that exist / cited", ("valid_citations", "citations")),
@@ -1462,7 +1577,8 @@ def report(document: Mapping[str, Any]) -> str:
         f"cause in {by_case['model_named_root_cause']} (the rules in "
         f"{by_case['rules_named_root_cause']}); only the model in {by_case['model_only']}, only "
         f"the rules in {by_case['rules_only']}; stated the faulty lines in "
-        f"{by_case['model_located']}.",
+        f"{by_case['model_located']}; pointed first at the faulty statement in "
+        f"{by_case.get('model_statement_located', 'none recorded')}.",
         "",
         "## Cases",
         "",
@@ -1478,7 +1594,8 @@ def report(document: Mapping[str, Any]) -> str:
         for run in case["runs"]:
             lines.append(
                 f"- **Model, repeat {run['rep']}:** {run['status']}; root cause "
-                f"{_word(run['root_cause'])}; lines {_word(run['located'])}; "
+                f"{_word(run['root_cause'])}; lines {_word(run['located'])}; statement "
+                f"{_word(run.get('statement_located'))}; "
                 f"{run['valid_citations']} of {run['citations']} citations exist; "
                 f"{len(run['unsupported_specifics'])} of {run['specifics']} specifics "
                 f"unsupported; {sum(run['tool_calls'].values())} tool calls in {run['turns']} "
@@ -1832,7 +1949,8 @@ def analysis_report(document: Mapping[str, Any]) -> str:
         ("Clean controls alarmed, of answers", "clean_alarmed_of_answered"),
     ):
         lines.append(
-            f"| {title} | {_shown(summary['rules'][key])} | {_shown(summary['model'][key])} |"
+            f"| {title} | {_shown(summary['rules'].get(key))} | "
+            f"{_shown(summary['model'].get(key))} |"
         )
     lines += [
         f"| Cost, USD: total and median | 0 | {summary['model']['cost_usd']} and "
