@@ -159,6 +159,9 @@ def test_the_limits_an_answer_is_held_to_are_stated_where_a_model_reads_them() -
     prompt = " ".join(SYSTEM_PROMPT.split())
     assert "The caveat is required, at most 1,000 characters." in prompt
     assert "at least one cited evidence ID and at most 20" in prompt
+    # In the development stage no answer of 18 cited the briefing, though each stated what
+    # only the briefing showed.
+    assert "get_briefing is one of those calls: cite its evidence_id" in prompt
     properties = OUTPUT_SCHEMA["properties"]
     # A description survives the reduction to a strict schema; a maxLength does not.
     assert "1,000 characters" in properties["caveat"]["description"]

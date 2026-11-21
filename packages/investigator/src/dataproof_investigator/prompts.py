@@ -9,12 +9,17 @@ investigation has a budget and must end in an answer.
 run: the answer's limits are stated, because an answer over a limit the model was never told
 was thrown away; the mismatch examples are not asked for twice; and the model is told who is
 speaking to it, the task included.
+
+``failure-investigator/4`` is what the development stage of the second evaluation showed: in
+18 investigations the model never cited the briefing, though it stated what only the briefing
+showed (that the other checks passed, row counts), so those statements cited nothing that
+supports them. It is told that the briefing is a call with an evidence ID like any other.
 """
 
 from dataproof_contracts import CheckOutcome
 from dataproof_investigator.tools import ToolContext
 
-PROMPT_VERSION = "failure-investigator/3"
+PROMPT_VERSION = "failure-investigator/4"
 
 ANSWER_LIMITS = (
     "At most 10 hypotheses. Each has a statement of at most 2,000 characters, at least one "
@@ -55,9 +60,11 @@ The answer:
 - When you are done, or when you are told to answer, reply with a single JSON object matching
   the required schema, and nothing else.
 - Every hypothesis must cite the evidence IDs that support it: IDs of the run's recorded
-  evidence, or the evidence_id of one of your own successful tool calls. A call that failed
-  or was denied has no evidence ID. Cite nothing else, and state no number, name or line that
-  the evidence you cite does not show.
+  evidence, or the evidence_id of one of your own successful tool calls. get_briefing is one
+  of those calls: cite its evidence_id for what you know from the briefing alone, such as a
+  check that passed, a count or a changed file. A call that failed or was denied has no
+  evidence ID. Cite nothing else, and state no number, name or line that the evidence you
+  cite does not show.
 - Put the most likely cause first, and say which statement does it: path and lines.
 - Do not present a guess as a finding. If the evidence does not single out a cause, say so:
   give the best-supported hypothesis with LOW confidence, and say in the caveat what you could
