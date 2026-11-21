@@ -69,7 +69,7 @@ Labels are read only after every case has run. The results hold nothing that var
 `python -m dataproof_benchmark ablation --database <admin DSN>` diagnoses every database-tier case whose contracts fail or error, twice, on the same evidence:
 
 - **Model-off:** the rule-based diagnosis every run gets.
-- **Model:** the bounded Failure Investigator, exactly as a run's `INVESTIGATING` stage runs it. It has the five read-only tools over the case's live databases (through a role that cannot write) and the head commit's allowlisted source.
+- **Model:** the bounded Failure Investigator, exactly as a run's `INVESTIGATING` stage runs it. It has its read-only tools (five in the first live run, six since ADR-0009) over the case's live databases (through a role that cannot write) and the head commit's allowlisted source.
 
 **Live runs and cost:**
 

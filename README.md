@@ -51,7 +51,7 @@ The two misses are faults no declared contract observes (NULL and empty-string c
 2. **Analyze the change.** Static rules flag risky SQL before the migration runs; an advisory AI note may suggest edge cases. Neither decides anything.
 3. **Provision two environments.** A *reference* (base commit) and a *candidate* (head commit plus migration), each with its own PostgreSQL database, API and frontend, loaded with the same deterministic fixture. Pull-request code runs only in isolated containers with no credentials and no network egress.
 4. **Verify deterministically.** Keyed comparisons of exact decimals, instants, kinds and references run against *protected oracles* read from the base branch. A pull request may only propose a *binding* that says how to read its new schema, and a person must approve that binding before any check that depends on it can pass. Every check is `PASS`, `FAIL`, `ERROR` or `NOT_RUN`.
-5. **Explain failures.** A rule-based diagnosis runs on every failing check. A bounded AI investigator with five read-only tools may add hypotheses, each of which must cite real evidence. It cannot change a verdict.
+5. **Explain failures.** A rule-based diagnosis runs on every failing check. A bounded AI investigator with six read-only tools may add hypotheses, each of which must cite real evidence. It cannot change a verdict.
 6. **Reproduce and correct.** DataProof extracts a smaller failing subset and confirms it replays the same failure. A corrected commit is evaluated as a new, separate run.
 7. **Report.** A commit-bound GitHub check with the coverage table, a review dashboard with reference and candidate preview URLs, and sealed evidence that outlives the environments.
 
@@ -155,7 +155,7 @@ Everything DataProof claims is bounded by the following. None of it is hidden el
 | [Commerce scenario](scenarios/commerce/README.md) | Baseline fixture, its digest and edge cases, and candidate change sets |
 | [Verifier](packages/verifier/README.md) | Evaluation order, comparators, outcomes and query safety layers |
 | [Control store](packages/control/README.md) | Run state machine, transition log, job queue, leases, fencing, retries and supersession |
-| [Investigator](packages/investigator/README.md) | The bounded AI investigator: its loop, five read-only tools, citation rules and model-off baseline |
+| [Investigator](packages/investigator/README.md) | The bounded AI investigator: its loop, six read-only tools, citation rules and model-off baseline |
 | [Runner](services/runner/README.md) | Workers, the stage-handler contract, the local Docker backend and its tested isolation |
 | [Control plane API](services/api/README.md) | GitHub webhook intake, App authentication, commit-bound check runs, the reviewer API and the signed preview gateway |
 | [Dashboard](services/dashboard/README.md) | The reviewer's Next.js view: runs, coverage, checks, the binding inspector, advisory findings, decisions and previews |
