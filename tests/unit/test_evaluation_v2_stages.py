@@ -1,0 +1,969 @@
+"""The second evaluation's stages, offline: the journal, exit codes, gates, verdicts, the sheet
+and the launcher (docs/AI_EVALUATION_V2.md).
+
+What the first evaluation's launcher and gates got wrong is held here: a stage that called no
+model passed its gate; a crash would have left the spend unknown; nothing kept a held-out
+stage from running twice. No model is called and no database is needed.
+"""
+
+import json
+import re
+import stat
+import sys
+import uuid
+from collections.abc import Iterator
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from dataproof_benchmark import evaluation, gates, launcher, verdicts
+from dataproof_benchmark.__main__ import (
+    EXIT_INCOMPLETE,
+    EXIT_NOT_A_MEASUREMENT,
+    EXIT_STOP_RULE,
+    stage_exit,
+)
+
+PINNED = "anthropic:claude-opus-5-5"
+
+
+# The journal -------------------------------------------------------------------------------------
+
+
+def test_a_journal_keeps_every_turn_as_it_happens_and_writes_nothing_twice(tmp_path: Path) -> None:
+    journal = evaluation.Journal(tmp_path / "journal")
+    write = journal.start("dev-101.rep1")
+    write({"stop": "tool_use", "cost_usd": "0.01"})
+    # The process dies here: the investigation started and never ended.
+    with (tmp_path / "journal" / "dev-101.rep1.turns.jsonl").open("a", encoding="utf-8") as file:
+        file.write('{"stop": "tool_u')  # a line cut off as it was written
+    assert journal.finished("dev-101.rep1") is None
+    turns = journal.interrupted("dev-101.rep1")
+    assert turns is not None
+    assert turns[0] == {"stop": "tool_use", "cost_usd": "0.01"}
+    assert "cut off" in turns[1]["error"]
+    with pytest.raises(FileExistsError):
+        journal.start("dev-101.rep1")
+    journal.finish("dev-101.rep1", {"rep": 1})
+    with pytest.raises(FileExistsError):
+        journal.finish("dev-101.rep1", {"rep": 1})
+    assert journal.interrupted("dev-101.rep1") is None
+
+
+def record(status: str = "COMPLETED", cost: str = "0.10") -> dict[str, Any]:
+    return {
+        "status": status,
+        "tool_calls": [],
+        "usage": {"cost_usd": cost, "latency_ms": 1000},
+    }
+
+
+def test_a_stage_stops_at_its_budget_its_stop_rule_and_a_fault_in_the_plumbing() -> None:
+    stage = evaluation._Stage(
+        "investigation",
+        Decimal("1.00"),
+        Decimal("1.00"),
+        Decimal("0.60"),
+        served_by=PINNED,
+        stop_after_unanswered=2,
+    )
+    assert stage.blocked() is None
+    assert stage.limited(evaluation.BUDGET).max_cost_usd == Decimal("1.00")
+    good = [{"served_by": PINNED, "cost_usd": "0.10"}]
+    stage.count("a.rep1", {"investigation": record(), "transcript": good})
+    # Never more than the stage has left: its budget is a limit no investigation passes.
+    assert stage.limited(evaluation.BUDGET).max_cost_usd == Decimal("0.90")
+    # A request that got no answer counts at the most it could have cost.
+    lost = [{"error": "ReadTimeout", "unconfirmed_usd": "0.25"}]
+    stage.count("b.rep1", {"investigation": record("NOT_AVAILABLE", "0"), "transcript": lost})
+    assert stage.spent == Decimal("0.35")
+    assert stage.blocked() is not None
+    assert (stage.blocked() or "").startswith(evaluation.HALTED), "a failed request halts it"
+
+    budget = evaluation._Stage("investigation", Decimal("1.00"), Decimal("1.00"), Decimal("0.60"))
+    budget.count("a.rep1", {"investigation": record(cost="0.45"), "transcript": good})
+    assert budget.blocked() == "the budget left cannot cover it"
+
+    rule = evaluation._Stage(
+        "investigation", Decimal(10), Decimal(1), Decimal("0.6"), stop_after_unanswered=1
+    )
+    rule.count("a.rep1", {"investigation": record("BUDGET_EXHAUSTED"), "transcript": good})
+    assert rule.blocked() == evaluation.STOPPED
+
+
+# Exit codes --------------------------------------------------------------------------------------
+
+
+def document(**summary: Any) -> dict[str, Any]:
+    return {"summary": summary, "cases": []}
+
+
+def test_a_stage_exits_zero_only_when_it_ran_everything_it_was_to_run() -> None:
+    assert stage_exit(document(investigations_expected=4, investigations_run=4), []) == 0
+    assert stage_exit(document(investigations_expected=4, investigations_run=4), ["x"]) == (
+        EXIT_NOT_A_MEASUREMENT
+    )
+    # Nothing to investigate, or nothing ran: the first evaluation's stages exited 0 here.
+    assert stage_exit(document(investigations_expected=0, investigations_run=0), []) == (
+        EXIT_NOT_A_MEASUREMENT
+    )
+    assert stage_exit(document(analyses_expected=28, analyses_run=26), []) == EXIT_INCOMPLETE
+    stopped = document(investigations_expected=4, investigations_run=2)
+    stopped["cases"] = [
+        {"case_id": "a", "runs": [], "not_run": [{"rep": 2, "skipped": evaluation.STOPPED}]}
+    ]
+    assert stage_exit(stopped, []) == EXIT_STOP_RULE
+
+
+# Gates -------------------------------------------------------------------------------------------
+
+
+def turn(cost: str, read: int = 0, *, written: int = 0, out: int = 100) -> dict[str, Any]:
+    plain = 1000
+    return {
+        "served_by": PINNED,
+        "input_tokens": plain + written + read,
+        "output_tokens": out,
+        "cache_write_tokens": written,
+        "cache_read_tokens": read,
+        "cost_usd": cost,
+    }
+
+
+#: Two turns whose costs agree with their tokens at Opus 5.5's prices.
+COSTED = [turn("0.016", written=2000), turn("0.0064", read=2000)]
+
+
+def stage_document(answered: bool = True, expected: int = 1) -> dict[str, Any]:
+    run = {
+        "rep": 1,
+        "status": "COMPLETED" if answered else "BUDGET_EXHAUSTED",
+        "answered": answered,
+        "cost_usd": "0.0224",
+        "latency_ms": 5000,
+    }
+    return {
+        "dry_run": False,
+        "model": PINNED,
+        "prompt_version": "p",
+        "cases": [{"case_id": "dev-101", "runs": [run], "not_run": []}],
+        "summary": {"investigations_expected": expected, "investigations_run": 1},
+    }
+
+
+def test_a_gate_adds_the_spend_up_itself_from_the_tokens() -> None:
+    # 1,000 tokens at $4/M, 2,000 written at $5/M and 100 out at $20/M.
+    assert gates.turn_cost(COSTED[0]) == Decimal("0.016")
+    assert gates.turn_cost(COSTED[1]) == Decimal("0.0064")
+    verdict = gates.gate(
+        stage_document(),
+        {"dev-101.rep1": COSTED},
+        kind="pilot",
+        cap_usd=Decimal("1"),
+        live=True,
+        model=PINNED,
+        versions={"prompt_version": "p"},
+        need_cache_read=True,
+        complete=True,
+    )
+    assert verdict["pass"], verdict["reasons"]
+    assert verdict["spend"]["recomputed_usd"] == "0.0224"
+
+    misreported = [COSTED[0], COSTED[1] | {"cost_usd": "0.0001"}]
+    failed = gates.gate(
+        stage_document(),
+        {"dev-101.rep1": misreported},
+        kind="stage",
+        cap_usd=Decimal("1"),
+        live=True,
+        model=PINNED,
+    )
+    assert not failed["pass"]
+    assert "recorded 0.0001, recomputed 0.0064" in failed["reasons"][0]
+
+
+def test_a_gate_fails_a_stage_that_called_no_model() -> None:
+    """The first evaluation's gate passed its Change Analyst stage: 34 analyses, no request."""
+    verdict = gates.gate(
+        stage_document(),
+        {"dev-101.rep1": []},
+        kind="stage",
+        cap_usd=Decimal("1"),
+        live=True,
+        model=PINNED,
+    )
+    assert not verdict["pass"]
+    assert "dev-101.rep1: no request was sent" in verdict["reasons"]
+    empty = stage_document()
+    empty["cases"] = []
+    assert (
+        "no investigation was run"
+        in gates.gate(empty, {}, kind="stage", cap_usd=Decimal("1"), live=True, model=PINNED)[
+            "reasons"
+        ]
+    )
+
+
+def test_a_pilot_that_did_not_answer_or_did_not_finish_fails() -> None:
+    kept = {"dev-101.rep1": COSTED}
+    unanswered = gates.gate(
+        stage_document(answered=False),
+        kept,
+        kind="pilot",
+        cap_usd=Decimal("1"),
+        live=True,
+        model=PINNED,
+    )
+    assert "dev-101.rep1: the pilot did not answer (BUDGET_EXHAUSTED)" in unanswered["reasons"]
+    partial = gates.gate(
+        stage_document(expected=2),
+        kept,
+        kind="pilot",
+        cap_usd=Decimal("1"),
+        live=True,
+        model=PINNED,
+        complete=True,
+    )
+    assert "1 of the 2 investigations it was to run ran" in partial["reasons"]
+
+
+def test_a_request_that_got_no_answer_counts_against_the_cap() -> None:
+    lost = [*COSTED, {"error": "ReadTimeout", "unconfirmed_usd": "0.98"}]
+    verdict = gates.gate(
+        stage_document(),
+        {"dev-101.rep1": lost},
+        kind="stage",
+        cap_usd=Decimal("1"),
+        live=True,
+        model=PINNED,
+    )
+    assert any("more than the 1 USD cap" in reason for reason in verdict["reasons"])
+    assert verdict["spend"]["unconfirmed_usd"] == "0.98"
+
+
+# Verdicts ----------------------------------------------------------------------------------------
+
+
+def heldout_document(
+    *, answered: int, cost: str = "0.10", live: bool = True, ran: int = 33
+) -> dict[str, Any]:
+    """A held-out results document as the protocol specifies it: 11 faults, 3 repeats,
+    ``answered`` of the 33 answered, ``ran`` of them run."""
+    from dataproof_investigator import PROMPT_VERSION
+
+    cases = []
+    count = 0
+    for number in range(11):
+        runs = []
+        for rep in (1, 2, 3):
+            count += 1
+            yes = count <= answered
+            runs.append(
+                {
+                    "rep": rep,
+                    "answered": yes,
+                    "turns": 4,
+                    "located": yes and number < 6,
+                    "answer": {"hypotheses": [{"statement": "s", "confidence": "HIGH"}]}
+                    if yes
+                    else None,
+                }
+            )
+        cases.append(
+            {
+                "case_id": f"held-{number:02d}",
+                "kind": "fault",
+                "rules": {"root_cause": number < 3, "answer": {"hypotheses": []}},
+                "runs": runs,
+                "not_run": [],
+                "model": {"located": number < 6},
+            }
+        )
+    return {
+        "set": "heldout",
+        "dry_run": not live,
+        "reps": 3,
+        "model": verdicts.PINNED_MODEL,
+        "effort": verdicts.EFFORT,
+        "prompt_version": PROMPT_VERSION,
+        "provenance": {"labels_sha256": verdicts.labels_sha256(), "harness_modified": False},
+        "cases": cases,
+        "plumbing": {"problems": []},
+        "summary": {
+            "investigations_expected": 33,
+            "investigations_run": ran,
+            "model": {
+                "answered": {"n": answered},
+                "specifics": 40,
+                "unsupported_specifics": 1,
+                "cost_usd_median": cost,
+                "latency_ms_median": 30_000,
+            },
+            "by_case": {
+                "model_located": 6,
+                "model_named_root_cause": 0,
+                "model_only": 0,
+                "rules_only": 0,
+            },
+        },
+    }
+
+
+def test_no_criterion_is_met_by_a_run_that_is_not_the_one_specified() -> None:
+    found = verdicts.verdict(heldout_document(answered=33, live=False))
+    assert found["outcome"].startswith("none")
+    assert all(entry["met"] is None for entry in found["criteria"])
+
+
+def test_the_outcome_follows_the_criteria_and_waits_for_the_owners_marks() -> None:
+    finishing = verdicts.verdict(heldout_document(answered=31))
+    met = {entry["criterion"][:2]: entry["met"] for entry in finishing["criteria"]}
+    assert (met["A1"], met["A2"], met["A5"], met["A6"]) == (True,) * 4
+    assert (met["A3"], met["A4"], met["A7"]) == (None,) * 3, "the owner's reading"
+    assert finishing["outcome"] == "undecided until the owner's marks are in"
+
+    assert verdicts.verdict(heldout_document(answered=29))["outcome"] == "disabled"
+    # A criterion not met decides the outcome even while another waits for marks.
+    costly = verdicts.verdict(heldout_document(answered=31, cost="0.20"))
+    assert {e["criterion"][:2]: e["met"] for e in costly["criteria"]}["A5"] is False
+    assert costly["outcome"] == "experimental"
+    # A stage that ran out part-way, not by its stop rule, is not a result either way.
+    partial = verdicts.verdict(heldout_document(answered=27, ran=27))
+    assert {e["criterion"][:2]: e["met"] for e in partial["criteria"]}["A1"] is None
+    assert partial["outcome"] == "undecided: the stage did not run in full"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "said"),
+    [
+        ("model", "anthropic:claude-haiku-5-5", "the model is"),
+        ("effort", "high", "effort high"),
+        ("prompt_version", "failure-investigator/2", "prompt failure-investigator/2"),
+        ("provenance", {"labels_sha256": "0" * 64}, "labels other than"),
+    ],
+)
+def test_a_run_of_another_model_prompt_or_label_set_is_not_the_result(
+    field: str, value: Any, said: str
+) -> None:
+    document = heldout_document(answered=33)
+    document[field] = value
+    found = verdicts.verdict(document)
+    assert found["outcome"].startswith("none"), found["outcome"]
+    assert said in found["outcome"]
+
+
+def test_a_run_from_a_modified_checkout_is_not_the_result() -> None:
+    document = heldout_document(answered=33)
+    document["provenance"]["harness_modified"] = True
+    assert "modified checkout" in verdicts.verdict(document)["outcome"]
+
+
+def references_for(count: int = 11) -> dict[str, dict[str, Any]]:
+    return {
+        f"held-{n:02d}": {
+            "family": "a family",
+            "origin": "sourced",
+            "fault_lines": [3, 4],
+            "statement": ["op.execute('x')"],
+        }
+        for n in range(count)
+    }
+
+
+def test_the_sheet_hides_which_investigator_wrote_an_answer() -> None:
+    improved, old = heldout_document(answered=33), heldout_document(answered=0)
+    items, key = verdicts.sheet({"improved": improved, "old": old}, references_for())
+    blinded = [item for item in items if not item.get("rules")]
+    rules = [item for item in items if item.get("rules")]
+    assert (len(blinded), len(rules)) == (33, 11), "every answer, and the rules once a case"
+    sheet = verdicts.sheet_markdown(items)
+    assert "## Not blinded" in sheet
+    for arm in ("improved", "old"):
+        assert not re.search(rf"\b{arm}\b", sheet), arm
+    # The check above can fail: it finds an arm's name where there is one.
+    assert re.search(r"\bwrote\b", sheet)
+    assert [i["item"] for i in blinded] == [f"item-{n:03d}" for n in range(1, 34)]
+    assert {entry["arm"] for entry in key["items"].values()} == {"rules", "improved"}
+    # The order comes from a seed kept only in the key, not from anything a results file holds.
+    assert isinstance(key["seed"], int)
+    fixed = verdicts.sheet({"improved": improved, "old": old}, references_for(), key["seed"])
+    assert fixed[1] == key
+
+
+def marks_for(key: dict[str, Any], cause: Any, **others: str) -> str:
+    rows = ["item,cause,statement,actionable,grounded,note"]
+    for item, entry in key["items"].items():
+        marks = {"statement": "y", "actionable": "y", "grounded": "y"} | others
+        rows.append(
+            f"{item},{'y' if cause(entry) else 'n'},{marks['statement']},"
+            f"{marks['actionable']},{marks['grounded']},"
+        )
+    return "\n".join(rows) + "\n"
+
+
+def by_name(found: dict[str, Any]) -> dict[str, Any]:
+    return {entry["criterion"][:2]: entry for entry in found["criteria"]}
+
+
+def test_the_owners_marks_decide_the_cause_and_the_statement() -> None:
+    improved = heldout_document(answered=33)
+    _, key = verdicts.sheet({"improved": improved}, references_for())
+
+    # The improved arm's answers name the cause in 8 cases; the rules in cases 0, 1 and 9.
+    def cause(entry: dict[str, Any]) -> bool:
+        number = int(entry["case_id"][5:])
+        return number < 8 if entry["arm"] == "improved" else number in (0, 1, 9)
+
+    found = verdicts.verdict(improved, verdicts.read_marks(marks_for(key, cause)), key)
+    a3 = by_name(found)["A3"]
+    assert a3["met"] is True, a3
+    assert (
+        "named in 8 of 11, 6 of them cases the rules miss, 1 where only the rules" in (a3["value"])
+    )
+    assert by_name(found)["A4"]["met"] is True
+    assert found["outcome"] == "optional"
+
+    # No answer points at the statement: A4 is not met, whatever the line-range proxy says.
+    missed = verdicts.verdict(
+        improved, verdicts.read_marks(marks_for(key, cause, statement="n")), key
+    )
+    assert by_name(missed)["A4"]["met"] is False
+    assert missed["outcome"] == "experimental"
+
+
+def test_marks_are_read_as_a_spreadsheet_writes_them_or_refused() -> None:
+    header = "item;cause;statement;actionable;grounded;note"
+    excel = "﻿" + header + "\nitem-001;Yes;N;TRUE;0;\n"
+    assert verdicts.read_marks(excel) == {
+        "item-001": {"cause": True, "statement": False, "actionable": True, "grounded": False}
+    }
+    blank = "item,cause,statement,actionable,grounded,note\nitem-002,,,,,\n"
+    assert verdicts.read_marks(blank)["item-002"] == dict.fromkeys(verdicts.MARKS)
+    unknown = "item,cause,statement,actionable,grounded,note\nitem-003,maybe,y,y,y,\n"
+    with pytest.raises(ValueError, match="item-003: cause is 'maybe'"):
+        verdicts.read_marks(unknown)
+
+
+def test_an_unmarked_answer_leaves_the_owners_criteria_undecided() -> None:
+    improved = heldout_document(answered=33)
+    _, key = verdicts.sheet({"improved": improved}, references_for())
+    empty = verdicts.read_marks("item,cause,statement,actionable,grounded,note\n")
+    assert verdicts.verdict(improved, empty, key)["outcome"] == (
+        "undecided until the owner's marks are in"
+    )
+    # Marked as naming the cause, with no actionable mark: A7 is undecided, not "not met".
+    partial = verdicts.read_marks(marks_for(key, lambda entry: True, actionable=""))
+    assert by_name(verdicts.verdict(improved, partial, key))["A7"]["met"] is None
+
+
+# The launcher ------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[launcher.State]:
+    monkeypatch.setattr(launcher, "commit", lambda *_: "c" * 40)
+    yield launcher.State(tmp_path / "state")
+    for path in (tmp_path / "state").rglob("*"):
+        if path.is_file():
+            path.chmod(stat.S_IREAD | stat.S_IWRITE)
+
+
+def attempt(
+    state: launcher.State,
+    name: str,
+    *,
+    passed: bool = True,
+    commit: str = "c" * 40,
+    costs: tuple[str, ...] = ("0.10",),
+    sealed: bool = True,
+    dry_run: bool | None = None,
+    budget: str = "1.00",
+) -> launcher.Attempt:
+    folder = state.stages / f"{len(state.attempts()) + 1:02d}-{name}"
+    launcher._chain(state, f"started {folder.name}")  # as run() records a start
+    (folder / "journal").mkdir(parents=True)
+    started = {
+        "stage": name,
+        "commit": commit,
+        "budget_usd": budget,
+        "started_at": "t",
+        "dry_run": state.dry_run if dry_run is None else dry_run,
+    }
+    (folder / "started.json").write_text(json.dumps(started), "utf-8")
+    role = launcher.PLANS[name].role
+    for number, cost in enumerate(costs, 1):
+        key = f"case-{number}.rep1"
+        (folder / "journal" / f"{key}.turns.jsonl").write_text(
+            '{"started": "x"}\n' + json.dumps({"cost_usd": cost, "served_by": PINNED}) + "\n",
+            "utf-8",
+        )
+        run = {
+            "investigation" if role == "investigator" else "analysis": record(cost=cost),
+            "transcript": [{"cost_usd": cost, "served_by": PINNED}],
+        }
+        (folder / "journal" / f"{key}.run.json").write_text(json.dumps(run), "utf-8")
+    made = launcher.Attempt(folder)
+    if sealed:
+        (folder / "gate.json").write_text(json.dumps({"pass": passed}), "utf-8")
+        launcher.seal(state, made, {"pass": passed}, abandoned=False)
+    return made
+
+
+def refused(state: launcher.State, name: str) -> str:
+    with pytest.raises(launcher.Refused) as reason:
+        launcher.check(state, launcher.PLANS[name])
+    return str(reason.value)
+
+
+def test_nothing_runs_before_its_pilot_has_passed_at_the_commit_being_run(
+    state: launcher.State,
+) -> None:
+    assert "needs dev-pilot to have passed at this commit" in refused(state, "dev")
+    attempt(state, "dev-pilot", commit="d" * 40)
+    assert "needs dev-pilot to have passed at this commit" in refused(state, "dev")
+    attempt(state, "dev-pilot", passed=False)
+    assert "needs dev-pilot to have passed" in refused(state, "dev")
+    attempt(state, "dev-pilot")
+    head, budget = launcher.check(state, launcher.PLANS["dev"])
+    # The pool's 2.50 less what three pilots spent.
+    assert (head, budget) == ("c" * 40, Decimal("2.20"))
+    assert "needs dev to have passed its gate first" in refused(state, "heldout")
+
+
+def test_a_heldout_stage_runs_once_and_only_if_its_budget_covers_it(
+    state: launcher.State,
+) -> None:
+    attempt(state, "dev-pilot")
+    attempt(state, "dev", costs=("0.30",) * 16)
+    reason = refused(state, "heldout")
+    assert "need about 10.20 USD, and it would be given 5.00" in reason, reason
+    assert "the owner's decision" in reason
+
+    cheap = launcher.State(state.root.with_name("cheap"))
+    attempt(cheap, "dev-pilot")
+    attempt(cheap, "dev", costs=("0.10",) * 16)
+    assert launcher.check(cheap, launcher.PLANS["heldout"])[1] == Decimal("5.00")
+    attempt(cheap, "heldout")
+    assert "runs once" in refused(cheap, "heldout")
+
+
+def test_an_open_stage_blocks_everything_and_closing_it_charges_what_it_could_have_spent(
+    state: launcher.State,
+) -> None:
+    attempt(state, "dev-pilot")
+    open_one = attempt(state, "dev", sealed=False)
+    # An investigation that was running when the process ended: 0.12 USD on disk.
+    (open_one.journal / "case-9.rep1.turns.jsonl").write_text(
+        '{"started": "x"}\n{"cost_usd": "0.12"}\n', "utf-8"
+    )
+    assert "started and never closed" in refused(state, "heldout")
+    # While open, the stage is charged its whole budget.
+    assert state.charged("development") == Decimal("1.10")
+    assert launcher.abandon(state) == 0
+    sealed = open_one.sealed or {}
+    assert sealed["abandoned"] is True
+    # The request in flight could have cost at most the cap less what that investigation spent.
+    assert sealed["in_flight_allowance_usd"] == "0.88"
+    assert sealed["charged_usd"] == "1.10"
+    assert "needs dev to have passed" in refused(state, "heldout")
+
+
+def test_a_record_changed_after_its_seal_is_found(state: launcher.State) -> None:
+    made = attempt(state, "dev-pilot")
+    text, problems = launcher.status(state)
+    assert problems == []
+    assert "dev-pilot" in text
+    target = made.journal / "case-1.rep1.run.json"
+    target.chmod(stat.S_IREAD | stat.S_IWRITE)
+    target.write_text("{}", "utf-8")
+    (made.folder / "added.txt").write_text("x", "utf-8")
+    _, problems = launcher.status(state)
+    assert any("changed since it was sealed" in p for p in problems)
+    assert any("added after the seal" in p for p in problems)
+    assert "have changed" in refused(state, "dev")
+
+
+def test_the_pools_add_up_to_the_owners_limits() -> None:
+    assert Decimal("13.50") == launcher.TOTAL
+    assert launcher.POOLS["development"] == Decimal("2.50")
+    assert launcher.POOLS["heldout"] == Decimal("5.00")
+    assert launcher.POOLS["old-arm"] == Decimal("2.00")
+    assert launcher.POOLS["analyst-development"] + launcher.POOLS["analyst-heldout"] == (
+        Decimal("4.00")
+    )
+    assert {plan.name for plan in launcher.PLANS.values() if plan.once} == {
+        "heldout",
+        "old-arm",
+        "analyst-heldout",
+    }
+
+
+def test_a_paid_stage_is_refused_without_a_key_or_the_exact_approval(
+    state: launcher.State,
+) -> None:
+    with pytest.raises(launcher.Refused, match="needs the API key"):
+        launcher.run(state, "dev-pilot", Decimal("1.00"), "dsn", None)
+    with pytest.raises(launcher.Refused, match=r"would be given 1.00 USD; --approve said 2"):
+        launcher.run(state, "dev-pilot", Decimal(2), "dsn", "sk-ant-not-a-real-key")
+    assert state.attempts() == [], "nothing was started"
+
+
+def models_api(status: int, body: dict[str, Any]) -> Any:
+    import anthropic
+    import httpx2
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        assert request.method == "GET", "the check sends nothing billed"
+        assert request.url.path.startswith("/v1/models/")
+        return httpx2.Response(status, json=body)
+
+    return anthropic.Anthropic(
+        api_key="test-key-not-real",
+        max_retries=0,
+        http_client=anthropic.DefaultHttpxClient(transport=httpx2.MockTransport(handle)),
+    )
+
+
+def model_info(model_id: str) -> dict[str, Any]:
+    return {
+        "type": "model",
+        "id": model_id,
+        "display_name": "x",
+        "created_at": "2026-01-01T00:00:00Z",
+    }
+
+
+def test_the_key_and_the_model_are_checked_at_no_cost_before_anything_is_billed() -> None:
+    model = "claude-opus-5-5"
+    launcher.preflight("k", model, models_api(200, model_info(model)))
+    with pytest.raises(launcher.Refused, match="named claude-opus-5"):
+        launcher.preflight("k", model, models_api(200, model_info("claude-opus-5")))
+    error = {
+        "type": "error",
+        "error": {"type": "authentication_error", "message": "invalid x-api-key"},
+    }
+    with pytest.raises(launcher.Refused, match="the key was not accepted"):
+        launcher.preflight("k", model, models_api(401, error))
+    missing = {"type": "error", "error": {"type": "not_found_error", "message": "model: x"}}
+    with pytest.raises(launcher.Refused, match="is not served to this key"):
+        launcher.preflight("k", model, models_api(404, missing))
+
+
+# What a second review of the launcher found --------------------------------------------------
+
+
+def test_a_dry_run_record_never_stands_for_a_paid_one(state: launcher.State) -> None:
+    """A dry-run pilot in a paid state used to unlock its paid stages."""
+    attempt(state, "dev-pilot", dry_run=True)
+    assert "needs dev-pilot to have passed at this commit" in refused(state, "dev")
+    attempt(state, "dev-pilot", dry_run=False)
+    launcher.check(state, launcher.PLANS["dev"])
+
+
+def test_a_state_is_paid_or_dry_for_good_and_only_a_dry_one_is_removed(tmp_path: Path) -> None:
+    paid = launcher.State(tmp_path / "paid")
+    paid.bind(create=True)
+    with pytest.raises(launcher.Refused, match="holds paid records"):
+        launcher.State(tmp_path / "paid", dry_run=True).bind(create=False)
+    code = launcher.main(["--state", str(tmp_path / "paid"), "--dry-run", "reset"])
+    assert code == 3
+    assert (tmp_path / "paid" / "state.json").is_file(), "a paid state is never removed"
+    dry = launcher.State(tmp_path / "dry", dry_run=True)
+    dry.bind(create=True)
+    assert launcher.main(["--state", str(tmp_path / "dry"), "--dry-run", "reset"]) == 0
+    assert not (tmp_path / "dry").exists()
+    assert launcher.main(["--state", str(tmp_path / "never"), "--dry-run", "reset"]) == 0
+
+
+def test_a_removed_stage_or_a_rewritten_seal_is_found(state: launcher.State) -> None:
+    attempt(state, "dev-pilot")
+    last = attempt(state, "dev")
+    assert launcher.status(state)[1] == []
+    seal = last.folder / "sealed.json"
+    seal.chmod(stat.S_IREAD | stat.S_IWRITE)
+    rewritten = json.loads(seal.read_text("utf-8")) | {"charged_usd": "0"}
+    seal.write_text(json.dumps(rewritten), "utf-8")
+    assert any("do not match" in p for p in launcher.status(state)[1])
+    for path in last.folder.rglob("*"):
+        if path.is_file():  # a directory needs its execute bit to be entered, on Linux
+            path.chmod(stat.S_IREAD | stat.S_IWRITE)
+    import shutil
+
+    shutil.rmtree(last.folder)
+    problems = launcher.status(state)[1]
+    assert any("2 starts and seals here, 4 recorded there" in p for p in problems), problems
+    assert "have changed" in refused(state, "heldout")
+
+
+def test_taking_a_stage_up_again_charges_the_request_in_flight(state: launcher.State) -> None:
+    attempt(state, "dev-pilot")
+    open_one = attempt(state, "dev", sealed=False, budget="2.20")
+    (open_one.journal / "case-9.rep1.turns.jsonl").write_text(
+        '{"started": "x"}\n{"cost_usd": "0.12"}\n', "utf-8"
+    )
+    left, allowance = launcher.resumable(state, open_one)
+    # The request in flight could have cost the cap less what its investigation had spent.
+    assert allowance == Decimal("0.88")
+    assert left == Decimal("2.20") - Decimal("0.22") - Decimal("0.88")
+
+
+def test_a_stage_that_already_holds_a_fault_is_not_taken_up_again(state: launcher.State) -> None:
+    attempt(state, "dev-pilot")
+    open_one = attempt(state, "dev", sealed=False)
+    run = json.loads((open_one.journal / "case-1.rep1.run.json").read_text("utf-8"))
+    run["transcript"] = []  # an investigation that sent no request
+    (open_one.journal / "case-1.rep1.run.json").write_text(json.dumps(run), "utf-8")
+    with pytest.raises(launcher.Refused, match="no request was sent"):
+        launcher.resumable(state, open_one)
+
+
+def test_code_from_another_checkout_is_refused(
+    state: launcher.State, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import types
+
+    elsewhere = types.ModuleType("dataproof_elsewhere")
+    elsewhere.__file__ = str(tmp_path / "other" / "dataproof_elsewhere" / "__init__.py")
+    monkeypatch.setitem(sys.modules, "dataproof_elsewhere", elsewhere)
+    assert "dataproof_elsewhere" in refused(state, "dev-pilot")
+
+
+def test_a_gate_recomputes_a_us_only_turn_and_holds_the_stage_to_its_specification() -> None:
+    us = [
+        turn("0.0176", written=2000) | {"us_only": True},
+        COSTED[1] | {"cost_usd": "0.00704", "us_only": True},
+    ]
+    verdict = gates.gate(
+        stage_document(),
+        {"dev-101.rep1": us},
+        kind="stage",
+        cap_usd=Decimal("1"),
+        live=True,
+        model=PINNED,
+    )
+    assert verdict["pass"], verdict["reasons"]
+
+    held = stage_document()
+    held["cases"].append(
+        {"case_id": "held-02", "runs": [], "not_run": [], "skipped": "the migration failed"}
+    )
+    held["provenance"] = {"harness_commit": "d" * 40, "harness_modified": True}
+    failed = gates.gate(
+        held,
+        {"dev-101.rep1": COSTED},
+        kind="stage",
+        cap_usd=Decimal("1"),
+        live=True,
+        model=PINNED,
+        complete=True,
+        expected_runs=33,
+        commit="c" * 40,
+    )
+    reasons = " | ".join(failed["reasons"])
+    assert "1 investigations ran; the stage is specified with 33" in reasons
+    assert "the migration failed to apply for held-02" in reasons
+    assert "modified checkout" in reasons
+    assert f"not {'c' * 40}" in reasons
+
+
+class _OverloadedError(Exception):
+    status_code = 529
+
+
+def test_a_provider_error_stops_the_stage_and_its_investigation_is_started_again(
+    tmp_path: Path,
+) -> None:
+    """An error the provider never processed used to be recorded as the investigation's end,
+    and the held-out stage it happened in was spent."""
+    from dataproof_investigator import ModelTurn, ScriptedModel, answer, call
+
+    cases = evaluation.HeldoutSet()
+    journal = evaluation.Journal(tmp_path / "journal")
+
+    def failing(path: str) -> Any:
+        def boom(_: Any) -> ModelTurn:
+            raise _OverloadedError("overloaded, after every resend")
+
+        first = call("get_briefing", {}, "t1")
+        return ScriptedModel(
+            [ModelTurn(**{**first.__dict__, "cost_usd": Decimal("0.02")}), boom],
+            turn_ceiling_usd=Decimal("0.05"),
+        )
+
+    with pytest.raises(evaluation.ProviderStopped, match=r"held-14\.rep1"):
+        evaluation.analyze(cases, failing, Decimal(2), case_ids=["held-14"], journal=journal)
+    assert journal.interrupted("held-14.rep1") is not None, "left open, not closed as an outcome"
+    assert journal.finished("held-14.rep1") is None
+
+    final = (
+        '{"hypotheses": [{"statement": "A risk.", "cited_evidence_ids": '
+        '["investigation.tool.1"], "confidence": "LOW"}], "suggested_action": null, '
+        '"caveat": "c"}'
+    )
+
+    def working(path: str) -> Any:
+        return ScriptedModel(
+            [call("get_briefing", {}, "t1"), answer(final)], turn_ceiling_usd=Decimal("0.05")
+        )
+
+    rows = evaluation.analyze(cases, working, Decimal(2), case_ids=["held-14"], journal=journal)
+    (run,) = rows[0]["runs"]
+    assert run["analysis"]["status"] == "COMPLETED"
+    retired = list((tmp_path / "journal").glob("held-14.rep1.retired-*.jsonl"))
+    assert len(retired) == 1, "the first attempt's turns are kept"
+
+
+# What a third review found ---------------------------------------------------------------------
+
+
+def test_a_request_that_failed_is_not_charged_as_one_in_flight(state: launcher.State) -> None:
+    """After a provider error nothing was in flight: charging up to the cap for it, on every
+    resume and again on abandoning, used to take more than a whole pool."""
+    attempt(state, "dev-pilot")
+    open_one = attempt(state, "dev", sealed=False, budget="2.20")
+    (open_one.journal / "case-9.rep1.turns.jsonl").write_text(
+        '{"started": "x"}\n{"cost_usd": "0.12"}\n'
+        '{"error": "OverloadedError", "status_code": 529}\n',
+        "utf-8",
+    )
+    left, allowance = launcher.resumable(state, open_one)
+    assert allowance == 0
+    assert left == Decimal("2.20") - Decimal("0.22")
+
+
+def test_a_request_in_flight_is_charged_once_whatever_the_resumes(state: launcher.State) -> None:
+    attempt(state, "dev-pilot")
+    open_one = attempt(state, "dev", sealed=False, budget="2.20")
+    (open_one.journal / "case-9.rep1.turns.jsonl").write_text(
+        '{"started": "x"}\n{"cost_usd": "0.12"}\n', "utf-8"
+    )
+    _, first = launcher.resumable(state, open_one)
+    assert first == Decimal("0.88")
+    # The resume that charged it is on record; a second, with the same open investigation,
+    # does not charge it again.
+    record = {"allowance_usd": str(first), "open": "case-9.rep1", "turns": 1}
+    (open_one.folder / "resumed-1.json").write_text(json.dumps(record), "utf-8")
+    left, second = launcher.resumable(state, open_one)
+    assert second == 0
+    assert left == Decimal("2.20") - Decimal("0.22") - Decimal("0.88")
+
+
+def test_a_resume_that_could_be_given_nothing_is_refused(state: launcher.State) -> None:
+    attempt(state, "dev-pilot")
+    open_one = attempt(state, "dev", sealed=False, budget="0.80")
+    (open_one.journal / "case-9.rep1.turns.jsonl").write_text(
+        '{"started": "x"}\n{"cost_usd": "0.10"}\n', "utf-8"
+    )
+    with pytest.raises(launcher.Refused, match="could do nothing"):
+        launcher.resumable(state, open_one)
+
+
+def test_a_removed_open_stage_is_found(state: launcher.State) -> None:
+    attempt(state, "dev-pilot")
+    open_one = attempt(state, "heldout", sealed=False)
+    assert launcher.status(state)[1] == []
+    for path in open_one.folder.rglob("*"):
+        if path.is_file():
+            path.chmod(stat.S_IREAD | stat.S_IWRITE)
+    import shutil
+
+    shutil.rmtree(open_one.folder)
+    assert any("do not match" in problem for problem in launcher.status(state)[1])
+
+
+def test_a_failure_is_the_providers_only_if_it_came_from_the_transport() -> None:
+    import anthropic
+    import httpx2
+
+    from dataproof_benchmark.ablation import transport_failure
+
+    request = httpx2.Request("POST", "https://example.invalid/v1/messages")
+
+    def raised(cause: BaseException) -> BaseException:
+        exc = anthropic.APIConnectionError(request=request)
+        exc.__cause__ = cause
+        return exc
+
+    assert transport_failure(raised(httpx2.ConnectError("refused")))
+    assert transport_failure(raised(httpx2.ReadTimeout("slow")))
+    assert not transport_failure(raised(UnicodeEncodeError("utf-8", "x", 0, 1, "surrogate")))
+    assert not transport_failure(RuntimeError("unexpected stop reason"))
+    assert evaluation.provider_side({"error": "x", "status_code": None, "transport": True})
+    assert not evaluation.provider_side({"error": "x", "status_code": None, "transport": False})
+    assert not evaluation.provider_side({"error": "x", "status_code": 400})
+    assert evaluation.provider_side({"error": "credit balance is too low", "status_code": 400})
+
+
+def test_an_investigation_the_process_stopped_is_counted_not_run_again(tmp_path: Path) -> None:
+    """Only a provider error starts an investigation again. One stopped otherwise (the process
+    died, or was stopped) may have been stopped for what it was doing: a second draw of it
+    would be a choice made on the held-out set."""
+    from dataproof_investigator import ScriptedModel, answer, call
+
+    cases = evaluation.HeldoutSet()
+    journal = evaluation.Journal(tmp_path / "journal")
+    write = journal.start("held-14.rep1")
+    write({"stop": "tool_use", "cost_usd": "0.03", "served_by": PINNED})
+
+    def model(path: str) -> Any:
+        return ScriptedModel([call("get_briefing", {}), answer("{}")])
+
+    rows = evaluation.analyze(cases, model, Decimal(2), case_ids=["held-14"], journal=journal)
+    (run,) = rows[0]["runs"]
+    assert run["interrupted"] is True
+    assert run["analysis"]["status"] == "NOT_AVAILABLE"
+    assert run["analysis"]["usage"]["cost_usd"] == "0.03"
+    assert not list((tmp_path / "journal").glob("*.retired-*.jsonl"))
+
+
+def test_every_earlier_attempt_is_charged_each_time_a_stage_is_taken_up(tmp_path: Path) -> None:
+    journal = evaluation.Journal(tmp_path / "journal")
+    (tmp_path / "journal" / "held-14.rep1.retired-1.jsonl").write_text(
+        '{"started": "x"}\n{"cost_usd": "0.30"}\n', "utf-8"
+    )
+    (tmp_path / "journal" / "held-14.rep1.retired-2.jsonl").write_text(
+        '{"started": "x"}\n{"cost_usd": "0.20", "unconfirmed_usd": "0.05"}\n', "utf-8"
+    )
+    journal.finish("held-14.rep1", {"rep": 1, "analysis": record(cost="0.10"), "transcript": []})
+    stage = evaluation._Stage(
+        "analysis", Decimal(2), Decimal("0.40"), Decimal("0.30"), journal=journal
+    )
+    from dataproof_investigator import ScriptedModel, change_analyst
+
+    interrupted = evaluation._interrupted(change_analyst(ScriptedModel([])), uuid.uuid4())
+    assert stage.kept("held-14.rep1", 1, interrupted) is not None
+    assert stage.spent == Decimal("0.65"), "the finished run and both earlier attempts"
+
+
+def test_a_line_range_is_attributed_to_the_file_named_after_it() -> None:
+    path, fault = "migrations/versions/0002_change.py", (18, 20)
+    right = (
+        "In 0002_change.py lines 18-20 truncate; the model is defined at line 40 of app/models.py."
+    )
+    assert evaluation.located([right], fault, path) is True
+    other = "The cause is at line 19 of sample-app/app/models.py."
+    assert evaluation.located([other], fault, path) is False
+    context = "In upgrade() (lines 10-30), the UPDATE at lines 18-20 divides integers."
+    assert evaluation.located([context], fault, path) is True
+    assert evaluation.located(["Lines 10-30 hold upgrade()."], fault, path) is False
+
+
+def test_the_free_check_holds_to_the_exact_model_name() -> None:
+    model = "claude-opus-5-5"
+    with pytest.raises(launcher.Refused, match="nothing was spent"):
+        launcher.preflight("k", model, models_api(200, model_info(f"{model}-20261001")))
+
+
+def test_a_gate_counts_the_attempts_started_again() -> None:
+    verdict = gates.gate(
+        stage_document(),
+        {"dev-101.rep1": COSTED},
+        kind="stage",
+        cap_usd=Decimal("0.05"),
+        live=True,
+        model=PINNED,
+        retired_usd=Decimal("0.04"),
+    )
+    assert any("more than the 0.05 USD cap" in reason for reason in verdict["reasons"])

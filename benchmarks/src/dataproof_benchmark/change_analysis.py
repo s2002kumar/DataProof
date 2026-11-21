@@ -31,7 +31,7 @@ from collections.abc import Callable, Mapping, Sequence
 from decimal import Decimal
 from typing import Any
 
-from dataproof_benchmark.ablation import RUBRIC, Recorder, measures
+from dataproof_benchmark.ablation import RUBRIC, Recorder, measures, require_feasible_cap
 from dataproof_benchmark.corpus import LEDGER_API, Case
 from dataproof_benchmark.files import BINDINGS
 from dataproof_benchmark.harness import SAMPLE_APP
@@ -177,7 +177,12 @@ def _model_arm(
         databases={},
         changed_paths=tuple(sorted(changed)),
     )
-    analysis = change_analyst(recorder, BUDGET).investigate(run_id, context)
+    analyst = change_analyst(recorder, BUDGET)
+    # With this module's cap and the ablation's 8,000 output tokens a turn, a live run stops
+    # here: that is the first evaluation's void stage, refused before it starts. The second
+    # evaluation's settings are in ``evaluation`` (docs/AI_EVALUATION_V2.md).
+    require_feasible_cap(analyst, context, CASE_CAP_USD)
+    analysis = analyst.investigate(run_id, context)
     measured = measures(analysis, recorder.tool_evidence(), recorder.final_text() or "")
     return {
         "model": analysis.model_dump(mode="json"),

@@ -123,6 +123,18 @@ The rubric and the unsupported-specifics count are proxies, so every hypothesis 
 - **Read with care:** the rules were written by the corpus's author with the corpus in view. They are generic, with no case-specific literal, but their recall is an optimistic bound. A rule names a reason to look; only the contracts find a fault.
 - **The model arm's live run sent no request** (2026-11-19). The 0.15 USD cap for an analysis was below the 0.194 USD that one turn could cost, so each of the 34 analyses stopped before its first turn ([results](../docs/AI_EVALUATION_RESULTS.md#7-the-change-analyst)). Its outputs are [`change-analysis-live-results.json`](results/change-analysis-live-results.json), frozen with the ablation's; the model's zeros in that file are not measurements. The question it would answer is still open: whether the model alarms less on correct changes (for example, recognizing complementary ranges or a no-op conversion) and catches what no pattern names (`case-201`).
 
+## The second AI evaluation (proposed, not run)
+
+[`docs/AI_EVALUATION_V2.md`](../docs/AI_EVALUATION_V2.md) proposes it. **No paid model has been called for it.** It waits for the owner's approval of the protocol and a budget.
+
+- **`evaluation.py`** is the harness. `eval2-investigate --set dev|heldout --database <admin DSN>` stages every case of a set, diagnoses each failing one with the rules and investigates it `--reps` times, in rounds. `eval2-analyze --set ...` runs the Change Analyst against the risk rules and needs no database. `eval2-report` writes either stage's report. Without `--live` a scripted model runs every path, reading the briefing and the changed migration as a live one is asked to, under `.work/`.
+- **`verdicts.py`** computes the acceptance criteria and what they mean for the product (`eval2-verdict`), and writes the held-out answers for the owner to mark, blind to the arm that wrote each (`eval2-sheet`). A criterion that was not measured as specified is undecided, never met.
+- **`gates.py`** decides whether a stage's records are a measurement: every run sent a request, no request failed, the pinned model served every turn, and the spend it recomputes from token counts equals the recorded spend and is within the cap. A pilot must also have answered every time.
+- **`launcher.py`**, started by [`launcher/Run-AiEval2.ps1`](launcher/Run-AiEval2.ps1), runs one paid stage at a time under budget pools that add up to the owner's limits, a pilot first at the same commit, a held-out stage once, with every turn on disk as it happens and each stage's records sealed. The PowerShell script asks for the spend to be typed back and for the key with its input hidden.
+- **The development set** is this corpus's generator with another seed (`20261119`). It is not new: 22 of its 31 migrations are a first-evaluation case under another revision ID. It is for plumbing and development, and its scores are never a headline.
+- **The held-out set** is the [subscriptions example](../examples/subscriptions/README.md), 11 faults and 3 clean controls on another schema, 8 of the fault patterns from documented incidents. A model reads its migrations without comments, docstrings, bare strings or `downgrade` bodies, under a neutral file name, and nothing else of the example. Its evaluator manifest is [`heldout/labels.json`](heldout/labels.json).
+- **The old arm** is the same harness with the first run's `packages/investigator/src` on `PYTHONPATH`, from a checkout of `fe75bce`; the launcher makes the checkout and checks it is unmodified.
+
 ## Findings worth knowing
 
 - **Failures made of extra rows are not reproduced.** When a migration adds rows under new keys, as when refunds are inserted a second time, the failing keys exist only in the candidate. A subset seeded from the reference cannot contain them, so the replay passes and the result is honestly `NOT_REPRODUCED` (#8).
@@ -131,10 +143,12 @@ The rubric and the unsupported-specifics count are proxies, so every hypothesis 
 
 ## Not covered yet
 
-- **A measurement of the AI investigator's diagnosis** (#7). The one live `B3` run measured its loop instead ([results](../docs/AI_EVALUATION_RESULTS.md)). A new measurement needs the loop fixed, new cases and a new budget.
+- **A measurement of the AI investigator's diagnosis** (#7). The one live `B3` run measured its loop instead ([results](../docs/AI_EVALUATION_RESULTS.md)). A new measurement needs the loop fixed ([ADR-0009](../docs/adr/0009-the-investigator-finishes.md)), new cases and a new budget: [the proposal](../docs/AI_EVALUATION_V2.md).
 - **A live Change Analyst run that calls the model.** The first sent no request.
 
 ## Tests
+
+- **`tests/unit/test_evaluation_v2.py`** and **`tests/integration/test_evaluation_v2_harness.py`** (PostgreSQL, scripted models): what a model can read of a held-out case holds no comment, docstring, change-set name or label; every held-out fault has lines that hold its statement; each rubric passes a true statement of its cause and fails an empty answer; a true answer given through the real tools is graded right, located and fully cited; an investigation that gave no answer is not graded as a wrong one; an analysis that sent no turn is not a score; the cap guard, the stop rule and the health check; and no prompt or tool description names anything of either set's schema.
 
 - **`tests/unit/test_benchmark_corpus.py`:**
   - the committed corpus is what the frozen seed generates;

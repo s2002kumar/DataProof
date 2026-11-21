@@ -40,11 +40,13 @@ def _label(case: Case) -> dict[str, object]:
     }
 
 
-def rendered(cases: list[Case], api_cases: list[Case]) -> dict[str, str]:
+def rendered(cases: list[Case], api_cases: list[Case], seed: int = CORPUS_SEED) -> dict[str, str]:
     """Every file of the corpus, by path relative to the corpus directory.
 
     Data cases live in ``changes/`` (the database tier runs them all); API behaviour cases live
-    in ``api/`` with the payments API their pull request carries (the pipeline tier).
+    in ``api/`` with the payments API their pull request carries (the pipeline tier). ``seed``
+    is the seed the cases were built with, as the labels record it: the second evaluation's
+    development set is built with its own, and its labels once said the first corpus's.
     """
     files: dict[str, str] = {}
     for kind, group in (("changes", cases), ("api", api_cases)):
@@ -57,7 +59,7 @@ def rendered(cases: list[Case], api_cases: list[Case]) -> dict[str, str]:
                 files[f"{directory}/bindings/{binding.name}"] = binding.read_text("utf-8")
     labels = {
         "corpus_version": CORPUS_VERSION,
-        "seed": CORPUS_SEED,
+        "seed": seed,
         "provenance": PROVENANCE,
         "cases": [_label(case) for case in cases],
         "api_cases": [_label(case) for case in api_cases],
