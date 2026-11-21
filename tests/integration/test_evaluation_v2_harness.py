@@ -50,7 +50,12 @@ def test_a_dry_run_investigates_the_fault_and_skips_the_clean_control(postgres_d
         assert run["tool_calls"] == {"OK": 2}
         assert (run["valid_citations"], run["citations"]) == (2, 2)
         assert run["turns"] == 3
-    assert fault["model"] == {"answered": True, "root_cause": False, "located": False}
+    assert fault["model"] == {
+        "answered": True,
+        "root_cause": False,
+        "located": False,
+        "statement_located": False,
+    }
     assert evaluation.uncalled(document) == []
     assert sorted(evaluation.transcripts(rows)) == [f"{FAULT}.rep1", f"{FAULT}.rep2"]
 
